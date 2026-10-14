@@ -1,0 +1,20 @@
+[package]
+name = "gno-light-client-ism"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+description = "the gno.land light-client ISM: Update(header, commit), proofs from LastResultsHash, the quarantine, the ring, the record"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+clock-factor-8 = []
+
+[dependencies]
+gno-light-core.workspace = true
+sol-util.workspace = true
+solana-program.workspace = true
+solana-system-interface.workspace = true
+borsh.workspace = true

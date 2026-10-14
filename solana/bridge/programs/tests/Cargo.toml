@@ -1,0 +1,29 @@
+# The programs' integration tests: a workspace of its own, resolved by the host toolchain, so program-test's
+# dependency tree never enters the programs' lockfile (the SBF toolchain's cargo 1.84 cannot parse edition-2024
+# manifests). The programs are path dependencies, built for the host without their entrypoints; their .so files
+# come from ../target/deploy (SBF_OUT_DIR), built by cargo-build-sbf. Run with ../test.sh.
+[workspace]
+resolver = "2"
+members = ["testlib", "suite"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+publish = false
+
+[workspace.dependencies]
+gno-light-core = { path = "../gno-light-core", features = ["testkit", "fixtures"] }
+sol-util = { path = "../sol-util" }
+gno-light-client-ism = { path = "../gno-light-client-ism", features = ["no-entrypoint"] }
+pausable-ism = { path = "../pausable-ism", features = ["no-entrypoint"] }
+admin-program = { path = "../admin-program", features = ["no-entrypoint"] }
+testlib = { path = "testlib" }
+solana-program = "3.0"
+solana-system-interface = { version = "2.0", features = ["bincode"] }
+solana-loader-v3-interface = { version = "6.1", features = ["bincode"] }
+borsh = { version = "1.5", features = ["derive"] }
+sha2 = "0.10"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+solana-program-test = "3.0"
+solana-sdk = "3.0"
+hex = "0.4"

@@ -1,0 +1,22 @@
+# The vector printer for bridge/sol's byte-for-byte test: a workspace of its own (like programs/tests) so nothing
+# of it enters the programs' lockfile. It builds the programs for the host as path dependencies.
+#
+#   cd bridge/tools/vectors && cargo run --release > ../../sol/testdata/vectors.txt   (then keep the header lines)
+[workspace]
+
+[package]
+name = "vectors"
+edition = "2021"
+version = "0.1.0"
+publish = false
+description = "prints known instructions, bodies, PDAs and digests as the programs encode them, for bridge/sol/vectors_test.go"
+
+[dependencies]
+gno-light-core = { path = "../../programs/gno-light-core", features = ["fixtures"] }
+sol-util = { path = "../../programs/sol-util" }
+gno-light-client-ism = { path = "../../programs/gno-light-client-ism", features = ["no-entrypoint"] }
+pausable-ism = { path = "../../programs/pausable-ism", features = ["no-entrypoint"] }
+admin-program = { path = "../../programs/admin-program", features = ["no-entrypoint"] }
+borsh = { version = "1.5", features = ["derive"] }
+solana-program = "3.0"
+hex = "0.4"

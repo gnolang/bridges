@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Status — bridge.gno.world</title>
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<header>
+  <span class="brand">bridge.gno.world</span>
+  <nav><a href="/">Home</a> <a href="/bridge">Bridge</a> <a href="/status">Status</a> <a href="/help">Help</a></nav>
+  <span class="chain"></span>
+</header>
+<main>
+<div id="head" class="line">reading…</div>
+<h2>The lock against the supply</h2>
+<div class="scroll"><table id="tokens"></table></div>
+<div id="identity"></div>
+<h2>Caps and fees</h2>
+<div class="scroll"><table id="caps"></table></div>
+<h2>Flags and holds</h2>
+<ul id="flags"></ul>
+<h2>The machinery</h2>
+<dl id="client"></dl>
+<h2>Pending decisions</h2>
+<ul id="pending"></ul>
+<ul id="errors" class="hidden"></ul>
+</main>
+<script type="module" src="/status.js"></script>
+</body>
+</html>

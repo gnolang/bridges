@@ -1,0 +1,12 @@
+[package]
+name = "sol-util"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+description = "what the three programs share on Solana: the ed25519 precompile introspection, PDA and account helpers, the Hyperlane interface discriminators, the loader-v3 layouts"
+
+[dependencies]
+gno-light-core.workspace = true
+solana-program.workspace = true
+solana-system-interface.workspace = true
+borsh.workspace = true

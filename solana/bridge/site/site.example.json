@@ -1,0 +1,33 @@
+{
+  "gno": {
+    "rpc": "https://rpc.gno.land:443",
+    "chainId": "gnoland-1",
+    "mailbox": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/hlmailbox",
+    "fees": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/hlfees",
+    "gov": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/hlgov",
+    "bubble": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/bubble",
+    "realmLink": "https://gno.land/%s",
+    "txLink": "",
+    "gasWanted": 60000000
+  },
+  "chains": [
+    {
+      "id": "solana",
+      "name": "Solana",
+      "rpc": "FILL: the backend's Solana provider URL (devnet: https://api.devnet.solana.com)",
+      "domain": 1399811150,
+      "explorer": "https://explorer.solana.com",
+      "cluster": "devnet",
+      "tokens": [
+        { "symbol": "GNOT", "program": "FILL: the GNOT token program id from hlsol setup", "realm": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/hlgnot" },
+        { "symbol": "BUBBLE", "program": "FILL: the BUBBLE token program id", "realm": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/hlbubble" }
+      ],
+      "programs": {
+        "mailbox": "FILL: our mailbox program id",
+        "pausable": "FILL: the pausable ISM program id",
+        "admin": "FILL: the admin program id",
+        "client": "FILL: the light-client ISM program id"
+      }
+    }
+  ]
+}

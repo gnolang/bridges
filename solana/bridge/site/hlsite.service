@@ -1,0 +1,30 @@
+[Unit]
+Description=bridge.gno.world (hlsite): the bridge's pages and read-only API
+After=network-online.target
+Wants=network-online.target
+# a crashing build must not loop: three starts a minute, then stay down
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+DynamicUser=yes
+# the config is a credential: readable by this unit's user alone (a provider URL may carry an API key)
+LoadCredential=site.json:/etc/hlsite/site.json
+ExecStart=/usr/local/bin/hlsite -config ${CREDENTIALS_DIRECTORY}/site.json -site /usr/local/share/hlsite/site -listen 127.0.0.1:8195
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=512M
+Environment=GOMEMLIMIT=400MiB
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

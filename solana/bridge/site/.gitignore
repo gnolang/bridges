@@ -1,0 +1,4 @@
+# the deployment's config: a provider URL may carry a key (copy site.example.json, fill it, never commit it)
+site.json
+# the browser suite's binary and screenshots
+e2e/out/

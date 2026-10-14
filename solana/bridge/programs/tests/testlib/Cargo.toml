@@ -1,0 +1,21 @@
+[package]
+name = "testlib"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+description = "the programs' test harness: program-test with the programs as upgradeable accounts under a test authority, the clock, instruction builders, staging over the ed25519 precompile, and the compute-unit report"
+
+[dependencies]
+gno-light-core.workspace = true
+sol-util.workspace = true
+gno-light-client-ism.workspace = true
+pausable-ism.workspace = true
+admin-program.workspace = true
+borsh.workspace = true
+solana-program-test.workspace = true
+solana-sdk.workspace = true
+solana-program.workspace = true
+solana-system-interface.workspace = true
+solana-loader-v3-interface.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true

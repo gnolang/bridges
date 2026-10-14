@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "gno-light-core",
+    "sol-util",
+    "gno-light-client-ism",
+    "pausable-ism",
+    "admin-program",
+]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+publish = false
+
+[workspace.dependencies]
+gno-light-core = { path = "gno-light-core" }
+sol-util = { path = "sol-util" }
+gno-light-client-ism = { path = "gno-light-client-ism", features = ["no-entrypoint"] }
+pausable-ism = { path = "pausable-ism", features = ["no-entrypoint"] }
+admin-program = { path = "admin-program", features = ["no-entrypoint"] }
+solana-program = "3.0"
+solana-system-interface = { version = "2.0", features = ["bincode"] }
+solana-loader-v3-interface = { version = "6.1", features = ["bincode"] }
+borsh = { version = "1.5", features = ["derive"] }
+sha2 = { version = "0.10", default-features = false }
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+hex = "0.4"
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(target_os, values(\"solana\"))", "cfg(feature, values(\"custom-heap\", \"custom-panic\"))"] }

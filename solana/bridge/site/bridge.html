@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bridge — bridge.gno.world</title>
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<header>
+  <span class="brand">bridge.gno.world</span>
+  <nav><a href="/">Home</a> <a href="/bridge">Bridge</a> <a href="/status">Status</a> <a href="/help">Help</a></nav>
+  <span class="chain"></span>
+</header>
+<main>
+<div class="row">
+  <label>chain <select id="chain"></select></label>
+  <button id="out" class="toggle" aria-pressed="true">gno.land → other chain</button>
+  <button id="in" class="toggle" aria-pressed="false">other chain → gno.land</button>
+</div>
+<div class="panel">
+  <div class="row">
+    <label>token <select id="token"></select></label>
+    <label>amount <input id="amount" type="text" inputmode="decimal" size="12" placeholder="10"></label>
+    <input id="recipient" class="wide" type="text" placeholder="recipient">
+    <button id="connect">Connect</button>
+    <button id="send" class="primary">Send</button>
+  </div>
+  <div id="fees" class="line hidden"></div>
+  <div id="result" class="line hidden"></div>
+</div>
+<div class="row">
+  <label class="wide">track <input id="trackref" class="wide" type="text" placeholder="a message id, a gno.land transaction hash or a Solana signature"></label>
+  <button id="trackgo">Track</button>
+</div>
+<div id="track" class="panel hidden"></div>
+</main>
+<script type="module" src="/bridge.js"></script>
+</body>
+</html>

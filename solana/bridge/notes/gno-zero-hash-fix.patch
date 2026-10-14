@@ -1,0 +1,60 @@
+--- a/gnovm/pkg/gnolang/realm.go	2026-10-10 05:12:59
++++ b/gnovm/pkg/gnolang/realm.go	2026-10-10 05:31:13
+@@ -943,23 +943,45 @@
+ 			}
+ 		}
+ 	}
++	// FIX: a dirty parent must be serialized after its dirty
++	// (non-escaped) children, or toRefValue() writes the child's zeroed
++	// hash (SetIsDirty zeroes it) into the parent and the parent is never
++	// re-saved. rlm.updated is in mark order (parents marked by
++	// processNewEscapedMarks/markDirtyAncestors or by an earlier write
++	// precede children marked later), so save children first. Only
++	// children marked dirty by THIS realm are pre-saved: a child marked
++	// by another realm (cross-realm borrow) may still own unfinalized
++	// objects of that realm and is saved by that realm's finalize.
++	dirtySet := make(map[Object]struct{}, len(rlm.updated))
+ 	for _, uo := range rlm.updated {
+-		// for i := len(rlm.updated) - 1; i >= 0; i-- {
+-		// uo := rlm.updated[i]
++		dirtySet[uo] = struct{}{}
++	}
++	for _, uo := range rlm.updated {
+ 		if !uo.GetIsDirty() {
+-			// might have happened already as child
+-			// of something else created/dirty.
++			// already saved as a dirty child of an earlier parent.
+ 			continue
+-		} else {
+-			if !uo.GetIsDeleted() {
+-				// No recursive save needed; child objects were already
+-				// persisted via created objects.
+-				rlm.assertObjectIsPublic(uo, store, tids)
+-				rlm.saveObject(store, uo)
+-				uo.SetIsDirty(false, 0)
+-			}
++		}
++		if !uo.GetIsDeleted() {
++			rlm.saveDirtyChildrenFirst(store, uo, tids, dirtySet)
++		}
++	}
++}
++
++// saveDirtyChildrenFirst saves oo's still-dirty, non-escaped children that
++// belong to this realm's updated set (recursively), then oo itself.
++func (rlm *Realm) saveDirtyChildrenFirst(store Store, oo Object, tids map[TypeID]struct{}, dirtySet map[Object]struct{}) {
++	for _, ch := range getUnsavedChildObjects(oo) {
++		if !ch.GetIsDirty() || ch.GetIsEscaped() || ch.GetIsNewEscaped() {
++			continue
++		}
++		if _, ok := dirtySet[ch]; !ok {
++			continue
+ 		}
++		rlm.saveDirtyChildrenFirst(store, ch, tids, dirtySet)
+ 	}
++	rlm.assertObjectIsPublic(oo, store, tids)
++	rlm.saveObject(store, oo)
++	oo.SetIsDirty(false, 0)
+ }
+ 
+ // store unsaved children first.

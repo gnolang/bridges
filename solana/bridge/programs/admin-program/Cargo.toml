@@ -1,0 +1,23 @@
+[package]
+name = "admin-program"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+description = "the admin program: a mailbox recipient under the light-client ISM that carries out GovDAO's decisions"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+clock-factor-8 = []
+
+[dependencies]
+gno-light-core.workspace = true
+gno-light-client-ism.workspace = true
+pausable-ism.workspace = true
+sol-util.workspace = true
+solana-program.workspace = true
+solana-system-interface.workspace = true
+solana-loader-v3-interface.workspace = true
+borsh.workspace = true
