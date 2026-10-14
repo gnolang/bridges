@@ -196,6 +196,10 @@ const readNow = (page) => page.evaluate(() => document.dispatchEvent(new Event('
 
 async function cases(browser, base, mock, vp) {
   const { context, page } = await newPage(browser, base, mock, vp);
+  // each token's address on Solana, as the chains name it: the Status, Help and Bridge pages show these
+  const solChain = (await (await fetch(base + '/api/chains')).json()).chains[0];
+  const mintOf = (sym) => solChain.tokens.find((t) => t.symbol === sym).mint;
+  check(!!mintOf('GNOT') && !!mintOf('BUBBLE'), 'the chains name each token\'s address on Solana');
   // the home page: the story, no jargon word for the model, the policy on the response
   const resp = await page.goto(base + '/');
   check((resp.headers()['content-security-policy'] || '').includes("connect-src 'self'"), 'CSP on the home page');
@@ -243,6 +247,8 @@ async function cases(browser, base, mock, vp) {
   check((await page.textContent('#caps')).includes('25,000'), 'the maximum per transfer');
   check((await page.textContent('#identity')).includes('holds; 10000000 in flight — GNOT: lock 1000000000000 = supply 999990000000'), 'the identity line with its numbers, the send in flight');
   check(await page.$$eval('#tokens, #caps', (ts) => ts.every((t) => t.parentElement.classList.contains('scroll'))), 'the status tables scroll in their own box');
+  check((await page.$$eval('#addrs dd .addr code', (cs) => cs.map((c) => c.textContent))).join() === [mintOf('GNOT'), mintOf('BUBBLE')].join(), `both tokens' addresses on the Status page at ${vp.name}`);
+  check((await page.$$eval('#addrs dt', (ds) => ds.map((d) => d.textContent))).join() === 'GNOT on Solana,BUBBLE on Solana', 'each address named');
   await fits(page, 'status', vp);
 
   // the help page: the figures from the status, the realm links
@@ -251,6 +257,8 @@ async function cases(browser, base, mock, vp) {
   check((await page.textContent('#fees')).includes('5 GNOT'), 'the fee from the status: ' + (await page.textContent('#fees')));
   check((await page.textContent('body')).includes('paid in installments'), 'installments explained');
   check((await page.$$eval('#realms a', (as) => as.every((a) => a.href.startsWith('https://gno.land/gno.land/r/')))), 'realm links go to gnoweb');
+  check((await page.$$eval('#tokenaddrs dd .addr code', (cs) => cs.map((c) => c.textContent))).join() === [mintOf('GNOT'), mintOf('BUBBLE')].join(), `both tokens' addresses on Help at ${vp.name}`);
+  check((await page.textContent('body')).includes('Only the token at this address is backed by the lock'), 'Help says which token is the real one');
   await fits(page, 'help', vp);
 
   // How it works: the scenes, each played as it comes into view and again on a tap
@@ -272,6 +280,19 @@ async function cases(browser, base, mock, vp) {
   await page.goto(base + '/bridge');
   await waitFor(() => page.textContent('#fees').then((t) => t.includes('fee 5 GNOT')), 'the GNOT fee line');
   check(await page.$eval('.machine-svg', (s) => s.classList.contains('compact')), 'the Bridge page carries the compact machine');
+  // the chosen token's address on Solana under the form, whole, with its explorer link; it follows the token picked,
+  // and its button copies it
+  check(await page.$eval('#tokenaddr .addr code', (c) => c.textContent) === mintOf('GNOT'), `the GNOT address on the Bridge page at ${vp.name}`);
+  check(await page.$eval('#tokenaddr .addr a', (a) => a.href) === `https://explorer.solana.com/address/${mintOf('GNOT')}?cluster=devnet`, `the explorer link at ${vp.name}`);
+  await page.selectOption('#token', 'BUBBLE');
+  check(await page.$eval('#tokenaddr .addr code', (c) => c.textContent) === mintOf('BUBBLE') && (await page.textContent('#tokenaddr')).startsWith('BUBBLE on Solana: '), `the address follows the token at ${vp.name}`);
+  await page.selectOption('#token', 'GNOT');
+  if (vp.name === 'desktop') {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+    await page.click('#tokenaddr .addr button.copy');
+    await waitFor(() => page.textContent('#tokenaddr .addr button.copy').then((t) => t === 'copied'), 'the copy button says copied', 5000, 50);
+    check(await page.evaluate(() => navigator.clipboard.readText()) === mintOf('GNOT'), 'the copy button copies the address');
+  }
   check((await page.textContent('#fees')).includes('at most 25,000 per transfer'), 'the maximum on the fee line');
   await page.fill('#amount', '10');
   await page.fill('#recipient', mock.alice);

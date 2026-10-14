@@ -1,7 +1,7 @@
 // bridge.gno.world — the Bridge page: a chain, a direction, a token, an amount, a recipient; the wallet signs;
 // the transfer is tracked here until it lands, step by step (walk.js), each step shown on the machine below
 // (machine.js, compact), which runs live between transfers.
-import { api, chains, el, fmt, whole, parseAmount, nav, pick, short, setLine } from './common.js';
+import { api, chains, el, fmt, whole, parseAmount, nav, pick, short, setLine, tokenAddress } from './common.js';
 import { adena, solanaWallet, isSolanaAddress, isGnoAddress, b64decode } from './wallets.js';
 import { createMachine } from './machine.js';
 import { render as renderWalk, tickEta } from './walk.js';
@@ -24,7 +24,8 @@ async function main() {
   sel.onchange = () => { location.search = '?chain=' + sel.value; };
   for (const t of state.chain.tokens) $('token').append(el('option', { value: t.symbol }, t.symbol));
   state.token = state.chain.tokens[0].symbol;
-  $('token').onchange = () => { state.token = $('token').value; fees(); };
+  $('token').onchange = () => { state.token = $('token').value; showAddress(); fees(); };
+  showAddress();
   $('out').onclick = () => setDir('out');
   $('in').onclick = () => setDir('in');
   $('send').onclick = () => send().catch((e) => setLine('result', e.message, 'err'));
@@ -57,6 +58,13 @@ function setDir(dir) {
   }
   setLine('result', '');
   fees();
+}
+
+// showAddress is the chosen token's address on the other chain, under the form: what a wallet asks for.
+function showAddress() {
+  const t = state.chain.tokens.find((x) => x.symbol === state.token);
+  if (!t || !t.mint) { $('tokenaddr').replaceChildren(); return; }
+  $('tokenaddr').replaceChildren(el('span', {}, `${t.symbol} on ${state.chain.name}: `), tokenAddress(state.chain, t));
 }
 
 async function refreshStatus() {

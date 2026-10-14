@@ -86,6 +86,34 @@ export async function nav(active) {
 
 export function realmLink(c, realm) { return c.gno.realmLink.replace('%s', realm); }
 
+// explorerAddress is an address's page on the chain's explorer, '' when the chain names none.
+export function explorerAddress(chain, addr) {
+  if (!chain.explorer || !addr) return '';
+  return chain.explorer.replace(/\/+$/, '') + '/address/' + addr + (chain.cluster ? '?cluster=' + encodeURIComponent(chain.cluster) : '');
+}
+
+// tokenAddress is a token's address on the other chain, whole, with a button that copies it and a link to it on the
+// explorer: what a wallet asks for to add the token, and how to tell the bridge's token from another of the same name.
+export function tokenAddress(chain, t) {
+  const copy = el('button', { class: 'copy', type: 'button', title: 'copy the address' }, 'copy');
+  copy.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(t.mint);
+      copy.textContent = 'copied';
+    } catch (e) { // no clipboard (an insecure page, a refused permission): select it for a manual copy
+      const r = document.createRange();
+      r.selectNodeContents(code);
+      const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+      copy.textContent = 'selected';
+    }
+    setTimeout(() => { copy.textContent = 'copy'; }, 1500);
+  };
+  const code = el('code', { class: 'mono' }, t.mint);
+  const href = explorerAddress(chain, t.mint);
+  return el('span', { class: 'addr', 'data-token': t.symbol }, code, copy,
+    href ? el('a', { href, target: '_blank', rel: 'noopener' }, 'explorer ↗') : '');
+}
+
 export function setLine(id, text, kind) {
   const n = document.getElementById(id);
   if (!n) return;

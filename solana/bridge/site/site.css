@@ -224,3 +224,9 @@ ol.walk .pic { flex: 0 0 64px; align-self: center; }
 .lchart .vline { stroke: var(--mute); stroke-width: 1; stroke-dasharray: 3 3; }
 .lchart .tipbox { fill: var(--panel); stroke: var(--line); }
 .lchart .tip { font-size: 11px; fill: var(--fg); font-variant-numeric: tabular-nums; }
+
+/* ---- a token's address on the other chain (common.js tokenAddress): whole, breaking anywhere on a phone */
+.addr { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; max-width: 100%; }
+.addr code { word-break: break-all; }
+.addr button.copy { padding: 0 6px; font-size: 12px; cursor: pointer; }
+dl.addrs { margin: 6px 0 4px; }

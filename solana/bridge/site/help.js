@@ -1,12 +1,13 @@
-// bridge.gno.world — the Help page: the launch figures in the text are replaced by the live ones, and the
-// realm pages are linked.
-import { api, chains, el, fmt, nav, pick, realmLink } from './common.js';
+// bridge.gno.world — the Help page: the launch figures in the text are replaced by the live ones, the tokens'
+// addresses on the other chain are given, and the realm pages are linked.
+import { api, chains, el, fmt, nav, pick, realmLink, tokenAddress } from './common.js';
 
 nav('/help');
 (async () => {
   const c = await chains;
   const chain = await pick();
   const links = [...chain.tokens.map((t) => [t.symbol + ' route', t.realm]), ['mailbox', c.gno.mailbox], ['fees', c.gno.fees], ['decisions to ' + chain.name, c.gno.gov]].filter((x) => x[1]);
+  document.getElementById('tokenaddrs').replaceChildren(...chain.tokens.filter((t) => t.mint).flatMap((t) => [el('dt', {}, `${t.symbol} on ${chain.name}`), el('dd', {}, tokenAddress(chain, t))]));
   document.getElementById('realms').replaceChildren(...links.map(([n, r]) => el('li', {}, n + ': ', el('a', { href: realmLink(c, r), target: '_blank', rel: 'noopener' }, r))));
   try {
     const st = await api('/api/' + chain.id + '/status');
