@@ -271,6 +271,35 @@ burn until its credit). The transactions are built with bridge/sol's own instruc
 what the programs would. Its limiter is a hundred a second (the suite is one client making a crowd's requests); a
 deployment keeps two.
 
+## The value locked over time: `GET /api/<chain>/history` (2026-10-15)
+
+Jae: "is there a graph of how much value is locked through the bridge? on bridge.gno.world" — "do it, i want to see
+the graph". Home (below the recent events) and Status (below the identity) draw each token's lock on gno.land from
+the launch to now: a step line in SVG (`chart.js`, no library), its figure above it, a pointer or a touch reading the
+level at a time, an open circle where a time is estimated. A token never sent gets a line saying so.
+
+- **Recorded, not read back.** A node answers a realm's render only as of its newest block: `vm/qrender` ignores the
+  height asked (gnoland-1 through rpc.gno.land and Onbloc, 2026-10-15), so the past cannot be queried. hlsite's
+  sampler takes the status every minute and keeps a point when a lock moved, at the status's time; a change first
+  seen more than five minutes after the previous reading (hlsite was down) is marked estimated.
+- **Persisted.** `-state DIR` keeps `history-<chain>.json` there (written whole, renamed over the old); the unit's
+  `StateDirectory=hlsite` gives it `/var/lib/hlsite`. Without `-state` (the mock, the tests) it lives in memory.
+- **Rebuilt once.** The first reading rebuilds what came before, anchored at its locks and walked back through the
+  activity's index: each send at its record's time (exact), each claim's paid part when this reader saw it paid,
+  else at its credit time (estimated: the chain keeps no payout time), a sweep at its credit (estimated). The
+  rebuild waits, up to ten readings, for an index that holds every dispatch hlmailbox made and every claim each
+  route counts; the index keeps the newest transfers of each kind, so an older deployment's history starts at its
+  first reading with the launch's level estimated. Under the mock (whose canned routes count claims its records do
+  not hold) the history starts at once without the rebuild.
+- **Served** as `{chain, from, rebuilt, sampled, now, tokens: [{symbol, lock, points: [[time, lock] or [time, lock,
+  1] for an estimate]}]}`, a token's points only where its lock changed.
+- **Tests**: `TestRebuildHistory` (mainnet's first day in small numbers: the launch at nothing, the sends, a payout
+  seen and one estimated), `TestRebuildHistoryUnexplained`, `TestActivityComplete`, `TestSampleHistory` (a change,
+  none, a gap, the file, a restart), `TestHistoryAPI`; three mutations (walking forward, no gap estimate, a point
+  every reading) each fail them. The browser suite's `lockedCase`: both charts on Home and Status at both widths,
+  each line ending at the machine's lock, a pointer reading a level, the burn in flight paid out dropping BUBBLE's
+  line one step, every label inside its chart — 183 checks.
+
 ## Tests and verdicts (2026-10-14, the devbox: Go 1.27.1, node 22, Playwright 1.56.1)
 
 - **Go** (`go test ./cmd/hlsite/`, also under `-race`): TestActivity (the history's events with their exact times,

@@ -59,6 +59,9 @@ type server struct {
 	// the figures are examples, and the builder refuses — nobody is handed a transaction for programs that do not
 	// exist (SITE.md).
 	preview bool
+	// the locked-value history (history.go): one record per chain, kept in hist.dir when one is given
+	histMu sync.Mutex
+	hist   historyState
 }
 
 type cached struct {
@@ -72,6 +75,7 @@ func newServer(cfg *Config, g gnoNode, others map[string]Other, site string) *se
 		acts: map[string]*chainActivity{}, prober: httpProber{&http.Client{Timeout: 5 * time.Second}}, statusTTL: statusTTL, transferTTL: transferTTL, activityTTL: activityTTL, lampsTTL: lampsTTL}
 	s.lampc.m = map[string]lampEntry{}
 	s.lim = newLimiter(2, 30, func() time.Time { return s.now() }) // two requests a second, a burst of thirty, per client
+	s.hist = historyState{byID: map[string]*chainHistory{}, tries: map[string]int{}, saved: map[string]int64{}, said: map[string]string{}}
 	return s
 }
 
@@ -108,6 +112,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /api/{chain}/status", s.handleStatus)
 	mux.HandleFunc("GET /api/{chain}/transfer/{ref}", s.handleTransfer)
 	mux.HandleFunc("GET /api/{chain}/activity", s.handleActivity)
+	mux.HandleFunc("GET /api/{chain}/history", s.handleHistory)
 	mux.HandleFunc("POST /api/{chain}/burn-tx", s.handleBurnTx)
 	mux.HandleFunc("/api/{chain}/burn-tx", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "POST")

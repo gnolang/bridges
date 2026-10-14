@@ -11,7 +11,9 @@ Type=simple
 DynamicUser=yes
 # the config is a credential: readable by this unit's user alone (a provider URL may carry an API key)
 LoadCredential=site.json:/etc/hlsite/site.json
-ExecStart=/usr/local/bin/hlsite -config ${CREDENTIALS_DIRECTORY}/site.json -site /usr/local/share/hlsite/site -listen 127.0.0.1:8195
+# the locked-value history persists here (/var/lib/hlsite, the dynamic user's own)
+StateDirectory=hlsite
+ExecStart=/usr/local/bin/hlsite -config ${CREDENTIALS_DIRECTORY}/site.json -site /usr/local/share/hlsite/site -listen 127.0.0.1:8195 -state ${STATE_DIRECTORY}
 Restart=always
 RestartSec=5
 NoNewPrivileges=true

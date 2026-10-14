@@ -1,6 +1,7 @@
 // bridge.gno.world — the Status page: per token the lock against the supply (the identity), the caps and fees,
 // the flags on both sides, the client, the pending decisions, who governs. Read every ten seconds.
 import { api, chains, el, fmt, whole, nav, pick, short, when, date, realmLink } from './common.js';
+import { mountLocked } from './chart.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -8,6 +9,7 @@ async function main() {
   nav('/status');
   const c = await chains;
   const chain = await pick();
+  mountLocked($('locked'), chain);
   const draw = async () => {
     let st;
     try { st = await api('/api/' + chain.id + '/status'); } catch (e) { $('head').textContent = 'the status could not be read: ' + e.message; $('head').className = 'line err'; return; }

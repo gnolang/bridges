@@ -1,8 +1,9 @@
 // bridge.gno.world — the Home page: the machine (machine.js) fed by /api/<chain>/activity every ten seconds, the
 // caption strip that says what is happening, the recent events (a click plays one), and the replay of the last real
-// transfer once nothing has happened for a while. The story below is static.
+// transfer once nothing has happened for a while; the value locked over time below it (chart.js). The story below is static.
 import { api, nav, pick, el, short } from './common.js';
 import { createMachine } from './machine.js';
+import { mountLocked } from './chart.js';
 import { s, coin, block, seal, coinStack, envelope } from './draw.js';
 
 nav('/');
@@ -52,6 +53,7 @@ function sentence(e, chain) {
 
 (async () => {
   const chain = await pick();
+  mountLocked($('locked'), chain);
   const cap = $('caption');
   const m = createMachine($('machine'), { chain: chain.name, onCaption: (t) => { cap.textContent = t; }, onMode: () => offer() });
   let act = null;

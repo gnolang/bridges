@@ -112,6 +112,10 @@ func TestSignerStopsWhenTheClientRunsAhead(t *testing.T) {
 		{"exactly the allowance (not more than an hour)", 2000 + allow, 2000, 2000, true, aheadInside, "judged at the head"},
 		{"past it on the own node, the second source near T", 5000, 1000, 4500, true, aheadOwnLags, "own node lags"},
 		{"past it on the own node, the second source exactly at the allowance", 5000, 1000, 5000 - allow, true, aheadOwnLags, "own node lags"},
+		// the usual case of a stalled own node: the chain, and so the second source, is past the client's trusted
+		// height (T − second would wrap in uint64 and read as "ahead")
+		{"past it on the own node, the second source at T", 5000, 1000, 5000, true, aheadOwnLags, "own node lags"},
+		{"past it on the own node, the second source past T", 5000, 1000, 5100, true, aheadOwnLags, "own node lags"},
 		{"past it on both", 5000, 1000, 1200, true, aheadStop, "ahead of its chain"},
 		{"past it on both by one block", 5000, 1000, 5000 - allow - 1, true, aheadStop, "ahead of its chain"},
 		{"no second source", 5000, 1000, 0, false, aheadNoSecond, "no second source"},

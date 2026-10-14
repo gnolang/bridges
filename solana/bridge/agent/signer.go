@@ -457,7 +457,7 @@ func judgeAhead(T, own, second uint64, secondOK bool, allowance uint64) (aheadVe
 	switch {
 	case !secondOK:
 		return aheadNoSecond, fmt.Sprintf("own node's head %d is %d blocks below the client's trusted height %d, past the allowance of %d, and no second source answered: nothing to judge the client against", own, T-own, T, allowance)
-	case T-second <= allowance:
+	case second+allowance >= T: // the second source within the allowance below T, or past it (T−second would wrap)
 		return aheadOwnLags, fmt.Sprintf("own node's head %d is %d blocks below the client's trusted height %d, past the allowance of %d, while the second source's head %d is within it: the own node lags", own, T-own, T, allowance, second)
 	}
 	return aheadStop, fmt.Sprintf("the client's trusted height %d is more than %d blocks (an hour) past the own node's head %d and the second source's head %d: the client runs ahead of its chain, the mismatch itself", T, allowance, own, second)

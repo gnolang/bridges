@@ -101,9 +101,48 @@ async function run() {
     await reducedCase(browser, base);
     await step(base, 'reset');
     await darkCase(browser, base, mock);
+    await step(base, 'reset');
+    await lockedCase(browser, base);
   } finally {
     await browser.close();
     proc.kill();
+  }
+}
+
+// lockedCase: the value locked over time (chart.js, history.go) on Home and Status at both widths — both tokens
+// drawn from the history, each line ending at the machine's lock and its figure above it, a pointer reading a
+// level, the burn in flight paid out dropping BUBBLE's line one step when the page reads again, every label
+// inside its chart, nothing wider than the page
+async function lockedCase(browser, base) {
+  const chart = (sym) => `#locked svg.lchart[data-token="${sym}"]`;
+  for (const vp of WIDTHS) {
+    const { context, page } = await newPage(browser, base, null, vp);
+    await page.goto(base + '/');
+    if (!await waitFor(() => page.$(chart('BUBBLE')), `the charts on Home at ${vp.name}`)) { await context.close(); continue; }
+    check(await page.$eval(chart('GNOT'), (s) => s.getAttribute('data-last')) === String(1000000 * 1e6), `GNOT's line ends at the lock at ${vp.name}`);
+    check(await page.$eval(chart('BUBBLE'), (s) => s.getAttribute('data-last')) === String(2500200 * 1e6), `BUBBLE's line ends at the lock at ${vp.name}`);
+    check(await page.$eval('#locked .lchart-wrap[data-token="GNOT"] .lchart-val', (e) => e.textContent) === '1,000,000 GNOT', `GNOT's figure above its chart at ${vp.name}`);
+    check(await page.$eval(chart('GNOT') + ' .lchart-line', (p) => /^M[\d.]+,[\d.]+(H[\d.]+V[\d.]+)*H[\d.]+$/.test(p.getAttribute('d'))), `GNOT's line is a step line at ${vp.name}`);
+    check((await page.$$(chart('GNOT') + ' text.xlab')).length >= 2 && (await page.$$(chart('GNOT') + ' text.ylab')).length >= 2, `both axes are labelled at ${vp.name}`);
+    const box = await (await page.$(chart('BUBBLE'))).boundingBox();
+    await page.hover(chart('BUBBLE'), { position: { x: box.width * 0.6, y: box.height * 0.6 } }); // scrolls it into view first
+    await waitFor(() => page.$eval(chart('BUBBLE') + ' .cross', (g) => !g.classList.contains('hidden')), `a pointer over the chart reads a level at ${vp.name}`, 5000, 50);
+    check(/^[\d,.]+ BUBBLE · \d{4}-\d\d-\d\d \d\d:\d\d UTC$/.test(await page.$eval(chart('BUBBLE') + ' text.tip', (t) => t.textContent)), `the level read says amount and time at ${vp.name}: ` + await page.$eval(chart('BUBBLE') + ' text.tip', (t) => t.textContent));
+    await svgFits(page, 'locked-hover', vp);
+    const n0 = Number(await page.$eval(chart('BUBBLE'), (s) => s.getAttribute('data-points')));
+    for (let i = 0; i < 5; i++) await step(base, 'in');
+    await readNow(page);
+    await waitFor(() => page.$eval(chart('BUBBLE'), (s) => s.getAttribute('data-last') === String(2500000 * 1e6)), `BUBBLE's line drops at the payout at ${vp.name}`);
+    check(Number(await page.$eval(chart('BUBBLE'), (s) => s.getAttribute('data-points'))) === n0 + 1, `the payout is one step more at ${vp.name}`);
+    check(await page.$eval('#locked .lchart-wrap[data-token="BUBBLE"] .lchart-val', (e) => e.textContent) === '2,500,000 BUBBLE', `BUBBLE's figure follows at ${vp.name}`);
+    await page.mouse.move(1, 1);
+    await fits(page, 'home-locked', vp);
+    await page.goto(base + '/status');
+    await waitFor(() => page.$(chart('GNOT')), `the chart on Status at ${vp.name}`);
+    await fits(page, 'status-locked', vp);
+    check(page.errors.length === 0, `no page error with the charts at ${vp.name}: ${page.errors.join(' | ')}`);
+    await context.close();
+    await step(base, 'reset');
   }
 }
 
@@ -134,7 +173,7 @@ async function svgFits(page, name, vp) {
   const bad = await page.evaluate(() => {
     const out = [];
     const inside = (b, p, tol = 1.5) => b.left >= p.left - tol && b.right <= p.right + tol && b.top >= p.top - tol && b.bottom <= p.bottom + tol;
-    for (const svg of document.querySelectorAll('svg.machine-svg, svg.scene-svg')) {
+    for (const svg of document.querySelectorAll('svg.machine-svg, svg.scene-svg, svg.lchart')) {
       const box = svg.getBoundingClientRect();
       for (const t of svg.querySelectorAll('text')) {
         if (!t.textContent.trim() || t.closest('.hidden, .pkt, .gblock, .coin')) continue;

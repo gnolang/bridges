@@ -15,6 +15,7 @@
 //	GET  /api/<chain>/status              per token the lock, the supply, owed/voided/lost and the identity, the caps
 //	                                      and fees, the flags on both sides, the pending decisions, who governs
 //	GET  /api/<chain>/transfer/<ref>      one transfer by message id, gno.land transaction hash or <chain> signature
+//	GET  /api/<chain>/history             each token's lock on gno.land over time, from the launch (history.go)
 //	POST /api/<chain>/burn-tx             {token, sender, recipient, amount} → an unsigned transfer_remote
 package main
 
@@ -38,6 +39,7 @@ func main() {
 	site := flag.String("site", "site", "the static files' directory (bridge/site)")
 	mock := flag.Bool("mock", false, "serve the canned deployment: no node, no provider, no key")
 	preview := flag.Bool("preview", false, "serve the canned deployment as a public preview before the bridge is deployed: the pages say so and the builder refuses")
+	state := flag.String("state", "", "a directory to keep the locked-value history in (history-<chain>.json); none keeps it in memory, lost at a restart")
 	flag.Parse()
 	log.SetOutput(agent.RedactWriter{W: os.Stderr}) // no provider URL's key in a log line
 	if st, err := os.Stat(*site); err != nil || !st.IsDir() {
@@ -66,6 +68,12 @@ func main() {
 			others[ch.ID] = newSolana(ch, sol.NewRPC(ch.RPC), domainOf(cfg), func() []string { return s.realmAddresses() })
 		}
 		s = newServer(cfg, g, others, *site)
+		if *state != "" {
+			if err := os.MkdirAll(*state, 0o700); err != nil {
+				log.Fatalf("hlsite: -state %s: %v", *state, err)
+			}
+			s.hist.dir = *state
+		}
 	}
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
@@ -74,6 +82,7 @@ func main() {
 	fmt.Printf("hlsite: listening on %s\n", ln.Addr())
 	if !*mock && !*preview {
 		go s.warm()
+		go s.historyLoop()
 	}
 	srv := &http.Server{Handler: s.handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second}
 	log.Fatal(srv.Serve(ln))

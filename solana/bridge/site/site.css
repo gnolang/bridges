@@ -206,3 +206,21 @@ ol.walk .pic { flex: 0 0 64px; align-self: center; }
 .scene h3 { font-size: 14px; margin: 6px 0 2px; }
 .scene h3 .n { color: var(--mute); font-weight: 400; margin-right: 4px; }
 .scene p { font-size: 13px; margin: 0; }
+
+/* ---- the value locked over time (chart.js, history.go): the coin's gold, the theme's lines */
+.locked { margin: 4px 0 6px; }
+.lchart-wrap { margin: 4px 0 10px; }
+.lchart-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.lchart-val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.lchart { display: block; width: 100%; height: auto; touch-action: pan-y; }
+.lchart text { font-family: inherit; }
+.lchart .grid { stroke: var(--line); stroke-width: 1; }
+.lchart .tick { stroke: var(--mute); stroke-width: 1; }
+.lchart .ylab, .lchart .xlab { font-size: 10px; fill: var(--mute); font-variant-numeric: tabular-nums; }
+.lchart .lchart-line { fill: none; stroke: var(--coin-ink); stroke-width: 2; stroke-linejoin: round; }
+.lchart .lchart-area { fill: var(--coin); opacity: .5; stroke: none; }
+.lchart .end, .lchart .dot { fill: var(--coin-ink); }
+.lchart .est { fill: var(--bg); stroke: var(--coin-ink); stroke-width: 1.5; }
+.lchart .vline { stroke: var(--mute); stroke-width: 1; stroke-dasharray: 3 3; }
+.lchart .tipbox { fill: var(--panel); stroke: var(--line); }
+.lchart .tip { font-size: 11px; fill: var(--fg); font-variant-numeric: tabular-nums; }
