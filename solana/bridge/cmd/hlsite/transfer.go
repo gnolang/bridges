@@ -33,6 +33,27 @@ type transferJSON struct {
 	State     string     `json:"state"`
 	Note      string     `json:"note"`
 	Steps     []stepJSON `json:"steps"`
+	// The walkthrough's facts (M7): the five steps with their times, and what each step's picture needs.
+	Walk      []walkStep  `json:"walk"`
+	At        int64       `json:"at"`        // out: locked at; in: burned at (0 when not known)
+	Height    int64       `json:"height"`    // out: the block the send is in; in: the block it was credited in
+	Nonce     int64       `json:"nonce"`     // out: hlmailbox's dispatch nonce; in: the far side's; -1 when not known
+	Trusted   int64       `json:"trusted"`   // out: the light client's trusted height now
+	Proof     *ProofEvent `json:"proof"`     // out: the proof the relayer staged, once seen
+	Vouched   []int       `json:"vouched"`   // in: the signers serving the burn's signature, when asked
+	Signers   int         `json:"signers"`   // in: how many signers there are
+	Threshold int         `json:"threshold"` // in: how many must vouch
+	Meter     *meterJSON  `json:"meter"`     // in, credited and not paid in full: the payout meters now
+}
+
+// meterJSON is a route's payout meters as the pay step's gauge draws them (§5.4): the bridge meter's level now,
+// its ceiling and refill a day (the day cap), a recipient's quarter of both, and what the claim still waits for.
+type meterJSON struct {
+	Level     int64 `json:"level"`
+	Cap       int64 `json:"cap"`
+	Recipient int64 `json:"recipient"`
+	Remaining int64 `json:"remaining"`
+	At        int64 `json:"at"`
 }
 
 type stepJSON struct {
@@ -110,7 +131,7 @@ func (s *server) byID(ctx context.Context, ch *ChainConfig, other Other, id, kin
 			return nil, fmt.Errorf("%s: %w", t.Realm, err)
 		}
 		if c != nil {
-			return s.inbound(ctx, other, t, id, kind, c, nil)
+			return s.inbound(ctx, ch, other, t, id, kind, c, nil)
 		}
 	}
 	return nil, fmt.Errorf("%w: %s is not a send and not a credited burn on gno.land; a burn is known by its %s signature until the signers confirm it", errUnknownTransfer, id, ch.Name)
@@ -137,7 +158,7 @@ func (s *server) bySignature(ctx context.Context, ch *ChainConfig, other Other, 
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", t.Realm, err)
 	}
-	return s.inbound(ctx, other, *t, b.ID, "signature", c, &b)
+	return s.inbound(ctx, ch, other, *t, b.ID, "signature", c, &b)
 }
 
 func (s *server) outbound(ctx context.Context, ch *ChainConfig, other Other, t TokenConfig, id string, idb [32]byte, kind string, sd *agent.SendView) (*transferJSON, error) {
@@ -167,10 +188,20 @@ func (s *server) outbound(ctx context.Context, ch *ChainConfig, other Other, t T
 		step.Text = "waiting for a gno.land header past the send and the relayer's proof; minutes, hourly retries if parked"
 	}
 	tr.Steps = append(tr.Steps, step)
+	var dl *DeliveryEvent
+	if d != nil {
+		dl = &DeliveryEvent{ID: id, Sig: d.Sig, Slot: d.Slot, Time: d.Time, Kind: "mint", Link: d.Link}
+	}
+	st := s.activityNow(ctx, ch, other)
+	f := s.outFacts(st, id, s.findDispatch(ctx, ch, other, s.activityOf(ch.ID), st, id), dl)
+	tr.Walk, tr.At, tr.Height, tr.Nonce, tr.Trusted, tr.Proof = f.Walk, f.At, f.Height, f.Nonce, f.Trusted, f.Proof
+	if tr.To == "" {
+		tr.To = f.To
+	}
 	return tr, nil
 }
 
-func (s *server) inbound(ctx context.Context, other Other, t TokenConfig, id, kind string, c *agent.ClaimView, b *Burn) (*transferJSON, error) {
+func (s *server) inbound(ctx context.Context, ch *ChainConfig, other Other, t TokenConfig, id, kind string, c *agent.ClaimView, b *Burn) (*transferJSON, error) {
 	tr := &transferJSON{Ref: id, Kind: kind, Direction: "in", Token: t.Symbol, ID: id, State: "burned"}
 	burned := stepJSON{Name: "burned on " + s.chainName(other), Done: true}
 	if b != nil {
@@ -217,7 +248,46 @@ func (s *server) inbound(ctx context.Context, other Other, t TokenConfig, id, ki
 		}
 	}
 	tr.Steps = append(tr.Steps, credited, paid)
+	s.inWalkOf(ctx, ch, other, t, id, c != nil, b, tr)
 	return tr, nil
+}
+
+// inWalkOf fills a burn's walkthrough from the index and fresh reads: the burn (the index's when tracked by id),
+// the signers asked about its nonce until it is credited, the claim as the route renders it now, and the meters
+// while it waits to be paid.
+func (s *server) inWalkOf(ctx context.Context, ch *ChainConfig, other Other, t TokenConfig, id string, credited bool, b *Burn, tr *transferJSON) {
+	threshold := thresholdOf(s.lastRule())
+	st := s.activityNow(ctx, ch, other)
+	if b == nil {
+		if x, ok := st.other.Burns[id]; ok {
+			b = &x
+		}
+	}
+	var cr *claimRec
+	if credited {
+		if cj, err := s.claimRecord(ctx, t.Realm, id); err == nil && cj != nil {
+			cr = foldClaim(st.claims[id], t.Symbol, cj, s.now().Unix()) // the index's reading keeps the payout's time when it saw one
+		}
+	}
+	var signed []int
+	if b != nil && cr == nil {
+		signed = vouched(s.lamps(ctx, ch, int64(b.Nonce)))
+	}
+	burn := Burn{ID: id, Token: t.Symbol}
+	if b != nil {
+		burn = *b
+	}
+	f := s.inFacts(other, &burn, cr, signed, threshold, len(ch.Signers))
+	tr.Walk, tr.At, tr.Height, tr.Vouched, tr.Threshold, tr.Signers = f.Walk, f.At, f.Height, f.Vouched, f.Threshold, f.Signers
+	tr.Nonce = -1
+	if b != nil {
+		tr.Nonce = int64(b.Nonce)
+	}
+	if cr != nil && !cr.Final {
+		if rv, err := agent.ReadRoute(ctx, s.gno, agent.Route{Symbol: t.Symbol, Gno: t.Realm, Token: t.Program}, 0); err == nil {
+			tr.Meter = &meterJSON{Level: rv.Meter, Cap: rv.Cap, Recipient: rv.Cap / 4, Remaining: cr.Amount - cr.Paid, At: s.now().Unix()}
+		}
+	}
 }
 
 // chainName is the far side's name for the steps (the one implementation names itself in its config).

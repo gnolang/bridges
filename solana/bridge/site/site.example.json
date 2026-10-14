@@ -27,7 +27,8 @@
         "pausable": "FILL: the pausable ISM program id",
         "admin": "FILL: the admin program id",
         "client": "FILL: the light-client ISM program id"
-      }
+      },
+      "signers": ["https://bridge.gno.world/signer/1", "https://bridge.gno.world/signer/2", "https://bridge.gno.world/signer/3"]
     }
   ]
 }

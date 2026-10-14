@@ -79,6 +79,7 @@ func (s *solanaChain) link(kind, k string) string {
 
 func (s *solanaChain) TxLink(sig string) string    { return s.link("tx", sig) }
 func (s *solanaChain) AccountLink(k string) string { return s.link("address", k) }
+func (s *solanaChain) Address(b [32]byte) string   { return solana.PublicKeyFromBytes(b[:]).String() }
 
 func (s *solanaChain) IsSignature(ref string) bool {
 	_, err := solana.SignatureFromBase58(ref)
@@ -163,7 +164,14 @@ func (s *solanaChain) Snapshot(ctx context.Context, now time.Time) *OtherSnapsho
 		if h.ClockFactor > 0 {
 			factor = int64(h.ClockFactor)
 		}
-		v.Client = &ClientJSON{TrustedHeight: h.TrustedHeight, QuarantineEnd: h.QuarantineEnd, LastAccepted: h.LastAcceptedTime, ClockFactor: factor}
+		v.Client = &ClientJSON{TrustedHeight: h.TrustedHeight, QuarantineEnd: h.QuarantineEnd, LastAccepted: h.LastAcceptedTime, ClockFactor: factor, Powers: []int64{}}
+		// the body: the set the headers are checked against (the same account; nothing more is read)
+		if _, body, _, err := sol.ParseClientState(data); err == nil {
+			v.Client.Validators, v.Client.TrustedTime = len(body.Set), body.Trusted.TimeSecs
+			for _, val := range body.Set {
+				v.Client.Powers = append(v.Client.Powers, val.Power)
+			}
+		}
 	}
 	grace := sol.UnpauseDelay(factor)
 	pausable := s.progs.PausableISM()

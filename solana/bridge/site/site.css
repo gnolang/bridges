@@ -35,11 +35,6 @@ button:disabled { opacity: .5; cursor: default; }
 .hidden { display: none !important; }
 .line { font-size: 13px; color: var(--mute); }
 .line.err { color: var(--bad); }
-ul.steps { list-style: none; padding: 0; margin: 4px 0 0; }
-ul.steps li { display: flex; gap: 6px; align-items: baseline; }
-ul.steps li .mark { width: 1.1em; text-align: center; }
-ul.steps li.done .mark { color: var(--ok); }
-ul.steps li .text { color: var(--mute); font-size: 13px; }
 table { border-collapse: collapse; width: 100%; font-size: 14px; }
 .scroll { overflow-x: auto; } /* a wide table scrolls in its own box at phone width, never the page */
 main ul, main dl, main p, .line, .panel, .preview { overflow-wrap: anywhere; } /* an address or a hash breaks rather than widen the page */
@@ -57,3 +52,157 @@ dd { margin: 0; }
   dt { margin-top: 4px; }
 }
 .preview { margin: 8px 0 0; padding: 6px 10px; border: 1px solid var(--warn); border-radius: 6px; color: var(--warn); font-size: 13px; }
+
+/* ---- M7: the machine, the walkthrough, How it works. Colour is a part's role: teal a cryptographic check, orange
+   the trusted signers, violet a brake or a limit, grey a carrier; the chains and the coins are neutral. Text keeps
+   the text colours; a coloured mark beside it carries the role (the palette passes the all-pairs colour-blind and
+   contrast checks in both themes). */
+:root {
+  --check: #1baf7a; --check-soft: #dcf2e9; --trust: #eb6834; --trust-soft: #fbe2d7; --brake: #4a3aa7; --brake-soft: #e6e3f4;
+  --carrier: #8a877f; --carrier-soft: #ecebe5; --carrier-ink: #6b6862; --coin: #e6d6a8; --coin-ink: #7a6830;
+  --gnob: #3b3934; --gnoh: #8f8a7e; --gnoband: #f0efe9; --solb: #6d7a8f; --solband: #eceef3; --plate: #ffffff;
+  --good: #0ca30c; --critical: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --check: #199e70; --check-soft: #12342a; --trust: #d95926; --trust-soft: #3a2116; --brake: #9085e9; --brake-soft: #26233f;
+    --carrier: #8a877f; --carrier-soft: #23241f; --carrier-ink: #b0ada4; --coin: #6d6249; --coin-ink: #e6d6a8;
+    --gnob: #cfccc2; --gnoh: #8f8a7e; --gnoband: #1b1c19; --solb: #8e9bb2; --solband: #181b20; --plate: #1a1b18;
+  }
+}
+.lede { margin: 0 0 6px; color: var(--mute); font-size: 14px; }
+.machine { margin: 6px 0 2px; }
+.machine-svg { display: block; width: 100%; height: auto; margin: 0 auto; }
+.machine-svg text, .walk-svg text { fill: var(--fg); font-family: inherit; }
+.machine-svg .lbl, .walk-svg .lbl { font-size: 11px; font-weight: 600; }
+.machine-svg .sub, .walk-svg .sub { font-size: 9.5px; fill: var(--mute); }
+.machine-svg .val { font-size: 12px; font-weight: 700; }
+.machine-svg .tiny { font-size: 9px; fill: var(--mute); }
+.machine-svg .chain, .walk-svg .chain { font-size: 12.5px; font-weight: 700; }
+.machine-svg.narrow .chain { font-size: 11px; }
+.machine-svg.narrow .bands .sub { font-size: 8.5px; }
+.walk-svg .unsigned { fill: var(--plate); stroke: var(--check); stroke-width: 1.5; }
+.walk-svg .bracket, .walk-svg .hand { fill: none; stroke: var(--mute); stroke-width: 1.2; }
+.walk-svg .proofdot { fill: var(--check); }
+.walk-svg .clock { fill: var(--brake-soft); stroke: var(--brake); stroke-width: 1.5; }
+.machine-svg .barl { font-size: 10px; font-weight: 600; fill: var(--mute); }
+.machine-svg .bannert { font-size: 10px; font-weight: 700; fill: #fff; }
+.machine-svg .num { font-variant-numeric: tabular-nums; }
+/* a halo in the ground's colour, so a lane passing behind a label never strikes it through */
+.machine-svg .mid text, .machine-svg .nodes text, .machine-svg .bands text { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+.machine-svg .bands text { stroke: var(--gnoband); }
+.machine-svg .node.lock text, .machine-svg .node.mint text, .machine-svg .node.fees text, .machine-svg .node.meter text, .machine-svg .node.claims text, .machine-svg .node.bal text, .machine-svg .node.validators text { stroke: var(--plate); }
+.machine-svg .node.client text { stroke: var(--check-soft); }
+.machine-svg .node.gov text, .machine-svg .node.guardians text, .machine-svg .node.admin text { stroke: var(--brake-soft); }
+.machine-svg .node.bar text, .machine-svg .relayer .barl { stroke: color-mix(in srgb, var(--carrier) 10%, var(--plate)); }
+.machine-svg .node.bar text { stroke: var(--carrier-soft); }
+.band.gnoband { fill: var(--gnoband); }
+.band.solband { fill: var(--solband); }
+.blk .body { fill: var(--gnob); }
+.blk .head { fill: var(--gnoh); }
+.gblock.head .blk .body { fill: var(--fg); }
+.slot { fill: var(--solb); }
+.plate { fill: var(--plate); stroke: var(--line); }
+.plate.check { fill: var(--check-soft); }
+.plate.brake { fill: var(--brake-soft); }
+.srv { color: var(--carrier); }
+.srv.trust { color: var(--trust); }
+.srv .front { fill: color-mix(in srgb, currentColor 16%, var(--plate)); stroke: currentColor; }
+.srv .top { fill: color-mix(in srgb, currentColor 34%, var(--plate)); stroke: currentColor; stroke-width: .6; }
+.srv .side { fill: color-mix(in srgb, currentColor 52%, var(--plate)); stroke: currentColor; stroke-width: .6; }
+.srv .vent { stroke: currentColor; opacity: .55; }
+.vault .body { fill: var(--gnob); }
+.vault .door { fill: none; stroke: var(--gnoh); }
+.vault .dial { fill: var(--coin); stroke: var(--coin-ink); }
+.vault .spokes { stroke: var(--coin-ink); }
+.vault .handle { fill: var(--gnoh); }
+.coin circle, .stack .face, .balance .dish { fill: var(--coin); stroke: var(--coin-ink); }
+.stack .rim { fill: color-mix(in srgb, var(--coin) 72%, var(--coin-ink)); stroke: var(--coin-ink); stroke-width: .8; }
+.machine-svg .coin-t, .walk-svg .coin-t { fill: var(--coin-ink); font-weight: 700; }
+.env rect, .doc rect, .cardpkt rect, .card { fill: var(--plate); stroke: var(--carrier-ink); }
+.env path, .doc path, .cardpkt path { fill: none; stroke: var(--carrier-ink); }
+.seal circle { fill: var(--check); }
+.seal.trust circle { fill: var(--trust); }
+.seal .star { fill: var(--plate); }
+.person circle, .person path { fill: var(--mute); }
+.key circle, .key path { fill: none; stroke: var(--brake); stroke-width: 2; }
+.flag .pole { stroke: var(--mute); stroke-width: 1.2; }
+.flag .cloth { fill: none; stroke: var(--mute); }
+.flag.up .cloth { fill: var(--brake); stroke: var(--brake); }
+.seat[data-empty=yes] { opacity: .35; }
+.eye path { fill: none; stroke: var(--mute); }
+.eye circle { fill: var(--mute); }
+.lamp .bulb { fill: var(--plate); stroke: var(--mute); }
+.lamp .glow { fill: none; }
+.lamp[data-state=up] .bulb { fill: color-mix(in srgb, var(--good) 30%, var(--plate)); stroke: var(--good); }
+.lamp[data-state=vouching] .bulb { fill: var(--good); stroke: var(--good); }
+.lamp[data-state=vouching] .glow { fill: var(--good); opacity: .22; }
+.lamp[data-state=down] .bulb { fill: var(--critical); stroke: var(--critical); }
+.gauge .track, .roomtrack { fill: var(--brake-soft); }
+.gauge .fill, .roomfill { fill: var(--brake); }
+.gauge .mark { stroke: var(--fg); stroke-width: 1; opacity: .5; }
+.gate .post { fill: var(--mute); }
+.gate .bars rect { fill: var(--carrier-soft); stroke: var(--mute); stroke-width: .8; }
+.gate[data-state=closed] .bars rect { fill: var(--brake); stroke: var(--brake); }
+.merkle .node { fill: var(--plate); stroke: var(--mute); stroke-width: .8; }
+.merkle .node.on { fill: var(--check); stroke: var(--check); }
+.merkle .node.aunt { stroke: var(--check); stroke-width: 1.6; }
+.merkle .edge { stroke: var(--mute); stroke-width: .8; }
+.merkle .edge.on { stroke: var(--check); stroke-width: 1.6; }
+.balance .bar, .balance .fulcrum { fill: var(--mute); }
+.balance .post, .balance .cord { stroke: var(--mute); fill: none; }
+.balance .post { stroke-width: 2; }
+.balance .beam { transition: transform .8s ease; }
+.balance[data-identity=BROKEN] .bar { fill: var(--critical); }
+.powers .third { stroke: var(--fg); stroke-width: 1.2; }
+.vpower { fill: var(--plate); stroke: var(--check); }
+.relayer .door { fill: color-mix(in srgb, var(--carrier) 10%, var(--plate)); stroke: var(--carrier); stroke-width: .6; }
+.barbg { fill: var(--carrier-soft); stroke: var(--line); }
+.split { stroke: var(--line); }
+.lane { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.lane.lit { stroke: var(--check); stroke-width: 2.5; }
+.machine-svg[data-playing=send] .lane.lit, .machine-svg[data-playing=payout] .lane.lit { stroke: var(--coin-ink); }
+.machine-svg[data-playing=burn] .lane.lit, .machine-svg[data-playing=credit] .lane.lit { stroke: var(--trust); }
+.machine-svg[data-playing=decision] .lane.lit, .machine-svg[data-playing=enact] .lane.lit { stroke: var(--brake); }
+.link.check { fill: none; stroke: var(--check); stroke-width: 1.5; }
+.trustpin .pin { stroke: var(--check); stroke-width: 1.5; }
+.banner rect { fill: var(--brake); }
+.cards[data-open="0"] .card { opacity: .3; }
+.cards[data-open="1"] .card:nth-child(n+2), .cards[data-open="2"] .card:nth-child(3) { opacity: .3; }
+.node.pulse, .lamp.pulse { animation: mpulse .9s ease; transform-box: fill-box; transform-origin: center; }
+@keyframes mpulse { 35% { transform: scale(1.07); filter: brightness(1.15); } }
+.machine-svg.still *, .machine-svg.still .balance .beam { animation: none !important; transition: none !important; }
+@media (prefers-reduced-motion: reduce) { .machine-svg *, .balance .beam { animation: none !important; transition: none !important; } }
+.caption-row { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: flex-start; margin: 2px 0 6px; }
+.caption { flex: 1 1 300px; margin: 0; font-size: 14px; min-height: 2.8em; }
+.replay { white-space: nowrap; }
+ul.events { list-style: none; padding: 0; margin: 4px 0 8px; }
+ul.events li { display: flex; gap: 8px; align-items: baseline; padding: 3px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+ul.events li:hover, ul.events li:focus { background: var(--panel); outline: none; }
+ul.events .ico { flex: 0 0 18px; align-self: center; }
+ul.events .what { flex: 1 1 auto; min-width: 0; }
+ul.events .t { flex: 0 0 auto; color: var(--mute); font-size: 12px; font-variant-numeric: tabular-nums; }
+.walk-svg { display: block; overflow: visible; }
+.walk-svg .burnmark { stroke: var(--critical); stroke-width: 1.6; }
+ol.walk { list-style: none; padding: 0; margin: 4px 0 2px; }
+ol.walk li { display: flex; gap: 8px; align-items: flex-start; padding: 5px 4px; border-top: 1px solid var(--line); cursor: pointer; border-radius: 4px; }
+ol.walk li:first-child { border-top: 0; }
+ol.walk li:hover, ol.walk li:focus, ol.walk li.shown { background: var(--bg); outline: none; }
+ol.walk .mark { flex: 0 0 1.1em; text-align: center; font-weight: 700; }
+ol.walk li.done .mark { color: var(--ok); }
+ol.walk li.now .mark { color: var(--brake); }
+ol.walk li.later { opacity: .62; }
+ol.walk .body { flex: 1 1 auto; min-width: 0; }
+ol.walk .head { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; }
+ol.walk .head .t { color: var(--mute); font-size: 12px; font-variant-numeric: tabular-nums; }
+ol.walk .what { font-size: 13px; }
+ol.walk .why { font-size: 12.5px; color: var(--mute); }
+ol.walk .pic { flex: 0 0 64px; align-self: center; }
+@media (max-width: 480px) { ol.walk .pic { flex-basis: 44px; } ol.walk .pic svg { width: 44px; height: 28px; } }
+/* How it works: scenes in a grid, one sentence or two each */
+.scenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin: 8px 0; }
+.scene { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin: 0; }
+.scene svg { display: block; width: 100%; height: auto; }
+.scene h3 { font-size: 14px; margin: 6px 0 2px; }
+.scene h3 .n { color: var(--mute); font-weight: 400; margin-right: 4px; }
+.scene p { font-size: 13px; margin: 0; }

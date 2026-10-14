@@ -9,11 +9,17 @@
 <body>
 <header>
   <span class="brand">bridge.gno.world</span>
-  <nav><a href="/">Home</a> <a href="/bridge">Bridge</a> <a href="/status">Status</a> <a href="/help">Help</a></nav>
+  <nav><a href="/">Home</a> <a href="/bridge">Bridge</a> <a href="/status">Status</a> <a href="/how">How it works</a> <a href="/help">Help</a></nav>
   <span class="chain"></span>
 </header>
 <main>
 <h1>GNOT and BUBBLE, between gno.land and other chains</h1>
+<p class="lede">The bridge as it runs: gno.land's blocks along the top, Solana's slots along the bottom, and every real transfer moving through the parts that check it. Read live from both chains.</p>
+<div id="machine" class="machine"></div>
+<div class="caption-row"><p id="caption" class="caption" aria-live="polite">reading the chains…</p><button id="replay" class="replay hidden" title="the most recent transfer each way, its real steps, faster">▶ replay the last real transfer</button></div>
+<div id="stale" class="line hidden"></div>
+<ul id="events" class="events" aria-label="recent events"></ul>
+
 <p>Send GNOT or BUBBLE from gno.land to Solana and back. On gno.land your coins go into a lock a realm holds; on Solana you get the same amount of a token that stands for them, one to one. Burn that token on Solana and the lock pays you back on gno.land. Solana is the first chain; others can follow the same way.</p>
 
 <h2>How it is checked</h2>
@@ -26,7 +32,7 @@
 <h2>The honest limits</h2>
 <p>Caps bound the loss. A day's payouts on gno.land are at most a tenth of the lock (never below a floor), one recipient gets a quarter of that, and a transfer is at most 25,000 per message. If the three machines stop, nobody leaves Solana until governance swaps them: 7 days plus the swap. GovDAO's two-thirds vote can replace gno.land's validators in one block, and nothing here stops it; the week of delays buys holders time to leave, about half the lock in seven days. Until the yield to GovDAO one key decides, so the lock stays small and no outside audit has read the code yet. A transfer can be late — a header must pass it, the relayers retry hourly — but it is not lost: a send waits in the lock, a burn waits as a claim.</p>
 <p>Two endings no rule here prevents. If more than two thirds of gno.land's validator keys were stolen, Solana could not tell a forged block from a real one: the guardians' hold and the 7-day wait give governance time to cancel each forged decision, the caps bound what leaves meanwhile, and the cure is a new validator set and a new deployment. If Solana's check of gno.land ever stops working — the chain forks, or its validators change in a way the check cannot follow — sends to Solana stop for good while burns back keep working, so every holder can still come home, and governance deploys the bridge again.</p>
-<p class="mute">The figures live on the <a href="/status">Status</a> page; the fees, the delays and what to do when something is late are on <a href="/help">Help</a>.</p>
+<p class="mute">Each part, step by step, is on <a href="/how">How it works</a>; the figures live on the <a href="/status">Status</a> page; the fees, the delays and what to do when something is late are on <a href="/help">Help</a>.</p>
 </main>
 <script type="module" src="/home.js"></script>
 </body>

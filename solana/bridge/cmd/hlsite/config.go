@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -46,6 +47,9 @@ type ChainConfig struct {
 		Admin    string `json:"admin"`
 		Client   string `json:"client"`
 	} `json:"programs"`
+	// Signers are the signer machines' public signature endpoints (each serves GET <url>/v1/sol/<nonce>, what the
+	// relayers read), which the site asks for its lamps (M7); optional — without them the lamps say nothing.
+	Signers []string `json:"signers"`
 }
 
 // TokenConfig is one route: the token on the far side and its realm on gno.land.
@@ -118,6 +122,11 @@ func (c *Config) check() error {
 		for _, p := range []struct{ name, id string }{{"mailbox", ch.Programs.Mailbox}, {"pausable", ch.Programs.Pausable}, {"admin", ch.Programs.Admin}, {"client", ch.Programs.Client}} {
 			if _, err := solana.PublicKeyFromBase58(p.id); err != nil {
 				return fmt.Errorf("config: chain %s: programs.%s %q is not a program id", ch.ID, p.name, p.id)
+			}
+		}
+		for _, s := range ch.Signers {
+			if u, err := url.Parse(s); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+				return fmt.Errorf("config: chain %s: signer endpoint %q is not an http(s) URL", ch.ID, s)
 			}
 		}
 		if len(ch.Tokens) == 0 {

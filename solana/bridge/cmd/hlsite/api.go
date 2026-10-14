@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -32,13 +33,28 @@ type server struct {
 	now    func() time.Time
 	lim    *limiter
 
-	mu       sync.Mutex
-	statuses map[string]*cached
-	chains   *cached
-	transfer map[string]*cached
-	mailbox  *agent.MailboxView // the last mailbox view, for the realm addresses a burn may not name
+	mu        sync.Mutex
+	statuses  map[string]*cached
+	good      map[string]*cached // a chain's last good status, served marked stale while a read fails (M7)
+	chains    *cached
+	transfer  map[string]*cached
+	mailbox   *agent.MailboxView // the last mailbox view, for the realm addresses a burn may not name
+	mailboxAt time.Time
+	// the activity (M7): one index per chain, the signers' lamps and how they are asked
+	actsMu sync.Mutex
+	acts   map[string]*chainActivity
+	lampc  lampCache
+	prober signerProber
+	// how long a reading is served from the cache (the mock's world moves at once: SITE.md, M7)
+	statusTTL, transferTTL, activityTTL, lampsTTL time.Duration
+	// the activity's readings are refreshed in the background, one job per key, so a slow provider never holds a
+	// page; syncRefresh reads them in the request instead (the tests and the mock, which want each read's effect)
+	bg          bgRunner
+	syncRefresh bool
 	// mockInfo is served at /api/mock under -mock alone: the canned deployment's ids for the browser suite.
 	mockInfo map[string]string
+	// world is the mock deployment's two transfers in flight, which POST /api/mock/step moves (-mock alone).
+	world *mockWorld
 	// preview serves the canned deployment as a public preview before the bridge is deployed: the pages say so,
 	// the figures are examples, and the builder refuses — nobody is handed a transaction for programs that do not
 	// exist (SITE.md).
@@ -52,15 +68,20 @@ type cached struct {
 }
 
 func newServer(cfg *Config, g gnoNode, others map[string]Other, site string) *server {
-	s := &server{cfg: cfg, gno: g, others: others, site: site, now: time.Now, statuses: map[string]*cached{}, transfer: map[string]*cached{}}
+	s := &server{cfg: cfg, gno: g, others: others, site: site, now: time.Now, statuses: map[string]*cached{}, good: map[string]*cached{}, transfer: map[string]*cached{},
+		acts: map[string]*chainActivity{}, prober: httpProber{&http.Client{Timeout: 5 * time.Second}}, statusTTL: statusTTL, transferTTL: transferTTL, activityTTL: activityTTL, lampsTTL: lampsTTL}
+	s.lampc.m = map[string]lampEntry{}
 	s.lim = newLimiter(2, 30, func() time.Time { return s.now() }) // two requests a second, a burst of thirty, per client
 	return s
 }
 
+// activityTTL is how often a chain's index is refreshed at most: the status's ten seconds.
+const activityTTL = 10 * time.Second
+
 // rememberMailbox keeps the last mailbox view: a burn's recipient is checked against every route it registers.
 func (s *server) rememberMailbox(mb agent.MailboxView) {
 	s.mu.Lock()
-	s.mailbox = &mb
+	s.mailbox, s.mailboxAt = &mb, s.now()
 	s.mu.Unlock()
 }
 
@@ -86,6 +107,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /api/chains", s.handleChains)
 	mux.HandleFunc("GET /api/{chain}/status", s.handleStatus)
 	mux.HandleFunc("GET /api/{chain}/transfer/{ref}", s.handleTransfer)
+	mux.HandleFunc("GET /api/{chain}/activity", s.handleActivity)
 	mux.HandleFunc("POST /api/{chain}/burn-tx", s.handleBurnTx)
 	mux.HandleFunc("/api/{chain}/burn-tx", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "POST")
@@ -96,6 +118,30 @@ func (s *server) handler() http.Handler {
 			body, _ := json.Marshal(s.mockInfo)
 			writeJSON(w, 200, body)
 		})
+		if s.world != nil {
+			// the browser suite moves the mock's transfers a step at a time: out (header, proof, mint), in (a
+			// signer, a signer, the credit, half paid, paid), down (signer 3 stops answering, or answers again)
+			mux.HandleFunc("POST /api/mock/step", func(w http.ResponseWriter, r *http.Request) {
+				flow := r.URL.Query().Get("flow")
+				if err := s.world.step(flow); err != nil {
+					jsonError(w, 400, err.Error())
+					return
+				}
+				if flow == "reset" { // and the readings of the world that was
+					s.actsMu.Lock()
+					s.acts = map[string]*chainActivity{}
+					s.actsMu.Unlock()
+					s.mu.Lock()
+					s.statuses, s.good, s.transfer, s.mailbox = map[string]*cached{}, map[string]*cached{}, map[string]*cached{}, nil
+					s.mu.Unlock()
+					s.lampc.mu.Lock()
+					s.lampc.m = map[string]lampEntry{}
+					s.lampc.mu.Unlock()
+				}
+				body, _ := json.Marshal(s.world.stages())
+				writeJSON(w, 200, body)
+			})
+		}
 	}
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { jsonError(w, 404, "no such endpoint") })
 	mux.HandleFunc("/", s.handleStatic)
@@ -250,29 +296,81 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	code, body := s.statusBody(ctx, ch, other)
+	writeJSON(w, code, body)
+}
+
+// statusBody is a chain's status as /status serves it, from the cache while it is fresh: a 200 with the
+// composition, or a 503 that says what could not be read.
+func (s *server) statusBody(ctx context.Context, ch *ChainConfig, other Other) (int, []byte) {
 	s.mu.Lock()
 	c := s.statuses[ch.ID]
 	s.mu.Unlock()
-	if c != nil && s.now().Sub(c.at) < statusTTL {
-		writeJSON(w, c.code, c.body)
-		return
+	if c != nil && s.now().Sub(c.at) < s.statusTTL {
+		return c.code, c.body
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
-	defer cancel()
 	st, err := s.status(ctx, ch, other)
 	var body []byte
 	code := 200
 	if err != nil {
 		code = 503
 		body, _ = json.Marshal(map[string]string{"error": err.Error()})
-		log.Printf("status %s: %v", ch.ID, err)
+		log.Printf("status %s: %s", ch.ID, agent.Redact(err.Error()))
 	} else {
 		body, _ = json.Marshal(st)
 	}
 	s.mu.Lock()
 	s.statuses[ch.ID] = &cached{at: s.now(), code: code, body: body}
+	if code == 200 {
+		s.good[ch.ID] = s.statuses[ch.ID]
+	}
 	s.mu.Unlock()
-	writeJSON(w, code, body)
+	return code, body
+}
+
+// statusNow is the status the activity carries (M7), at once: the last reading, a stale one refreshed in the
+// background (read now only the first time, or with syncRefresh). While a read fails — a public node's rate limit,
+// say — it is the last good reading, marked stale, with the failure named: the picture keeps its figures and says
+// how old they are rather than going blank. nil when there was never a good one.
+func (s *server) statusNow(ctx context.Context, ch *ChainConfig, other Other) (body []byte, stale bool, failure string) {
+	s.mu.Lock()
+	c := s.statuses[ch.ID]
+	s.mu.Unlock()
+	if c == nil || s.now().Sub(c.at) >= s.statusTTL {
+		if s.syncRefresh {
+			s.statusBody(ctx, ch, other)
+		} else {
+			s.bg.run("status/"+ch.ID, func() {
+				bctx, cancel := context.WithTimeout(context.Background(), refreshBudget)
+				defer cancel()
+				s.statusBody(bctx, ch, other)
+			})
+			if c == nil {
+				waitFor(ctx, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.statuses[ch.ID] != nil })
+			}
+		}
+	}
+	s.mu.Lock()
+	c, g := s.statuses[ch.ID], s.good[ch.ID]
+	s.mu.Unlock()
+	if c == nil {
+		return nil, false, "the first reading of the status is under way"
+	}
+	if c.code == 200 {
+		return c.body, false, ""
+	}
+	var e struct {
+		Error string `json:"error"`
+	}
+	if c != nil {
+		_ = json.Unmarshal(c.body, &e)
+	}
+	if g == nil {
+		return nil, false, "the status could not be read: " + e.Error
+	}
+	return g.body, true, fmt.Sprintf("the status could not be read (%s); the figures are from %s", e.Error, g.at.UTC().Format("15:04:05 UTC"))
 }
 
 const transferTTL = 5 * time.Second
@@ -291,7 +389,7 @@ func (s *server) handleTransfer(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	c := s.transfer[key]
 	s.mu.Unlock()
-	if c != nil && s.now().Sub(c.at) < transferTTL {
+	if c != nil && s.now().Sub(c.at) < s.transferTTL {
 		writeJSON(w, c.code, c.body)
 		return
 	}
@@ -369,7 +467,7 @@ func (s *server) handleBurnTx(w http.ResponseWriter, r *http.Request) {
 // ------------------------------------------------------------------- static --
 
 // pages maps the site's paths to its files; anything else is a file under the site directory by its extension.
-var pages = map[string]string{"/": "index.html", "/bridge": "bridge.html", "/status": "status.html", "/help": "help.html"}
+var pages = map[string]string{"/": "index.html", "/bridge": "bridge.html", "/status": "status.html", "/how": "how.html", "/help": "help.html"}
 
 var staticExt = map[string]string{".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".txt": "text/plain; charset=utf-8", ".webmanifest": "application/manifest+json"}
 

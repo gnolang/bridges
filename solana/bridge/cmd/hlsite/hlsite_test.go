@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http/httptest"
 	"os"
@@ -101,8 +102,12 @@ func TestSolanaSnapshot(t *testing.T) {
 	if snap.Pausable.Keys[0] != mockPub("g1").String() || snap.Admin.Keys[4] != mockPub("watch5").String() {
 		t.Errorf("seats: %v", snap.Pausable.Keys)
 	}
-	if snap.Client == nil || snap.Client.TrustedHeight != 1299 || snap.Client.ClockFactor != 1 || snap.Client.QuarantineEnd != 0 {
+	if snap.Client == nil || snap.Client.TrustedHeight != 1291 || snap.Client.ClockFactor != 1 || snap.Client.QuarantineEnd != 0 {
 		t.Errorf("client: %+v", snap.Client)
+	}
+	// the set the headers are checked against, from the same account's body
+	if snap.Client.Validators != 6 || len(snap.Client.Powers) != 6 || snap.Client.Powers[0] != 60 || snap.Client.TrustedTime != fixedNow().Add(-9*mockBlock).Unix() {
+		t.Errorf("client's set: %d validators, powers %v, trusted time %d", snap.Client.Validators, snap.Client.Powers, snap.Client.TrustedTime)
 	}
 	if snap.LastSeq != 3 || !snap.SetupDone || len(snap.Pending) != 1 {
 		t.Fatalf("admin: last %d setup %v pending %+v", snap.LastSeq, snap.SetupDone, snap.Pending)
@@ -195,17 +200,41 @@ func TestBurnTx(t *testing.T) {
 func TestResolveTransfers(t *testing.T) {
 	s, _, _ := mockServer(true, siteDir, fixedNow)
 	ch, other := &s.cfg.Chains[0], s.others["solana"]
-	// out, by message id: dispatched on the first two looks, delivered on the third
-	for i, want := range []string{"dispatched", "dispatched", "delivered"} {
+	// out, by message id: dispatched until the world mints it (stage 3)
+	for stage, want := range []string{"dispatched", "dispatched", "dispatched", "delivered"} {
+		if stage > 0 {
+			if err := s.world.step("out"); err != nil {
+				t.Fatal(err)
+			}
+		}
 		tr, err := s.resolve(ctx, ch, other, "0x"+strings.ToUpper(mockOutID))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if tr.Direction != "out" || tr.Token != "GNOT" || tr.Amount != 10*one || tr.From != mockSender || tr.State != want || tr.Kind != "message" || len(tr.Steps) != 2 || tr.Steps[1].Done != (want == "delivered") {
-			t.Errorf("look %d: %+v", i, tr)
+			t.Errorf("stage %d: %+v", stage, tr)
 		}
 		if want == "delivered" && (!strings.Contains(tr.Steps[1].Link, "explorer.solana.com/tx/") || !strings.Contains(tr.Steps[1].Link, "cluster=devnet")) {
 			t.Errorf("the delivery's link: %s", tr.Steps[1].Link)
+		}
+		// the walkthrough: lock and final from the start, then the header, the proof and the mint, one a stage
+		done := ""
+		for _, w := range tr.Walk {
+			if w.Done {
+				done += w.Key + " "
+			}
+		}
+		if want := []string{"lock final ", "lock final header ", "lock final header proof ", "lock final header proof mint "}[stage]; done != want {
+			t.Errorf("stage %d: the walk's done steps %q, want %q", stage, done, want)
+		}
+		if tr.Height != outHeight || tr.Nonce != 2 || tr.To != mockPub("alice").String() || tr.At != fixedNow().Add(-10*mockBlock).Unix() {
+			t.Errorf("stage %d: height %d nonce %d to %s at %d", stage, tr.Height, tr.Nonce, tr.To, tr.At)
+		}
+		if stage >= 2 && (tr.Proof == nil || !tr.Proof.Ring || tr.Proof.Height != outHeight+1 || tr.Proof.Total != 3 || tr.Proof.Index != 1 || tr.Proof.Aunts != 2) {
+			t.Errorf("stage %d: the proof %+v", stage, tr.Proof)
+		}
+		if stage >= 1 && (tr.Walk[2].Height != 1291 || !tr.Walk[2].Exact || tr.Trusted != 1291) {
+			t.Errorf("stage %d: the header step %+v, trusted %d", stage, tr.Walk[2], tr.Trusted)
 		}
 	}
 	// out, by the wallet's gno.land transaction hash
@@ -216,20 +245,46 @@ func TestResolveTransfers(t *testing.T) {
 	if tr.Kind != "gnotx" || tr.ID != mockOutID || tr.Ref != mockGnoTx || !strings.Contains(tr.Steps[0].Link, "txhash="+mockGnoTx) {
 		t.Errorf("by gno tx: %+v", tr)
 	}
-	// in, by the Solana signature: credited, credited, paying, paid
-	for i, want := range []string{"credited", "credited", "paying", "paid"} {
+	// in, by the Solana signature: burned while the signers vouch, then credited, paying, paid
+	for stage, want := range []string{"burned", "burned", "burned", "credited", "paying", "paid"} {
+		if stage > 0 {
+			if err := s.world.step("in"); err != nil {
+				t.Fatal(err)
+			}
+		}
 		tr, err := s.resolve(ctx, ch, other, mockBurnTx)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if tr.Direction != "in" || tr.Kind != "signature" || tr.Token != "BUBBLE" || tr.Amount != 200*one || tr.To != mockRecipient || tr.ID != mockInID || tr.State != want || len(tr.Steps) != 3 {
-			t.Errorf("look %d: %+v", i, tr)
+			t.Errorf("stage %d: %+v", stage, tr)
 		}
-		if !tr.Steps[0].Done || !strings.Contains(tr.Steps[0].Link, "/tx/"+mockBurnTx) || !tr.Steps[1].Done || !strings.Contains(tr.Steps[1].Text, "height 1203") || tr.Steps[2].Done != (want == "paid") {
-			t.Errorf("look %d steps: %+v", i, tr.Steps)
+		credited := stage >= 3
+		if !tr.Steps[0].Done || !strings.Contains(tr.Steps[0].Link, "/tx/"+mockBurnTx) || tr.Steps[1].Done != credited || (credited && !strings.Contains(tr.Steps[1].Text, "height 1300")) || tr.Steps[2].Done != (want == "paid") {
+			t.Errorf("stage %d steps: %+v", stage, tr.Steps)
 		}
 		if want == "paying" && tr.Paid != 100*one {
 			t.Errorf("paying: paid %d", tr.Paid)
+		}
+		// the walkthrough: the signers light one by one until two vouch, then the delivery and the credit, then the pay
+		done := ""
+		for _, w := range tr.Walk {
+			if w.Done {
+				done += w.Key + " "
+			}
+		}
+		if want := []string{"burn ", "burn ", "burn vouch ", "burn vouch deliver credit ", "burn vouch deliver credit ", "burn vouch deliver credit pay "}[stage]; done != want {
+			t.Errorf("stage %d: the walk's done steps %q, want %q", stage, done, want)
+		}
+		if wantV := [][]int{{}, {1}, {1, 2}}; stage < 3 && fmt.Sprint(tr.Vouched) != fmt.Sprint(wantV[stage]) {
+			t.Errorf("stage %d: vouched %v, want %v", stage, tr.Vouched, wantV[stage])
+		}
+		if tr.Nonce != 9 || tr.Threshold != 2 || tr.Signers != 3 || tr.At != fixedNow().Unix()-300 {
+			t.Errorf("stage %d: nonce %d threshold %d signers %d at %d", stage, tr.Nonce, tr.Threshold, tr.Signers, tr.At)
+		}
+		// the meters while it waits: the bridge meter and a recipient's quarter of the day cap, the part still owed
+		if (stage == 3 || stage == 4) != (tr.Meter != nil) || (tr.Meter != nil && (tr.Meter.Cap != []int64{0, 0, 0, 250_020, 250_010, 0}[stage]*one || tr.Meter.Recipient != tr.Meter.Cap/4 || tr.Meter.Remaining != []int64{0, 0, 0, 200, 100, 0}[stage]*one)) {
+			t.Errorf("stage %d: the meter %+v", stage, tr.Meter)
 		}
 	}
 	// in, by its message id
@@ -279,7 +334,6 @@ func TestIdentityLine(t *testing.T) {
 	}
 	// a supply above the lock breaks it; what is in flight shows as the gap
 	ms.supplies[sol.Synthetic{Program: mockPub("gnot")}.Mint()] = 1_000_000*one + 1
-	g.polls = map[string]int{}
 	st, _ = s.status(ctx, &s.cfg.Chains[0], s.others["solana"])
 	if st.Tokens[0].Identity != "BROKEN" || !strings.HasPrefix(st.Tokens[0].IdentityLine, "BROKEN: the right side exceeds the lock by 1") {
 		t.Errorf("%s: %s", st.Tokens[0].Identity, st.Tokens[0].IdentityLine)
@@ -326,7 +380,7 @@ func TestAPI(t *testing.T) {
 		t.Errorf("gno: %+v tokens %+v", chains.Gno, chains.Chains[0].Tokens)
 	}
 	// the headers, on the API and on the pages
-	for _, p := range []string{"/api/chains", "/", "/bridge", "/status", "/help", "/site.css", "/bridge.js"} {
+	for _, p := range []string{"/api/chains", "/api/solana/activity", "/", "/bridge", "/status", "/how", "/help", "/site.css", "/bridge.js", "/machine.js", "/draw.js", "/walk.js", "/how.js"} {
 		rr := do("GET", p, "", "")
 		csp := rr.Header().Get("Content-Security-Policy")
 		if rr.Code != 200 || !strings.Contains(csp, "connect-src 'self'") || !strings.Contains(csp, "default-src 'none'") || rr.Header().Get("X-Frame-Options") != "DENY" || rr.Header().Get("X-Content-Type-Options") != "nosniff" {
@@ -480,7 +534,7 @@ func TestWalletsUnderCSP(t *testing.T) {
 		t.Errorf("the policy opens something: %s", csp)
 	}
 	// the pages reference no outside origin
-	for _, f := range []string{"index.html", "bridge.html", "status.html", "help.html", "common.js", "wallets.js", "bridge.js", "status.js", "home.js", "help.js", "site.css"} {
+	for _, f := range []string{"index.html", "bridge.html", "status.html", "help.html", "how.html", "common.js", "wallets.js", "bridge.js", "status.js", "home.js", "help.js", "how.js", "draw.js", "machine.js", "walk.js", "site.css"} {
 		b, err := os.ReadFile(filepath.Join(siteDir, f))
 		if err != nil {
 			t.Fatal(err)

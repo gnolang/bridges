@@ -19,6 +19,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -71,6 +72,9 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("hlsite: listening on %s\n", ln.Addr())
+	if !*mock && !*preview {
+		go s.warm()
+	}
 	srv := &http.Server{Handler: s.handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second}
 	log.Fatal(srv.Serve(ln))
 }
@@ -82,4 +86,17 @@ func domainOf(cfg *Config) uint32 {
 		return 1198419788
 	}
 	return 1198419796
+}
+
+// warm reads each chain's status and activity once at start, in the background, so the first visitor finds them.
+func (s *server) warm() {
+	for i := range s.cfg.Chains {
+		ch := &s.cfg.Chains[i]
+		if other := s.others[ch.ID]; other != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), refreshBudget)
+			s.statusNow(ctx, ch, other)
+			s.activityNow(ctx, ch, other)
+			cancel()
+		}
+	}
 }

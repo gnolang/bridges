@@ -166,3 +166,162 @@ The live wiring is verified against the local e2e deployment's shapes only. Devn
 9. **The limiter behind nginx** — `X-Forwarded-For` as the vhost sets it.
 10. **The identity's reading** against the monitors' on a live bridge: a send in flight shows as a positive gap
     here and as exact in-flight there.
+
+# M7 — the machine: the bridge shown as it runs (2026-10-14; branch bridge-m7 from bridge d8888a6f)
+
+Jae, 2026-10-14, the day the bridge went live on mainnet: "begin working on making bridge.gno.world visually
+illustrative and dynamic w/ the bridging mechanics so users learn how it all works under the hood (educational
+feedback of what's going on)." So the site now draws the bridge as a machine fed by the real chains, plays every
+real event on it as it happens, walks a tracked transfer through its steps saying why each is safe, and explains the
+parts on a page of its own. Deployed to bridge.gno.world the same day (§Deployed).
+
+## The pages
+
+- **Home** (`index.html`, `home.js`): the machine (`machine.js`) is the centrepiece. gno.land's blocks stream
+  along the top at ≈3.4 s, Solana's slots along the bottom at ≈0.4 s (each from the last reading, run forward at
+  the chain's pace); a teal pin rides the block the light client trusts, or the lag is written at the stream's left
+  edge, so the client is seen following the head and jumping forward when a header lands. Between the chains, the
+  parts, each a drawn object with a short label: gno.land's validators (a seal each, sized by power — the client's
+  own set), the fee realm, one vault per token with its lock, the payout meter (a gauge refilling at the day cap a
+  day, a mark at a recipient's quarter), the claims, the governor (Jae's key until the yield, GovDAO after) and the
+  guardians with their flags (four seats, two watch keys; a flag raised on any object shows); hlmailbox and
+  Solana's mailbox as two bars (down: sends; up: checks 2 of 3 / burns), the updater, the relayer (two doors:
+  proves sends, vouched burns) and the three signers, each a lamp — vouching (serves the newest burn's signature),
+  up, down — with its word under it; Solana's light client (its trusted height, the validators' power as one bar
+  with the 2/3 mark), the pausable gate across the two mints (violet when a flag or the quarantine stands), the
+  mints' supplies, the gate's day bucket, the admin program and what it waits on. Under the Solana stream the
+  identity as two balances, lock = supply + owed + voided − lost with the numbers: level while it holds, tipped
+  toward the lock while a transfer is in flight, red the other way if BROKEN.
+  The paths are straight lanes a packet travels: a send goes down its token's lane (block → lock → hlmailbox →
+  relayer → mailbox → gate → mint), a burn comes up the lane on the right (mint → outbox → the signers vouch →
+  relayer → hlmailbox → claim → meter → out of the lock), a header goes down the left (block → validators → updater
+  → light client), a decision from the governor through the relayer to the admin program. Every new event in the
+  activity plays as it arrives (the newest also on load when it is under 90 s old); a caption strip says in one
+  sentence what happened and why it is safe, and between events what stands ("gno.land is at block 793,795;
+  Solana's light client trusts block 793,647, 148 behind — the updater brings a header every 10 minutes, or as
+  soon as a transfer waits"). The recent events are listed (the newest header and the newest transfer steps); a
+  click plays one. After a minute with nothing new, **replay the last real transfer** plays the newest completed
+  transfer each way with its real steps and times, faster, under a REPLAY banner, then gives the picture back to
+  the live view (events that came meanwhile play after it). The page reads the activity every ten seconds and at
+  once when its tab comes back. The plain story follows the machine, unchanged.
+- **Bridge** (`bridge.js`, `walk.js`): tracking a transfer (by message id, gno.land transaction hash or Solana
+  signature) walks it through five steps, each with its real numbers and time, why it is safe, and a small picture:
+  gno.land → Solana: locked in the realm → the block is final (> 2/3 of the power signed it; gno.land does not
+  reorganize) → its header reaches Solana (the updater; anyone may carry headers, a forged one needs 2/3 of the
+  keys) → the relayer proves the transfer (the results proof drawn as a tree: the leaf, the path, the siblings; a
+  block of one result is its own root) → minted, through the gate. Solana → gno.land: burned (final) → 2 of 3
+  signers vouch (the lamps light one by one) → the relayer delivers it (hlmailbox checks 2 of 3, marks the id done
+  once) → a claim is credited (an IOU, counted as owed) → paid under the meter (the gauge and the time the meters
+  still need, an estimate: the chain renders no recipient's meter). A compact machine sits under the tracker, runs
+  live between transfers, plays each step as it becomes done, and plays a step again when it is chosen.
+- **How it works** (`how.html`, `how.js`, `/how`, in every page's nav): eleven small scenes drawn with the same
+  pieces (`draw.js`) — two chains, the lock, the validators' signatures, the header crossing, the proof as a tree,
+  the gate and the mint, the burn, the signers vouching, the claim under the meter, the balance, who can stop it —
+  one or two sentences each, each playing once in view and again on a tap.
+- **Reduced motion**: nothing moves. The streams stand at the reading, an event lights its path instead of
+  carrying a packet, the scenes light theirs; the figures, the lamps, the balances and the captions are the same.
+- **Colour is the part's role** (`site.css`, both themes): teal a cryptographic check (validators, the light client,
+  the proof, the verifier), orange the trusted signers, violet a brake or a limit (guardians, the gate closed, the
+  meters, the governor's plate), grey a carrier (updater, relayer, mailboxes); the chains and the coins neutral; the
+  lamps the reserved status colours with their words. The three role hues pass the colour-blind and contrast checks
+  across every pair in both themes; text keeps the text colours. No hexagram anywhere: seals carry a four-point
+  star.
+
+## The backend: `GET /api/<chain>/activity`
+
+`activity.go`, `solana_activity.go`, `signers.go`. One index per chain, of what the chains' own records say:
+
+- **gno.land**: hlmailbox's newest messages (`msgs/<from>`, read only when its count moved), each a route's send
+  (token, amount and recipient from the message; sender and time from the route's `send/<id>`) or r/hlgov's decision
+  (its kind and number, its block's time); the burns' claims (`claim/<id>`: credited when and in which block, paid
+  how far; a payout's time is this reader's observation — the chain keeps none — and marked not exact otherwise).
+- **Solana**: the mailbox's outbox and inbox counters and the client's 64-byte head at once; a listing only when its
+  counter moved (or a read left work): the outbox's newest transactions → the burns (each read as the tracker reads
+  one: the dispatch record of that slot); the inbox's → the deliveries, read from each process instruction's own
+  message bytes (a route's message a mint, the admin program's a decision); the client's → the headers accepted
+  (an update's StageInit names the header, its UpdateFinish accepts it) and the proofs staged (the message's
+  sha256, the header — or the client's ring entry, resolved by reading the client's whole account only then — and
+  the tree's shape: leaves, index, siblings; the first staging kept). Each transaction is read once, four at a
+  time; the first read takes the whole listing (20 for the mailbox, 60 for the client: about two hours of headers),
+  every later read at most 15 new ones; every account batch at most ten (sol.MultiMax; the mock refuses more).
+- **The signers' lamps**: the config's new `signers` (each signer's public signature endpoint, what the relayers
+  read; optional — without it the lamps say nothing) asked for the newest burn's nonce: a signature is vouching, any
+  answer up, none down; fifteen seconds' cache.
+- **The answer**: the status (as /status serves it; while a read fails — rpc.gno.land's per-IP rate limit was met
+  at 05:55 by the box's agents and hlsite together — its last good reading, `stale`, with the failure and the
+  reading's time named), the lamps and the threshold, the counters, the events newest first with stable keys (the
+  page plays each once), and `last`: the newest completed transfer each way with its walk, for the replay.
+- **Never in the way**: the index answers at once from its last reading and refreshes in the background when older
+  than ten seconds (one refresh at a time, on a copy that replaces the reading whole; a read's budget 15 s, a
+  refresh's 90 s); the status and the lamps likewise; a fresh server warms all of them at start; before the very
+  first reading a request waits at most four seconds and then says the reading is under way. A public provider's
+  slow answer (15 s was measured for one getMultipleAccounts) delays the picture, never the page. The route is
+  under the same per-client limiter and policy as the rest of /api.
+- **The transfer's walk**: `/api/<chain>/transfer/<ref>` now also carries `walk` (the five steps' done and time),
+  `height`, `nonce`, `trusted`, `proof`, `vouched`, `signers`, `threshold` and `meter` (the payout meter's level,
+  cap, a recipient's quarter and the remainder, while a claim waits); a send older than the index's listing is
+  found in hlmailbox's pages before it (five at most, each read once).
+
+The mock (`-mock`) is now a staged world: a history (decision #3 enacted; 25 GNOT out with its header, proof and
+mint; 500 BUBBLE back, vouched, credited, paid) and two transfers in flight that move only when stepped (`POST
+/api/mock/step?flow=out|in|down|reset`, -mock alone): out — locked, the header of block 1291 accepted, the proof
+staged against it from the client's ring, minted; in — burned, signer 1 vouches, signer 2, credited, half paid,
+paid. The figures move with the stages so the identity holds at each (a send in flight is a gap until its mint, a
+burn until its credit). The transactions are built with bridge/sol's own instruction builders, so the readers parse
+what the programs would. Its limiter is a hundred a second (the suite is one client making a crowd's requests); a
+deployment keeps two.
+
+## Tests and verdicts (2026-10-14, the devbox: Go 1.27.1, node 22, Playwright 1.56.1)
+
+- **Go** (`go test ./cmd/hlsite/`, also under `-race`): TestActivity (the history's events with their exact times,
+  a mint's proof, a payout not exactly timed, the send through its header, its ring proof and its mint, the burn
+  through its lamps, credit, half and full payout, a signer down, the replay's choice of completed transfers, the
+  reset), TestActivityReadsOnlyWhatMoved (each transaction read once; a read where nothing moved costs the two
+  counters, the client's head and the mailbox's render; nothing within the TTL), TestActivityAnswersAtOnce (five
+  reads of a stale reading answer at once while one background refresh runs behind a 300 ms provider),
+  TestActivityKeepsTheLastStatus (stale with the failure named; /status still 503), TestLamps, TestProcessMessage,
+  TestWalks, TestFindDispatch; TestResolveTransfers walks both directions through every stage; the policy test reads
+  every new file. `go vet` and `gofmt` clean.
+- **Browser** (`site/e2e/run.js`, `make -C bridge site-qa`): **PASS, 151 checks at desktop and phone width** — the
+  machine drawn from the mock's figures (the head, the trusted height, the locks, the supplies, three lamps up, six
+  validators, the GNOT balance tipped by the 10 GNOT in flight), the header event playing as it arrives (its packet,
+  its caption, the pin moving to 1,291) and an event row playing on a click, the walkthrough through every step both
+  ways with the machine playing each (the proof's tree, leaf 2 of 3; the lamps lighting 1 then 2; the meter's time
+  left; paid in installments, then in full), the replay of the last completed round trip in order with its real
+  numbers (the page's clock ten minutes on), How it works (eleven scenes, played in view and on a tap), reduced
+  motion (the same figures, the streams still, a lit path and no packet), the dark theme, no overflow and no text
+  spilling its box (HTML), every label inside its part and its drawing (SVG, on screen), no page error — with every
+  M5 check kept (the wallets' exact requests, the refusals, the status and help pages, the policy).
+
+## Deployed (2026-10-14)
+
+From a fresh checkout of a7811edd on the devbox (/root/src/bridge-m7-deploy: a clone of the bridge-site clone with
+this branch fetched from a bundle; the live site.json beside it, untracked, with `signers` added: the three
+`https://bridge.gno.world/signer/N` endpoints), `sh bridge/site/deploy.sh root@kourt.xyz`: the gates passed (vet,
+go test, the 151 browser checks), the binary, the pages and the config installed, `nginx -t`, hlsite up, TLS in
+place; again from d2a45391 (the replay's captions, from watching the first live replay) and from this commit (the
+REPLAY banner off the guardians' flags), each time through the same gates. The first gate met a 429 from hlsite's
+own limiter in the suite and stopped the deploy, as it should (a7811edd fixed the mock's limiter).
+
+**The live check** (Playwright on the devbox against https://bridge.gno.world, 1280 and 390): the machine's
+figures equal /api/solana/status (GNOT lock 130 = supply 130 — 10, 30 and 100 sent, 10 burned back — BUBBLE 0 = 0,
+the client's trusted height, the identities, six validators), the head within the few blocks a reading is old, all
+three lamps vouching (burn #0), no horizontal overflow on any page, no console error at either width; the two real
+transfers walk through all five steps (100 GNOT: locked 06:41:52 in block 792,971, the header of 792,976 at
+06:42:27, the proof under 792,972 — its block's only result — at 06:42:38, minted 06:42:50; 10 GNOT back: burn #0
+at 05:42:03, credited in block 792,034 at 05:45:13, paid); the replay plays send, header, mint, burn, credit,
+payout with those times, then a header that arrived meanwhile. The activity answers in 60–260 ms.
+
+**For whoever deploys next**: the devbox's /root/src/bridge-site/bridge/site/site.json has no `signers`; deployed
+from it, the lamps say nothing (everything else works). Add the line the deployed config carries:
+`"signers": ["https://bridge.gno.world/signer/1", "https://bridge.gno.world/signer/2", "https://bridge.gno.world/signer/3"]`.
+
+## Next
+
+- A gno.land block time for the stream from the node's own recent blocks rather than the 3.43 s constant.
+- The payout's real time: the route could render when a claim was paid (a realm change, for the realms' lane); the
+  site then stops estimating it.
+- The recipient's meter level rendered by the route, so the pay step's time left is exact, not an estimate.
+- The quarantine and a hold drawn as events of their own (a flag raised, a hold's 21-day clock) when they happen.
+- Per-validator signatures on the header packet (the commit's signers, from the update's precommits), so the
+  picture shows which validators signed each header.

@@ -1,15 +1,23 @@
 // bridge.gno.world — the Bridge page: a chain, a direction, a token, an amount, a recipient; the wallet signs;
-// the transfer is tracked here until it lands.
+// the transfer is tracked here until it lands, step by step (walk.js), each step shown on the machine below
+// (machine.js, compact), which runs live between transfers.
 import { api, chains, el, fmt, whole, parseAmount, nav, pick, short, setLine } from './common.js';
 import { adena, solanaWallet, isSolanaAddress, isGnoAddress, b64decode } from './wallets.js';
+import { createMachine } from './machine.js';
+import { render as renderWalk, tickEta } from './walk.js';
 
 const $ = (id) => document.getElementById(id);
-const state = { c: null, chain: null, dir: 'out', token: null, status: null, gnoAddr: '', solAddr: '', poll: null };
+const state = { c: null, chain: null, dir: 'out', token: null, status: null, gnoAddr: '', solAddr: '', poll: null, machine: null, tr: null, shown: '' };
 
 async function main() {
   nav('/bridge');
   state.c = await chains;
   state.chain = await pick();
+  state.machine = createMachine($('machine'), { compact: true, chain: state.chain.name, onCaption: (t) => { $('caption').textContent = t; } });
+  const live = async () => { try { state.machine.update(await api('/api/' + state.chain.id + '/activity')); } catch (e) { $('caption').textContent = 'the bridge could not be read: ' + e.message; } };
+  live();
+  setInterval(live, 10000);
+  setInterval(() => { if (state.tr) tickEta($('track'), state.tr); }, 1000);
   const sel = $('chain');
   for (const ch of state.c.chains) sel.append(el('option', { value: ch.id }, ch.name));
   sel.value = state.chain.id;
@@ -140,21 +148,40 @@ async function sendIn(t, st, amount, to) {
   track(sig);
 }
 
-// track polls one transfer every five seconds and draws its steps until it lands.
+// track polls one transfer every five seconds and walks through its steps until it lands; each step newly done
+// plays on the machine, and a step chosen plays again.
 function track(ref) {
   if (state.poll) clearInterval(state.poll);
   const box = $('track');
   box.classList.remove('hidden');
+  state.shown = '';
+  // show plays a step on the machine; a step the reader chose brings the machine into view if it is off screen
+  const show = (key, chosen = true) => {
+    if (!state.tr) return;
+    state.machine.walkStep(state.tr.direction, key, state.tr);
+    $('track').querySelectorAll('ol.walk li').forEach((li) => li.classList.toggle('shown', li.dataset.key === key));
+    const r = $('machine').getBoundingClientRect();
+    if (chosen && (r.top > innerHeight || r.bottom < 0)) $('machine').scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  };
   const draw = async () => {
     let tr;
     try { tr = await api('/api/' + state.chain.id + '/transfer/' + encodeURIComponent(ref)); } catch (e) {
       box.replaceChildren(el('div', { class: 'line' + (e.status === 404 ? '' : ' err') }, e.status === 404 ? 'not seen yet: ' + e.message : e.message));
       return;
     }
-    const head = el('div', {}, el('b', {}, tr.direction === 'out' ? 'gno.land → ' + state.chain.name : state.chain.name + ' → gno.land'), ' · ', tr.token, tr.amount ? ' · ' + fmt(tr.amount) : '', ' · ', el('span', { class: tr.state === 'failed' || tr.state === 'voided' ? 'bad' : (tr.state === 'paid' || tr.state === 'delivered') ? 'ok' : '' }, tr.state));
-    const steps = el('ul', { class: 'steps' }, tr.steps.map((s) => el('li', { class: s.done ? 'done' : '' }, el('span', { class: 'mark' }, s.done ? '✓' : '…'), el('span', {}, s.link ? el('a', { href: s.link, target: '_blank', rel: 'noopener' }, s.name) : s.name, ' ', el('span', { class: 'text' }, s.text || '')))));
+    state.tr = tr;
+    const head = el('div', {}, el('b', {}, tr.direction === 'out' ? 'gno.land → ' + state.chain.name : state.chain.name + ' → gno.land'), ' · ', tr.token, tr.amount ? ' · ' + fmt(tr.amount) : '', ' · ', el('span', { class: 'state ' + (tr.state === 'failed' || tr.state === 'voided' ? 'bad' : (tr.state === 'paid' || tr.state === 'delivered') ? 'ok' : '') }, tr.state));
     const idline = el('div', { class: 'line mono' }, 'message id ', tr.id || '—', tr.note ? ' · ' + tr.note : '');
-    box.replaceChildren(head, steps, idline);
+    if (!tr.walk || !tr.walk.length) { // a refused transaction: no steps to walk
+      box.replaceChildren(head, idline);
+    } else {
+      const { list } = renderWalk(tr, state.chain.name, show);
+      box.replaceChildren(head, list, idline);
+      // the newest step done plays on the machine, once
+      const done = tr.walk.filter((w) => w.done).map((w) => w.key);
+      const newest = done[done.length - 1] || '';
+      if (newest && newest !== state.shown) { state.shown = newest; show(newest, false); }
+    }
     if (['paid', 'delivered', 'failed', 'refunded', 'written off', 'voided', 'swept'].includes(tr.state)) { clearInterval(state.poll); state.poll = null; }
   };
   draw();

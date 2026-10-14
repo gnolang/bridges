@@ -22,6 +22,69 @@ type Other interface {
 	IsSignature(ref string) bool
 	TxLink(sig string) string
 	AccountLink(k string) string
+	// Address is one of this chain's addresses from the 32 bytes a token message carries.
+	Address(b [32]byte) string
+	// Activity folds what is new in the chain's own records into a (M7): the headers its light client accepted,
+	// the proofs staged under them, the deliveries of gno.land's messages and the burns toward gno.land. pending
+	// says a send from gno.land waits for its delivery, so the client's staging is read every time.
+	Activity(ctx context.Context, a *OtherActivity, pending bool)
+}
+
+// OtherActivity is what the far side's own records say happened, kept by the server between reads so that each
+// read fetches only what is new (bridge/SITE.md, M7): the headers its light client accepted and the proofs staged
+// under them (the client's transactions' instruction data), the deliveries of gno.land's messages (each process
+// instruction's own message bytes) and the burns toward gno.land (the mailbox's dispatch records). Every
+// transaction is read once; a counter that did not move costs no listing.
+type OtherActivity struct {
+	Trusted    uint64                   // the light client's trusted height at the last read
+	Dispatched uint64                   // the far side mailbox's dispatch count: every burn toward gno.land
+	Processed  uint64                   // the messages it processed: deliveries and decisions
+	Headers    []HeaderEvent            // accepted headers, newest first
+	Proofs     map[string]ProofEvent    // staged proofs by the message's sha256 (hex): what the relayer proved, and under which header
+	Deliveries map[string]DeliveryEvent // gno.land's messages processed there, by message id (hex)
+	Burns      map[string]Burn          // burns toward gno.land, by message id (hex)
+	Read       bool                     // read once at least
+	Errors     []string                 // the last read's
+	seen       map[string]bool          // transactions folded in, by signature
+	stages     map[string]int64         // an update stage's header height, by stage account, until its finish
+	again      map[string]bool          // the listings to read again whatever the counters say (a read left work)
+	failed     map[string]*failure      // this read's failures by kind, summarized into Errors
+	failOrder  []string
+}
+
+// HeaderEvent is one header the light client accepted (an update's finish).
+type HeaderEvent struct {
+	Height int64  `json:"height"`
+	Time   int64  `json:"time"`
+	Slot   uint64 `json:"slot"`
+	Sig    string `json:"sig"`
+}
+
+// ProofEvent is one proof the relayer staged: the header it is checked under — whose LastResultsHash commits to the
+// results of the block before it, the dispatch's — and the shape of the results tree from the transfer's leaf to
+// that hash.
+type ProofEvent struct {
+	Height int64  `json:"height"` // the header's height; 0 for a proof against a header the client holds (its ring)
+	Ring   bool   `json:"ring"`
+	Total  uint32 `json:"total"` // the block's results: the tree's leaves
+	Index  uint32 `json:"index"` // the transfer's leaf among them
+	Aunts  int    `json:"aunts"` // the sibling hashes on the path to the root
+	Time   int64  `json:"time"`
+	Sig    string `json:"sig"`
+}
+
+// DeliveryEvent is one of gno.land's messages processed on the far side.
+type DeliveryEvent struct {
+	ID     string `json:"id"`
+	Sig    string `json:"sig"`
+	Slot   uint64 `json:"slot"`
+	Time   int64  `json:"time"`
+	Kind   string `json:"kind"` // "mint" (a route's transfer), "decision" (the admin program's), "other"
+	Token  string `json:"token"`
+	Amount int64  `json:"amount"`
+	To     string `json:"to"`   // the recipient's address there
+	Hash   string `json:"hash"` // sha256 of the message bytes: the key its proof is staged under
+	Link   string `json:"link"`
 }
 
 // FlagJSON is one flag's moment: the chain's slot and unix time.
@@ -63,6 +126,11 @@ type ClientJSON struct {
 	QuarantineEnd int64  `json:"quarantineEnd"`
 	LastAccepted  int64  `json:"lastAccepted"`
 	ClockFactor   int64  `json:"clockFactor"`
+	// The set it checks headers against (M7, for the page's picture of the rule): how many validators, their
+	// powers, and the trusted header's own time on gno.land; empty when the body could not be read.
+	Validators  int     `json:"validators"`
+	Powers      []int64 `json:"powers"`
+	TrustedTime int64   `json:"trustedTime"`
 }
 
 // OtherSnapshot is one reading of the far side.

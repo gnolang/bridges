@@ -38,6 +38,8 @@ type gnoStatus struct {
 	Seats        []string   `json:"seats"`
 	Flags        []flagView `json:"flags"`
 	Gov          *govStatus `json:"gov"`
+	Dispatched   uint32     `json:"dispatched"` // the messages hlmailbox sent: the routes' sends and r/hlgov's decisions
+	Received     int        `json:"received"`   // the messages it took in: the burns credited
 }
 
 type flagView struct {
@@ -127,6 +129,7 @@ func (s *server) status(ctx context.Context, ch *ChainConfig, other Other) (*sta
 	st.Gno.Live, st.Gno.LaunchedAt, st.Gno.Governor, st.Gno.Yielded = mb.Live, mb.LaunchedAt, mb.Governor, mb.Yielded
 	st.Gno.GovernorLine, st.Gno.DAOGoverns = mb.GovernorLine(), mb.DAOGoverns()
 	st.Gno.Verifier, st.Gno.Rule, st.Gno.Signers = mb.ActiveVerifier, mb.Rule, len(mb.SignerKeys)
+	st.Gno.Dispatched, st.Gno.Received = mb.Count, mb.Delivered
 	if mb.Seats != nil {
 		st.Gno.Seats = mb.Seats
 	}
