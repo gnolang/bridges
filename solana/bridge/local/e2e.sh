@@ -34,8 +34,10 @@
 # and a message dispatched before it is re-emitted; `hlsol audit` prints a setup that matches §5.8 (the client's
 # trusted hash against the node, the layout version 1, the admin program's stored cancelled range, the hold
 # history, the mint limits, the pending count,
-# the three programs' clock factors and origin domains agreeing); hlwatch is green from nothing. Everything it
-# starts, it stops.
+# the three programs' clock factors and origin domains agreeing); hlwatch is green from nothing; and a burn below
+# BUBBLE's fee is dust the relayers leave (E5-GS5): never Processed, alarmed once each, kept pending, in flight for
+# the identity.
+# Everything it starts, it stops.
 #
 # Audit round 2 (M3f) adds: a burst of a dozen 200-BUBBLE sends ten seconds apart (to a second wallet) under
 # which the monitor flags no header:gap — the record's scan stops at the snapshot's slot (G14); `hlsol setup`
@@ -82,7 +84,8 @@ FEE=$((100 * ONE))
 GSEND=$((10 * ONE)) # GNOT gno.land -> Solana (the minimum is 10 GNOT, the fee 5 GNOT on top)
 GFEE=$((5 * ONE))
 SEND2=$((300 * ONE))  # BUBBLE gno.land -> Solana under the flag, delivered after the unpause
-PARK=$((10 * ONE))    # BUBBLE Solana -> gno.land that parks behind the credits flag
+PARK=$((150 * ONE))   # BUBBLE Solana -> gno.land that parks behind the credits flag (a fee's worth at least: a burn below the fee is dust the relayers leave, E5-GS5)
+DUST=$((10 * ONE))    # BUBBLE Solana -> gno.land below the fee: left by the relayers, in flight for the identity (E5-GS5)
 SEND3=$((250 * ONE))  # BUBBLE gno.land -> Solana before the validator-set change: re-emitted, undelivered (the quarantine)
 BIG=$((30000 * ONE))  # BUBBLE gno.land -> Solana above the pausable ISM's 25,000 per-message maximum: refused (OverMax), parked
 BURST=$((200 * ONE))  # BUBBLE gno.land -> Solana, a dozen of them ten seconds apart to bob (G14: a header every tick, no header:gap)
@@ -421,12 +424,35 @@ is() { [ "$("$@" | tail -1)" = "$WANT" ]; }
 WANT=$SEND; wait_for 180 is bal || die "alice has $(bal) BUBBLE on solana, want $WANT; see $BL/agents/relayer.log and updater.log"
 echo "alice holds $(bal) BUBBLE on solana; the updater: $(status 9123 | python3 -c 'import json,sys; j=json.load(sys.stdin); print(j["submits"], "headers submitted, trusted height", j["trustedHeight"])')"
 
+say "a stranger's 50 KB message does not stop the walk (E3-RL1): its page is past the node's query gas; the GNOT send after it delivers"
+# hlmailbox's Dispatch takes any body from anyone; a 50,000-byte body puts its msg/<n> past vm/qrender's gas. The
+# machines judge it from its header (the mailbox's record of its height, that block's Dispatch event): a stranger's
+# message, walked past with one alarm — the GNOT send below, dispatched after it, must still deliver
+printf '\n\n' | gnokey add -insecure-password-stdin -home "$GK" -quiet stranger >/dev/null 2>&1
+STRANGER=$(gnokey list -home "$GK" 2>/dev/null | sed -n 's/^.* stranger (local) - addr: \(g1[a-z0-9]*\).*/\1/p')
+out=$(echo | gnokey maketx send -to "$STRANGER" -send 100000000ugnot -gas-fee 1000000ugnot -gas-wanted 2000000 -broadcast \
+  -chainid dev -remote "$GNORPC" -insecure-password-stdin -home "$GK" test1 2>&1) || die "funding the stranger's key: $out"
+STRANGER_NONCE=$(qrender "hlmailbox:json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["count"])')
+RCPT64=$(python3 -c 'import base64,sys; print(base64.b64encode(bytes.fromhex(sys.argv[1])).decode())' "$(hex32 "$(ppk bubble)")")
+BODY64=$(python3 -c 'import base64; print(base64.b64encode(b"x" * 50000).decode())')
+out=$(echo | gnokey maketx call -pkgpath "$NS/hlmailbox" -func Dispatch -args $SOL_DOMAIN -args "$RCPT64" -args "$BODY64" -gas-fee 10000000ugnot \
+  -gas-wanted 3000000000 -broadcast -chainid dev -remote "$GNORPC" -insecure-password-stdin -home "$GK" stranger 2>&1) || die "the stranger's Dispatch: $out"
+echo "$out" | grep -q '^OK!' || die "the stranger's Dispatch: $out"
+! qrender "hlmailbox:msg/$STRANGER_NONCE" | grep -q . || die "msg/$STRANGER_NONCE renders: a 50,000-byte body is not past the query gas on this gno"
+echo "gno #$STRANGER_NONCE: the stranger's 50,000-byte body to the BUBBLE token program,$(echo "$out" | grep 'GAS USED' | tr -s ' '); msg/$STRANGER_NONCE does not render"
+
 say "gno.land -> solana: 10 GNOT (+5 fee), the GNOT lock's envelope"
 callsend "$((GSEND + GFEE))ugnot" hlgnot TransferRemote $SOL_DOMAIN "$(pk alice)" $GSEND
 [ "$(qeval 'hlgnot.Locked()')" = "$GSEND" ] || die "GNOT locked $(qeval 'hlgnot.Locked()'), want $GSEND"
 gbalsol() { "$BL/bin/hlsol" balance -rpc "$SOLRPC" -token "$(ppk gnot)" -owner "$(pk alice)"; }
-WANT=$GSEND; wait_for 180 is gbalsol || die "alice has $(gbalsol) GNOT on solana, want $WANT; see $BL/agents"
+WANT=$GSEND; wait_for 180 is gbalsol || die "alice has $(gbalsol) GNOT on solana, want $WANT (dispatched after the stranger's gno #$STRANGER_NONCE); see $BL/agents"
 echo "alice holds $(gbalsol) GNOT on solana"
+# the stranger's message was walked past as "other" by the relayer and as no send by the monitor, each with one alarm
+unreadable_alarms() { for src in relayer monitor; do grep '"key":"msg:unreadable:'"$STRANGER_NONCE"'"' "$BL/alarms.log" | grep -q '"source":"'$src'"' || return 1; done; }
+wait_for 30 unreadable_alarms || die "the relayer's and the monitor's msg:unreadable:$STRANGER_NONCE alarms did not reach the sink: $(grep 'msg:unreadable' "$BL/alarms.log")"
+grep '"key":"msg:unreadable:'"$STRANGER_NONCE"'"' "$BL/alarms.log" | grep -q 'stranger' || die "the relayer's alarm does not name a stranger's message: $(grep 'msg:unreadable' "$BL/alarms.log")"
+grep '"key":"msg:unreadable:'"$STRANGER_NONCE"'"' "$BL/alarms.log" | python3 -c 'import json,sys
+for l in sys.stdin: j=json.loads(l); print("walked past, alarmed:", j["source"], j["key"], "-", j["text"][:150])'
 
 say "solana -> gno.land: 200 BUBBLE, a claim the relayer pays (a bridge realm's own address as the recipient is refused first, K21)"
 out=$("$BL/bin/hlsol" send -rpc "$SOLRPC" -payer "$BL/keys/alice.json" -token "$(ppk bubble)" -mailbox "$(ppk mailbox)" -gno-domain $GNO_DOMAIN -to "$ROUTE_ADDR" -amount $BACK -config "$BL/bridge.json" 2>&1 || true)
@@ -442,7 +468,10 @@ gbal() { qeval "bubble.BalanceOf(\"$TEST1\")"; }
 WANT=$((B0 - SEND - FEE + BACK - FEE)); wait_for 120 is gbal || die "test1 has $(gbal) on gno, want $WANT (the relayer's Claim, with the fee first); see $BL/agents/relayer.log"
 echo "test1 holds $(gbal) BUBBLE on gno.land; the fee realm $(qeval "bubble.BalanceOf(\"$FEES_ADDR\")")"
 [ "$(qeval "bubble.BalanceOf(\"$FEES_ADDR\")")" = $((2 * FEE)) ] || die "the fee realm holds $(qeval "bubble.BalanceOf(\"$FEES_ADDR\")"), want $((2 * FEE))"
-status 9121 | python3 -c 'import json,sys; j=json.load(sys.stdin); c=j["claims"]["BUBBLE"]; assert c["paid"] >= 1, j; print("the relayer paid", c["paid"], "claim(s) in", c["calls"], "call(s)")' || die "the relayer's status does not show the claim paid: $(status 9121)"
+# the chain shows the payment a moment before the relayer's status records its own call: wait for the status
+claimpaid() { status 9121 | python3 -c 'import json,sys; j=json.load(sys.stdin); c=j["claims"]["BUBBLE"]; assert c["paid"] >= 1, j; print("the relayer paid", c["paid"], "claim(s) in", c["calls"], "call(s)")'; }
+wait_for 30 claimpaid || die "the relayer's status does not show the claim paid: $(status 9121)"
+claimpaid
 ! grep -q "delivered on" "$BL/agents/relayer2.log" || die "the backup relayer delivered something while the primary was up: $(grep 'delivered on' "$BL/agents/relayer2.log")"
 status 9124 | grep -q '"role":"backup"' || die "the backup's status: $(status 9124)"
 echo "the backup relayer runs and delivered nothing (the primary acts first)"
@@ -758,8 +787,18 @@ echo "hlrecover body refuses the reserved kinds (10, 11: the recovery kinds are 
 
 say "a provider that disagrees: a second monitor reading through a mocked provider gives no verdict and alarms solana:providers (G6)"
 cat >"$BL/run/proxy.py" <<'EOF'
-import http.server, json, sys, urllib.request
+import base64, http.server, json, struct, sys, urllib.request
 UP = sys.argv[2]
+TOKEN_PROGRAMS = ("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
+def bump_mint(v):
+    # a token mint's supply is the u64 at bytes 36..44 (an 82-byte Token mint, or a Token-2022 account whose type byte
+    # at 165 says mint): the machines read supplies from the mint account since the launch (sol.MintSupplyAt)
+    if not v or v.get("owner") not in TOKEN_PROGRAMS or not isinstance(v.get("data"), list) or v["data"][1] != "base64":
+        return
+    raw = bytearray(base64.b64decode(v["data"][0]))
+    if len(raw) == 82 or (len(raw) > 165 and raw[165] == 1):
+        struct.pack_into("<Q", raw, 36, struct.unpack_from("<Q", raw, 36)[0] + 1)
+        v["data"][0] = base64.b64encode(bytes(raw)).decode()
 class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get('content-length', 0)); body = self.rfile.read(n)
@@ -769,6 +808,13 @@ class H(http.server.BaseHTTPRequestHandler):
             j = json.loads(data); m = json.loads(body).get("method")
             if m == "getTokenSupply" and "result" in j:
                 v = j["result"]["value"]; v["amount"] = str(int(v["amount"]) + 1)
+                data = json.dumps(j).encode()
+            elif m == "getAccountInfo" and "result" in j:
+                bump_mint(j["result"]["value"])
+                data = json.dumps(j).encode()
+            elif m == "getMultipleAccounts" and "result" in j:
+                for v in j["result"]["value"]:
+                    bump_mint(v)
                 data = json.dumps(j).encode()
         except Exception:
             pass
@@ -824,7 +870,9 @@ grep 're-emitted at height' "$BL/agents/relayer.log" | tail -1
 quarantine_shown() { W=$(hlwatch); echo "$W" | grep -q 'quarantine until 20'; }
 wait_for 60 quarantine_shown || die "hlwatch shows no quarantine: $(hlwatch)"
 hlwatch | grep -o 'quarantine until [^,]*'
-status 9121 | python3 -c 'import json,sys; j=json.load(sys.stdin); l=j["last"].get("deliveries",""); assert "quarantine" in l, j["last"]; print("the relayer:", l)' || die "the relayer does not see the quarantine: $(status 9121)"
+relayer_quarantine() { status 9121 | python3 -c 'import json,sys; j=json.load(sys.stdin); l=j["last"].get("deliveries",""); assert "quarantine" in l, j["last"]; print("the relayer:", l)'; }
+wait_for 30 relayer_quarantine || die "the relayer does not see the quarantine: $(status 9121)"
+relayer_quarantine
 
 say "hlsol audit: a build from another config.rs, or another file beside it, FAILS (G20): -so at a corrupted copy, the wrong mailbox pkgpath and the wrong r/hlgov"
 mkdir -p "$BL/so-wrong"; cp "$SBF"/*.so "$BL/so-wrong/"; printf 'x' >>"$BL/so-wrong/pausable_ism.so"
@@ -901,4 +949,19 @@ echo "$W" | grep -q '  - #2 kind 12 (' || die "hlwatch: the kind 12 is not pendi
 echo "$W" | grep -E '^- (BUBBLE|GNOT):|Solana supply|the client:|the header record|the admin program:|the hold history|^  - [0-9]: from|the mint limits|^  - (GNOT|BUBBLE):|CAP RATIO|LIMITS MISMATCH|cap ratio quiet' | cut -c1-220
 echo "hlwatch build $("$BL/bin/hlwatch" version)"
 ! { grep '"level":"flag"' "$BL/alarms.log" | grep -q '"key":"identity\|"key":"header\|"key":"decision\|"key":"sources\|"key":"diverted'; } || die "a monitor flagged an identity, header, source or decision finding: $(grep '"level":"flag"' "$BL/alarms.log")"
+
+say "dust: a burn below BUBBLE's fee is left by the relayers (E5-GS5) — never Processed, alarmed once each — and stays in flight for the identity"
+"$BL/bin/hlsol" send -rpc "$SOLRPC" -payer "$BL/keys/alice.json" -token "$(ppk bubble)" -mailbox "$(ppk mailbox)" -gno-domain $GNO_DOMAIN -to "$TEST1" -amount $DUST | grep '^sent'
+dust_left() { [ "$(grep -c '"key":"dust:' "$BL/alarms.log")" -ge 2 ]; }
+wait_for 120 dust_left || die "the relayers did not leave the dust burn, alarmed: $(grep 'dust:' "$BL/alarms.log"; grep -i dust "$BL/agents/relayer.log" | tail -2)"
+sleep 6
+[ "$(grep -c '"key":"dust:' "$BL/alarms.log")" = 2 ] || die "the dust burn was alarmed more than once a relayer: $(grep '"key":"dust:' "$BL/alarms.log")"
+DUSTID=$(grep -o '"key":"dust:[0-9a-f]*' "$BL/alarms.log" | head -1 | sed 's/.*dust://')
+for port in 9121 9124; do
+  status $port | python3 -c 'import json,sys; j=json.load(sys.stdin); i=sys.argv[1]; k="process:"+i; assert i and k not in j["attempts"] and k not in j["parked"] and [p for p in (j["pending"] or []) if i in p] and j["left"] >= 1, (i, j["attempts"], j["parked"], j["pending"], j.get("left")); print("relayer", sys.argv[2], "left", i[:12], "…: no Process attempted, kept pending as dust (judged against the fee each tick)")' "$DUSTID" $port || die "relayer $port did not leave the dust burn: $(status $port)"
+done
+dust_in_flight() { status 9122 | python3 -c 'import json,sys; b=json.load(sys.stdin)["identity"]["BUBBLE"]; p, d = int(sys.argv[1]), int(sys.argv[2]); assert b["ok"] and b["inflightIn"] in (d, p + d), b; print("monitor: BUBBLE holds with", b["inflightIn"], "in flight toward gno.land (the dust, and the parked burn until its hourly retry)")' $PARK $DUST; }
+wait_for 90 dust_in_flight || die "the monitor's identity does not hold with the dust in flight: $(status 9122 | python3 -c 'import json,sys; print(json.load(sys.stdin)["identity"].get("BUBBLE"))')"
+dust_in_flight
+WANT=$((SEND - BACK - PARK + SEND2 - DUST)); is bal || die "alice holds $(bal) BUBBLE, want $WANT after the dust burn"
 say "PASS in $(($(date +%s) - T0))s"

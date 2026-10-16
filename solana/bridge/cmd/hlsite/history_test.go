@@ -136,7 +136,7 @@ func TestSampleHistory(t *testing.T) {
 		t.Fatalf("an unchanged reading added a point: %d points, last %d", len(h().Points), h().Last)
 	}
 	for i := 0; i < 5; i++ {
-		if err := s.world.step("in"); err != nil {
+		if err := s.world.step("", "in"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -146,7 +146,7 @@ func TestSampleHistory(t *testing.T) {
 		t.Fatalf("the payout: %+v", h().Points)
 	}
 	// down ten minutes, then the world is back where it started: seen late, so an estimate
-	if err := s.world.step("reset"); err != nil {
+	if err := s.world.step("", "reset"); err != nil {
 		t.Fatal(err)
 	}
 	clock = clock.Add(10 * time.Minute)
@@ -201,7 +201,7 @@ func TestHistoryAPI(t *testing.T) {
 		t.Fatalf("BUBBLE: %+v", b)
 	}
 	for i := 0; i < 5; i++ {
-		if err := s.world.step("in"); err != nil {
+		if err := s.world.step("", "in"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -219,5 +219,47 @@ func TestHistoryAPI(t *testing.T) {
 	s.handler().ServeHTTP(rr, httptest.NewRequest("GET", "/api/nowhere/history", nil))
 	if rr.Code != 404 {
 		t.Fatalf("an unknown chain: %d", rr.Code)
+	}
+}
+
+// TestHistoryAPIEthereum reads the history beside Ethereum (the merge of the chart into E-M4's two deployments):
+// /api/ethereum/history follows the Ethereum deployment's own locks — its burn in flight paid out drops BUBBLE's
+// line a step — while Solana's history, read from the same server, keeps its own figures and moves with its own
+// world alone.
+func TestHistoryAPIEthereum(t *testing.T) {
+	clock := fixedNow()
+	s, _, _, _ := mockBoth(true, siteDir, func() time.Time { return clock })
+	get := func(chain string) historyJSON {
+		t.Helper()
+		rr := httptest.NewRecorder()
+		s.handler().ServeHTTP(rr, httptest.NewRequest("GET", "/api/"+chain+"/history", nil))
+		var h historyJSON
+		if rr.Code != 200 || json.Unmarshal(rr.Body.Bytes(), &h) != nil {
+			t.Fatalf("%s history: %d %s", chain, rr.Code, rr.Body.String())
+		}
+		return h
+	}
+	locks := func(h historyJSON) [2]int64 { return [2]int64{h.Tokens[0].Lock, h.Tokens[1].Lock} }
+	e, sol := get("ethereum"), get("solana")
+	if e.Chain != "ethereum" || len(e.Tokens) != 2 || e.Tokens[0].Symbol != "GNOT" || e.Tokens[1].Symbol != "BUBBLE" {
+		t.Fatalf("ethereum history: %+v", e)
+	}
+	if locks(e) != [2]int64{500_000 * one, 1_202_500 * one} || locks(sol) != [2]int64{1_000_000 * one, 2_500_200 * one} {
+		t.Fatalf("the locks: ethereum %v, solana %v", locks(e), locks(sol))
+	}
+	n0 := len(e.Tokens[1].Points)
+	for i := 0; i < 6; i++ { // final, signer 1, signer 2, credited, half paid, paid
+		if err := s.world.step("ethereum", "in"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clock = clock.Add(time.Minute)
+	e, sol = get("ethereum"), get("solana")
+	b := e.Tokens[1]
+	if b.Lock != 1_200_000*one || len(b.Points) != n0+1 || b.Points[n0][0] != clock.Unix() || b.Points[n0][1] != 1_200_000*one {
+		t.Fatalf("ethereum BUBBLE after the payout: %+v", b)
+	}
+	if locks(sol) != [2]int64{1_000_000 * one, 2_500_200 * one} || len(sol.Tokens[1].Points) != 1 {
+		t.Fatalf("solana's history moved with Ethereum's world: %+v", sol)
 	}
 }

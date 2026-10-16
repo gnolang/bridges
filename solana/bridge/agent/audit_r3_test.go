@@ -238,7 +238,7 @@ func TestMonitorClearsSightingsAndSkipsDisputed(t *testing.T) {
 	}
 	m.state.LastDelivery = m.now().Unix()
 	m.state.Index["aa"] = &dispatchRec{Symbol: "BUBBLE", Seen: m.now().Add(-3 * time.Hour).Unix(), Disputed: "provider 2 shows slot 1 against 2"}
-	m.stalls()
+	m.stalls(nil)
 	if _, ok := m.Alarm.Standing()["age"]; ok {
 		t.Fatal("a disputed record raised the age alarm")
 	}
@@ -246,7 +246,7 @@ func TestMonitorClearsSightingsAndSkipsDisputed(t *testing.T) {
 		t.Fatal("a disputed record counted as waiting")
 	}
 	m.state.Index["bb"] = &dispatchRec{Symbol: "BUBBLE", Seen: m.now().Add(-3 * time.Hour).Unix()}
-	m.stalls()
+	m.stalls(nil)
 	if _, ok := m.Alarm.Standing()["age"]; !ok || m.status.Waiting["solana→gno BUBBLE"] != 1 {
 		t.Fatalf("an undisputed old record did not raise the age alarm: %v %v", m.Alarm.StandingKeys(), m.status.Waiting)
 	}
@@ -258,14 +258,17 @@ func TestMonitorClearsSightingsAndSkipsDisputed(t *testing.T) {
 func TestMonitorFlagsAnUnindexedCredit(t *testing.T) {
 	f := newFake()
 	m := testMonitor(f)
+	m.own = &doneNode{fakeChain: f} // the credits are found by id in hlmailbox's done tree (E4-RL1)
 	ctx := context.Background()
 	mb := mailboxWith()
 	m.seat = 5
-	claim := func(id, by string) string {
-		return `{"id":"` + id + `","to":"g1eve","amount":500,"paid":0,"state":"open","by":"` + by + `","at":1,"height":90,"seq":1}`
+	ee, vv, aa := strings.Repeat("ee", 32), strings.Repeat("0f", 32), strings.Repeat("aa", 32)
+	for id, by := range map[string]string{ee: "signers", vv: "vote", aa: "signers"} {
+		f.renders[testMailbox+":delivered/"+id] = "90"
+		f.renders[testRoute+":claim/"+id] = s5ClaimJSON(id, "g1eve", 500, "open", by, 90)
 	}
-	f.renders[testRoute+":claims/0"] = "[" + claim("ee", "signers") + "," + claim("vv", "vote") + "," + claim("aa", "signers") + "]"
-	m.state.Index["aa"] = &dispatchRec{Symbol: "BUBBLE", Slot: 10, To: "g1eve", Amount: 500}
+	mb.Delivered = 3
+	m.state.Index[aa] = &dispatchRec{Symbol: "BUBBLE", Slot: 10, To: "g1eve", Amount: 500}
 	if err := m.unindexedCredits(ctx, mb, 100); err != nil {
 		t.Fatal(err)
 	}
@@ -282,22 +285,22 @@ func TestMonitorFlagsAnUnindexedCredit(t *testing.T) {
 	if len(calls) != 2 || calls[0] != want[0] || calls[1] != want[1] {
 		t.Fatalf("flags set: %v, want %v (the unindexed claim ee alone)", calls, want)
 	}
-	if a, ok := m.Alarm.Standing()["credit:unindexed:ee:flag"]; !ok || !strings.Contains(a, "forged credit ee") {
+	if a, ok := m.Alarm.Standing()["credit:unindexed:"+ee+":flag"]; !ok || !strings.Contains(a, "forged credit "+ee) {
 		t.Fatalf("no flag alarm for the unindexed credit: %v", m.Alarm.Standing())
 	}
 	// the id turns up in the index (a provider's lag): the alarm and the sighting go
-	m.state.Index["ee"] = &dispatchRec{Symbol: "BUBBLE", Slot: 11, To: "g1eve", Amount: 500}
+	m.state.Index[ee] = &dispatchRec{Symbol: "BUBBLE", Slot: 11, To: "g1eve", Amount: 500}
 	if err := m.unindexedCredits(ctx, mb, 102); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := m.Alarm.Standing()["credit:unindexed:ee:flag"]; ok {
+	if _, ok := m.Alarm.Standing()["credit:unindexed:"+ee+":flag"]; ok {
 		t.Fatal("the alarm stands after the id was indexed")
 	}
-	if _, ok := m.seen["credit:unindexed:ee"]; ok {
+	if _, ok := m.seen["credit:unindexed:"+ee]; ok {
 		t.Fatal("the sighting stands after the id was indexed")
 	}
 	// a skipped transaction on a provider: no verdict on any claim
-	delete(m.state.Index, "ee")
+	delete(m.state.Index, ee)
 	m.state.Skipped["BUBBLE#1"] = []scanSkip{{Sig: "x", Err: "unreadable"}}
 	f.calls = nil
 	for i := 0; i < 3; i++ {

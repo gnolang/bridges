@@ -36,12 +36,13 @@ type Event struct {
 	PkgPath    string
 }
 
-// ParsedResult is a parsed ABCIResult: whether an error is present, the data, and every event as (type URL,
-// value bytes).
+// ParsedResult is a parsed ABCIResult: whether an error is present (and its type URL, when its Any reads), the
+// data, and every event as (type URL, value bytes).
 type ParsedResult struct {
-	Error  bool
-	Data   []byte
-	Events []AnyValue
+	Error     bool
+	ErrorType string
+	Data      []byte
+	Events    []AnyValue
 }
 
 type AnyValue struct {
@@ -95,6 +96,9 @@ func ParseResult(leaf []byte) (*ParsedResult, error) {
 		switch {
 		case f.num == 1 && f.typ3 == typ3ByteLen:
 			r.Error = true
+			if a, err := ParseAny(f.value); err == nil {
+				r.ErrorType = a.TypeURL
+			}
 		case f.num == 2 && f.typ3 == typ3ByteLen:
 			r.Data = f.value
 		case f.num == 3 && f.typ3 == typ3ByteLen:
@@ -246,6 +250,30 @@ func DispatchEvents(leaf []byte, mailboxPkgPath string) ([]Dispatch, error) {
 		return nil, ErrNoDispatch
 	}
 	return out, nil
+}
+
+// DispatchLeaf is the index of the leaf a proof of the id's message stages: of the leaves carrying a Dispatch event
+// of the mailbox realm that names the id, the smallest (fewest bytes), the lowest index among equals; −1 if none.
+// Anyone may Reemit a message (§5.1), so one block can carry its Dispatch twice — a stranger's beside many junk
+// events, ahead of the relayer's own — and the first would be a proof too big for the ISM, or a dearer one.
+func DispatchLeaf(leaves [][]byte, id [32]byte, mailboxPkgPath string) int {
+	best := -1
+	for i, leaf := range leaves {
+		if best >= 0 && len(leaf) >= len(leaves[best]) {
+			continue
+		}
+		ds, err := DispatchEvents(leaf, mailboxPkgPath)
+		if err != nil {
+			continue
+		}
+		for _, d := range ds {
+			if d.ID == id {
+				best = i
+				break
+			}
+		}
+	}
+	return best
 }
 
 // ------------------------------------------------------------------ encoding --

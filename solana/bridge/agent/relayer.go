@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 
 	"github.com/gnolang/bridges/solana/bridge/gno"
 	"github.com/gnolang/bridges/solana/bridge/hl"
@@ -84,6 +85,34 @@ type Relayer struct {
 	// this step (G46: a send from anyone but the configured realm is held for the step, never "other").
 	lines    map[string]*migration
 	lineErrs map[string]error
+	// listBound is the slot the listings are held to (minContextSlot: the provider's finalized slot less a margin, read
+	// once a minute), so a quiet route is read through it and its listing reaches back inside a provider's day of
+	// history (E6-SF1); gaps the routes its provider cannot list back to where they were read.
+	listBound   uint64
+	listBoundAt time.Time
+	gaps        historyGaps
+}
+
+const (
+	listBoundEvery  = time.Minute
+	listBoundMargin = 150 // slots under the finalized one (≈30 s): a listing backend a little behind still answers
+)
+
+// boundNow is the slot the listings are held to this tick (0 before the provider first answered).
+func (r *Relayer) boundNow(ctx context.Context) uint64 {
+	if r.sol == nil || r.sol.RPC == nil || r.now().Sub(r.listBoundAt) < listBoundEvery {
+		return r.listBound
+	}
+	slot, err := r.sol.RPC.GetSlot(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		log.Printf("relayer: the provider's finalized slot (the listings' bound): %v", err)
+		return r.listBound
+	}
+	r.listBoundAt = r.now()
+	if slot > listBoundMargin {
+		r.listBound = max(r.listBound, slot-listBoundMargin)
+	}
+	return r.listBound
 }
 
 // resetStep empties the per-step caches: a step reads each route and the mailbox once.
@@ -127,6 +156,13 @@ func (r *Relayer) lineUnread(rt *Route) bool {
 // every TransferRemote through the successor dispatches with the successor as sender — before, such a send was
 // "other", walked past for good, locked on gno.land with nothing minted and no refund).
 func (r *Relayer) lineSender(rt *Route, sender [32]byte) bool {
+	return routeLineSender(rt, r.lines[rt.Symbol], sender)
+}
+
+// routeLineSender says whether a sender is a route realm of the token's line: the configured realm, or a realm
+// of its migration (nil when the route never migrated). The relayers deliver only such a message (K34) and the
+// monitors and hlwatch count only such a message as a send (E3-CF1).
+func routeLineSender(rt *Route, mig *migration, sender [32]byte) bool {
 	addrOf := func(pkg string) [32]byte {
 		a, _ := hl.GnoAddressToBytes32(hl.GnoPackageAddress(pkg))
 		return a
@@ -134,7 +170,7 @@ func (r *Relayer) lineSender(rt *Route, sender [32]byte) bool {
 	if addrOf(rt.Gno) == sender {
 		return true
 	}
-	if mig := r.lines[rt.Symbol]; mig != nil {
+	if mig != nil {
 		for _, p := range mig.Paths() {
 			if addrOf(p) == sender {
 				return true
@@ -161,7 +197,28 @@ type relayerState struct {
 	Refused        map[string]string            `json:"refused"`        // Execute refusals on the admin program never retried (LayoutFixed), by decision
 	ProposalsSeen  map[string]int64             `json:"proposalsSeen"`  // GovDAO proposal id → when this relayer first saw it open
 	Extends        map[string]string            `json:"extends"`        // extend action key → the bytes planned (the cost alarmed once, G18)
+	// ReemitTries counts the Reemits in a row a nonce took because its block was unbuildable, ReemitAt when the
+	// last was sent (unix): the backoff that keeps a poisoned run of blocks from draining the GNOT float.
+	ReemitTries map[string]int   `json:"reemitTries,omitempty"`
+	ReemitAt    map[string]int64 `json:"reemitAt,omitempty"`
+	// Left are the pending burns left as dust (E5-GS5), by message id: the route's fee they were left under, alarmed
+	// once; each is judged against the fee again every tick (a fee lowered past it makes it a delivery).
+	Left map[string]int64 `json:"left,omitempty"`
+	// SolThrough is the slot each route's listing was read through, by symbol (E6-SF1): a provider that no longer knows
+	// the cursor (publicnode keeps about a day) is listed back to it.
+	SolThrough map[string]uint64 `json:"solThrough,omitempty"`
+	// SolThroughHost is the provider SolThrough was read through (scheme://host): another in its place drops it (the
+	// review of lane s7, R3).
+	SolThroughHost string `json:"solThroughHost,omitempty"`
+	// LeftAt is hlmailbox's delivered count when the left burns' marks were last read (-1: read them next tick): dust
+	// someone else Processes at his own cost is dropped once a credit moves the count (a mark is set only with its rise;
+	// the round-6 audit's E6-SF4, the integration lane I3's fix on bridge-eth).
+	LeftAt int `json:"leftAt,omitempty"`
 }
+
+// maxLeft is how many dust burns the relayer keeps pending to judge again (E5-GS5): past it the oldest is forgotten, so
+// a stranger's pile does not grow the state file without end.
+const maxLeft = 1000
 
 // decisionCopy is one hlmailbox message carrying a decision number.
 type decisionCopy struct {
@@ -176,6 +233,9 @@ func (r *Relayer) load() error {
 	s := &r.state
 	if s.SolCursor == nil {
 		s.SolCursor = map[string]string{}
+	}
+	if s.SolThrough == nil {
+		s.SolThrough = map[string]uint64{}
 	}
 	if s.SolSkipped == nil {
 		s.SolSkipped = map[string][]scanSkip{}
@@ -194,6 +254,12 @@ func (r *Relayer) load() error {
 	}
 	if s.Reemits == nil {
 		s.Reemits = map[string]int64{}
+	}
+	if s.ReemitTries == nil {
+		s.ReemitTries = map[string]int{}
+	}
+	if s.ReemitAt == nil {
+		s.ReemitAt = map[string]int64{}
 	}
 	if s.Done == nil {
 		s.Done = map[string]string{}
@@ -215,6 +281,9 @@ func (r *Relayer) load() error {
 	}
 	if s.Extends == nil {
 		s.Extends = map[string]string{}
+	}
+	if s.Left == nil {
+		s.Left = map[string]int64{}
 	}
 	for i := range s.Pending {
 		if err := s.Pending[i].fill(); err != nil {
@@ -272,6 +341,12 @@ func (r *Relayer) Run(ctx context.Context) error {
 		return err
 	}
 	r.sol = sol.NewClient(r.Cfg.Solana.RPCs[0], payer)
+	if host := providerHost(r.Cfg.Solana.RPCs[0]); r.state.SolThroughHost != host {
+		if r.state.SolThroughHost != "" {
+			r.state.SolThrough = map[string]uint64{} // another provider: the slots it gave stand no more
+		}
+		r.state.SolThroughHost = host
+	}
 	if r.solSend == nil {
 		r.solSend = func(ctx context.Context, ixs []solana.Instruction) (solana.Signature, error) {
 			return r.sol.Send(ctx, ixs)
@@ -302,7 +377,9 @@ func (r *Relayer) Run(ctx context.Context) error {
 		r.solProcessed = func(ctx context.Context, id [32]byte) (bool, error) { return solDelivered(ctx, r.sol.RPC, mailbox, id) }
 	}
 	log.Printf("relayer (%s): solana payer %s, gno key %s, gas %d, light client %s", r.Role, payer.PublicKey(), r.Cfg.Gno.Key, r.GnoGas, r.Cfg.Solana.Client)
+	var qc qevalCheck // E4-SF6: at the start and hourly
 	for {
+		qc.run(ctx, r.gno, r.Cfg.Gno.Mailbox, r.Alarm, r.now())
 		r.tick(ctx)
 		select {
 		case <-ctx.Done():
@@ -432,7 +509,8 @@ func (r *Relayer) note(key, what string) {
 
 // solToGno picks up each route's new dispatches toward gno.land (a transaction the provider cannot read is
 // skipped with an alarm and retried from a side list, K5; an amount-0 burn is skipped, §5.5) and delivers every
-// pending one that has the signatures hlmailbox's rule needs, through the route's Process.
+// pending one that has the signatures hlmailbox's rule needs, through the route's Process — but a burn below the
+// route's fee, which it leaves to whoever pays for it (E5-GS5).
 func (r *Relayer) solToGno(ctx context.Context) error {
 	r.resetStep()
 	m, err := mailboxAt(ctx, r.gno, r.Cfg.Gno.Mailbox, 0)
@@ -445,15 +523,25 @@ func (r *Relayer) solToGno(ctx context.Context) error {
 	}
 	mailbox := sol.Mailbox{Program: r.Cfg.SolMailbox()}
 	var scanErr error
+	bound := r.boundNow(ctx)
 	for _, rt := range r.Cfg.Routes {
 		if rt.Token == "" {
 			continue
 		}
-		ds, next, skipped, err := solScan(ctx, r.sol.RPC, mailbox, rt.TokenKey(), r.Cfg.Solana.Domain, m.Domain, r.state.SolCursor[rt.Symbol])
+		// the listing held to the bound and read through it (E6-SF1): the relayer's provider honours minContextSlot (the
+		// two in its role do, measured); one that ignored it would only list a route back less far, a burn of the gap left
+		// to the other relayer
+		key := rt.Symbol + "#0"
+		ds, next, skipped, err := solScan(ctx, r.sol.RPC, mailbox, rt.TokenKey(), r.Cfg.Solana.Domain, m.Domain, scanCursor{Sig: r.state.SolCursor[rt.Symbol], Through: r.state.SolThrough[rt.Symbol]}, bound, bound > 0)
+		if g, ok := asHistoryGap(err); ok {
+			r.gaps.set(key, g.why, r.now()) // the cursor kept: no new burn of the route taken up until a provider lists it back
+			continue
+		}
 		if err != nil {
 			scanErr = err
 			continue
 		}
+		r.gaps.end(key)
 		more, keep := retrySkipped(ctx, r.sol.RPC, mailbox, rt.TokenKey(), r.Cfg.Solana.Domain, m.Domain, r.state.SolSkipped[rt.Symbol], r.now())
 		keep = append(keep, skipped...)
 		r.state.SolSkipped[rt.Symbol] = keep
@@ -471,7 +559,29 @@ func (r *Relayer) solToGno(ctx context.Context) error {
 				r.state.Pending = append(r.state.Pending, d)
 			}
 		}
-		r.state.SolCursor[rt.Symbol] = next
+		if next.Sig == "" {
+			delete(r.state.SolCursor, rt.Symbol)
+		} else {
+			r.state.SolCursor[rt.Symbol] = next.Sig
+		}
+		if next.Through > 0 {
+			r.state.SolThrough[rt.Symbol] = next.Through
+		}
+	}
+	r.gaps.alarm(r.Alarm, r.now())
+	// the left dust someone else delivered (E6-SF4): its marks read only once hlmailbox's delivered count moved since they
+	// were last read — a pile as the done tree, a hundred ids a read — so a pile costs nothing a tick; one delivered is
+	// dropped below
+	gone := map[string]bool{}
+	if len(r.state.Left) > 0 && m.Delivered != r.state.LeftAt {
+		if marks, err := deliveredMarks(ctx, r.gno, r.Cfg.Gno.Mailbox, sortedKeys(r.state.Left), m.Delivered, 0); err != nil {
+			log.Printf("relayer: the marks of the dust left under the fee (read again next tick): %v", err)
+		} else {
+			for id := range marks {
+				gone[id] = true
+			}
+			r.state.LeftAt = m.Delivered
+		}
 	}
 	var keep []solDispatch
 	for _, d := range r.state.Pending {
@@ -485,6 +595,37 @@ func (r *Relayer) solToGno(ctx context.Context) error {
 		if rt == nil {
 			continue // not for a route of ours: nobody here takes it
 		}
+		// a burn below the fee of the realm that would credit it is dust (E5-GS5): p/hlroute sweeps it with no fee, and its
+		// credit locks the relayer's gno key's storage deposit for good (≈0.76 GNOT a sweep entry, measured) — left to
+		// whoever pays for it (its signatures are served as any burn's), alarmed once; kept pending and judged against the
+		// fee every tick before any read (a pile of it costs no read; a fee lowered past it makes it a delivery — the
+		// review of lane s6, F5) — the line's successor's fee while it imports, for a burn that waits for it (E6-SF4: dust
+		// was not judged then, and every tick read each one's mark); one someone else delivered is dropped
+		if gone[d.IDHex()] {
+			r.forget(key)
+			delete(r.state.Sigs, d.IDHex())
+			delete(r.state.Left, d.IDHex())
+			log.Printf("relayer: solana #%d %x, dust left under the fee, was delivered by someone else", d.Nonce, d.ID[:6])
+			continue
+		}
+		tj, err := r.routeState(ctx, target)
+		if err != nil {
+			keep = append(keep, d)
+			r.note(key, "the route's fee could not be read: "+err.Error())
+			continue
+		}
+		if _, amount, _, ok := d.token(); ok && amount < tj.Fee {
+			keep = append(keep, d)
+			if _, told := r.state.Left[d.IDHex()]; !told {
+				r.state.Left[d.IDHex()] = tj.Fee
+				r.state.LeftAt = -1 // its mark is read next tick: someone may have delivered it before it was left
+				r.forget(key)
+				delete(r.state.Sigs, d.IDHex())
+				alarmOnce(r.Alarm, "dust:"+d.IDHex(), fmt.Sprintf("solana #%d %x (%s) burns %d, below the fee of %d of %s, which would credit it: left unprocessed while the fee stands — p/hlroute would sweep it with no fee, and its credit would lock ≈0.76 GNOT of the relayer's gno key in storage for good; anyone may Process it at their own cost, its signatures served as any burn's (E5-GS5)", d.Nonce, d.ID[:6], rt.Symbol, amount, tj.Fee, target))
+			}
+			continue
+		}
+		delete(r.state.Left, d.IDHex()) // a fee's worth now
 		at, err := deliveredAt(ctx, r.gno, r.Cfg.Gno.Mailbox, d.IDHex(), 0)
 		if err != nil {
 			keep = append(keep, d)
@@ -524,8 +665,51 @@ func (r *Relayer) solToGno(ctx context.Context) error {
 		r.note(key, "delivered: "+res.Hash)
 		log.Printf("relayer: solana #%d %x delivered on gno (%s, through %s): %s", d.Nonce, d.ID[:6], rt.Symbol, target, res.Hash)
 	}
-	r.state.Pending = keep
+	r.state.Pending = r.boundLeft(keep)
 	return scanErr
+}
+
+// boundLeft keeps at most maxLeft dust burns pending (E5-GS5), forgetting the oldest past it, and forgets the marks of
+// the dust no longer pending.
+func (r *Relayer) boundLeft(pending []solDispatch) []solDispatch {
+	left := 0
+	for _, d := range pending {
+		if _, ok := r.state.Left[d.IDHex()]; ok {
+			left++
+		}
+	}
+	out := pending[:0]
+	ids := map[string]bool{}
+	for _, d := range pending {
+		id := d.IDHex()
+		if _, ok := r.state.Left[id]; ok && left > maxLeft {
+			left--
+			delete(r.state.Left, id)
+			log.Printf("relayer: solana #%d %x, dust left under the fee, forgotten: more than %d dust burns pending (E5-GS5)", d.Nonce, d.ID[:6], maxLeft)
+			continue
+		}
+		ids[id] = true
+		out = append(out, d)
+	}
+	for id := range r.state.Left {
+		if !ids[id] {
+			delete(r.state.Left, id)
+		}
+	}
+	return out
+}
+
+// alarmOnce posts an alarm a single time and keeps nothing standing: an event the operator hears of once, never hourly
+// and never in the status's standing list (a dust burn the relayer leaves, E5-GS5: a stranger's thousand would stand a
+// thousand alarms).
+func alarmOnce(a *Alarmer, key, text string) {
+	text = Redact(text)
+	if a == nil {
+		log.Printf("alarm %s: %s", key, text)
+		return
+	}
+	log.Printf("%s: alarm %s: %s", a.Source, key, text)
+	a.post("alarm", key, text)
 }
 
 // routeState is a route realm's json at the head, read once a tick.
@@ -722,8 +906,10 @@ func (r *Relayer) gnoToSol(ctx context.Context) error {
 
 // --------------------------------------------------------------- claims --
 
-// claims runs Claim(20) on every route while a claim waits and the meter holds something (§5.4: the relayers
-// call it continuously), backing off while a call pays nothing.
+// claims runs Claim on every route while a claim waits and the meter holds something (§5.4: the relayers call it
+// continuously) — at most twenty claims a Claim, the batch and its gas sized from the last Claims' (I2) — calling again
+// at once only while a Claim pays a full batch of a fee's worth a claim with more claims open, backing off otherwise
+// (claimState.after, E5-GS1), and woken by a claim credited since the last look.
 func (r *Relayer) claims(ctx context.Context) error {
 	r.resetStep()
 	var firstErr error
@@ -760,18 +946,36 @@ func (r *Relayer) claims(ctx context.Context) error {
 		if rj.PaidTotal != cs.PaidTotal { // someone paid: the backup's clock restarts
 			cs.PaidTotal = rj.PaidTotal
 			delete(r.state.Ready, key)
+			r.Alarm.Clear("claim:gas:" + rt.Symbol) // the payouts move, whatever this relayer's Claim needs
 		}
+		cs.woken(r.now(), rj)
 		want, why := wantClaim(rj)
 		if !want {
 			delete(r.state.Ready, key)
 			r.note(key, "idle: "+why)
+			r.Alarm.Clear("claim:gas:" + rt.Symbol)
 			continue
 		}
 		if !r.act(key) || r.now().Before(cs.Next) {
 			continue
 		}
-		res, err := r.tryCall(ctx, key, pkg, "Claim", r.GnoGas, "20")
+		// the batch and its gas sized from the last Claims (I2's, from bridge-eth): three quarters of the client's ceiling
+		n, gas := cs.claimSize(r.GnoGas)
+		res, err := r.tryCall(ctx, key, pkg, "Claim", gas, strconv.Itoa(n))
 		if err != nil {
+			if outOfGasErr(err) {
+				raised, stuck := cs.outOfGas(n, gas)
+				next, nextGas := cs.claimSize(r.GnoGas)
+				switch {
+				case stuck:
+					cs.Next = r.now().Add(time.Hour) // nothing more to ask: tried hourly, as a parked action is
+					r.Alarm.Alarm("claim:gas:"+rt.Symbol, fmt.Sprintf("%s's Claim of one claim ran out of %d gas, the most the gno client simulates under (the block's): payouts stand still until the route's Claim costs less (§5.4); tried again hourly", rt.Symbol, claimReach(gas)))
+				case raised:
+					r.Alarm.Alarm("claim:gas:"+rt.Symbol, fmt.Sprintf("%s's Claim of one claim ran out of %d gas: the next is simulated under %d (as far as %d; the gno key must hold the fee of the gas a simulation asks) — p/hlroute's first Claim after Launch walks every queue, or the state has outgrown the relayer's -gno-gas", rt.Symbol, claimReach(gas), nextGas, claimReach(nextGas)))
+				}
+				r.note(key, fmt.Sprintf("Claim(%d) ran out of gas under %d: the next is Claim(%d) under %d", n, claimReach(gas), next, nextGas))
+				log.Printf("relayer: %s Claim(%d) ran out of gas under %d: the next is Claim(%d) under %d", rt.Symbol, n, claimReach(gas), next, nextGas)
+			}
 			if !errors.Is(err, errNotYet) && firstErr == nil {
 				firstErr = err
 			}
@@ -781,9 +985,19 @@ func (r *Relayer) claims(ctx context.Context) error {
 		if v, ok := res.Attr("Claimed", "count"); ok {
 			paid, _ = strconv.Atoi(v)
 		}
-		cs.after(r.now(), paid)
-		r.note(key, fmt.Sprintf("paid %d claims: %s", paid, res.Hash))
-		log.Printf("relayer: %s Claim(20) paid %d claims (%s)", rt.Symbol, paid, res.Hash)
+		r.Alarm.Clear("claim:gas:" + rt.Symbol)
+		cs.sized(n, paid, gas, res.GasUsed, r.GnoGas)
+		// what it paid in value: the route's paidTotal read again (E5-GS1: a count of claims paid says nothing of slivers)
+		value, open := int64(-1), rj.OpenClaims > int64(paid)
+		if again, err := routeAt(ctx, r.gno, pkg, 0); err == nil {
+			value, open = again.PaidTotal-rj.PaidTotal, again.OpenClaims > 0
+		} else {
+			log.Printf("relayer: %s: the route read again after its Claim: %v (judged by the count of claims paid)", rt.Symbol, err)
+		}
+		cs.after(r.now(), paid, n, value, rj.Fee, open)
+		next, nextGas := cs.claimSize(r.GnoGas)
+		r.note(key, fmt.Sprintf("Claim(%d) paid %d claims, %d in all, using %d gas: %s (the next is Claim(%d) under %d, at %s)", n, paid, value, res.GasUsed, res.Hash, next, nextGas, cs.Next.UTC().Format(time.RFC3339)))
+		log.Printf("relayer: %s Claim(%d) paid %d claims, %d in all, using %d gas (%s); the next is Claim(%d) under %d at %s", rt.Symbol, n, paid, value, res.GasUsed, res.Hash, next, nextGas, cs.Next.UTC().Format(time.RFC3339))
 	}
 	return firstErr
 }
@@ -976,8 +1190,9 @@ func (r *Relayer) finishProposals(ctx context.Context) error {
 
 // clientView is what a Reemit decision asks of the light client on Solana (§5.1): the current validator set's
 // first height, and a message's results leaf at a height — its size, and whether the block's leaves can be
-// rebuilt at all (a failed transaction or an event with no schema beside the dispatch makes a proof impossible
-// from that block). The relayer reads them from the client's state and the node's block results.
+// rebuilt at all (a result of a type gnolight has no schema for, or a string the node's JSON cannot carry, beside
+// the dispatch makes a proof impossible from that block). The relayer reads them from the client's state and the
+// node's block results.
 type clientView interface {
 	CurrentSetFrom(ctx context.Context) (int64, error)
 	LeafBytes(ctx context.Context, height int64, id [32]byte) (bytes int, buildable bool, err error)
@@ -1009,6 +1224,13 @@ func (r *Relayer) reemits(ctx context.Context) error {
 			firstErr = fmt.Errorf("gno #%d: %w", n, err)
 		}
 	}
+	// a nonce the walk passed, or one that ended, needs no backoff and no alarm any more
+	for nk := range r.state.ReemitTries {
+		n, _ := strconv.ParseUint(nk, 10, 32)
+		if uint32(n) < r.state.GnoNext || doneForReemit(r.state.Done[nk]) {
+			r.clearUnbuildable(nk)
+		}
+	}
 	for n := r.state.GnoNext; n < m.Count; n++ {
 		nk := strconv.FormatUint(uint64(n), 10)
 		if doneForReemit(r.state.Done[nk]) {
@@ -1038,7 +1260,16 @@ func (r *Relayer) reemits(ctx context.Context) error {
 			fail(n, err)
 			continue
 		}
-		need, why := needsReemit(reemitInput{Nonce: n, Delivered: delivered, DispatchHeight: msg.Height, CurrentSetFrom: setFrom, LeafBytes: leaf, LeafUnbuildable: !buildable, PacketTooBig: r.packetTooBig[nk], LastReemitHeight: r.state.Reemits[nk]})
+		// the run of Reemits into unbuildable blocks ends once its latest event's block is proven — its leaves matched a
+		// trusted header's results root — or the message delivered; never on leaves that merely parse (E4-SF5: the deliver
+		// pass caches a block's leaves as buildable before the header after it is trusted, and a block whose strings the
+		// node's JSON mangled parses all the same, failing only the root check: the run was cleared every cycle, so the
+		// Reemits kept the header's pace and reemit:unbuildable never fired)
+		if delivered || r.leafProven(eventHeight, msg.ID) {
+			r.clearUnbuildable(nk)
+		}
+		need, why := needsReemit(reemitInput{Nonce: n, Delivered: delivered, DispatchHeight: msg.Height, CurrentSetFrom: setFrom, LeafBytes: leaf, LeafUnbuildable: !buildable, PacketTooBig: r.packetTooBig[nk], LastReemitHeight: r.state.Reemits[nk],
+			UnbuildableTries: r.state.ReemitTries[nk], LastReemitAt: time.Unix(r.state.ReemitAt[nk], 0), Now: r.now()})
 		if !need {
 			continue
 		}
@@ -1054,12 +1285,29 @@ func (r *Relayer) reemits(ctx context.Context) error {
 			continue
 		}
 		r.state.Reemits[nk] = res.Height
+		if !buildable {
+			r.state.ReemitTries[nk]++
+			r.state.ReemitAt[nk] = r.now().Unix()
+			if t := r.state.ReemitTries[nk]; t >= 3 {
+				r.Alarm.Alarm("reemit:unbuildable:"+nk, fmt.Sprintf("gno #%d: %d Reemits in a row landed in blocks whose results cannot be rebuilt here (see results:schema / results:mismatch: a type with no schema, or a string the node's JSON cannot carry — someone may be putting one into every block); the next waits %s", n, t, unbuildableBackoff(t)))
+			}
+		}
 		delete(r.packetTooBig, nk)
 		r.forget(key)
 		r.note(key, "re-emitted at "+strconv.FormatInt(res.Height, 10)+": "+why)
 		log.Printf("relayer: gno #%d re-emitted at height %d (%s): %s", n, res.Height, why, res.Hash)
 	}
 	return firstErr
+}
+
+// clearUnbuildable ends a nonce's run of Reemits into unbuildable blocks: its backoff and its alarm.
+func (r *Relayer) clearUnbuildable(nk string) {
+	if _, ok := r.state.ReemitTries[nk]; !ok {
+		return
+	}
+	delete(r.state.ReemitTries, nk)
+	delete(r.state.ReemitAt, nk)
+	r.Alarm.Clear("reemit:unbuildable:" + nk)
 }
 
 // ---------------------------------------------------------------- status --
@@ -1100,7 +1348,7 @@ func (r *Relayer) buildStatus() map[string]any {
 	}
 	return map[string]any{
 		"role": r.Role, "offset": r.Offset.String(), "gnoGas": r.GnoGas,
-		"gnoNext": r.state.GnoNext, "solCursor": copyMap(r.state.SolCursor), "solSkipped": skipped, "pending": pending, "done": copyMap(r.state.Done), "taken": copyMap(r.state.Taken), "refused": copyMap(r.state.Refused),
+		"gnoNext": r.state.GnoNext, "solCursor": copyMap(r.state.SolCursor), "solSkipped": skipped, "pending": pending, "left": len(r.state.Left), "done": copyMap(r.state.Done), "taken": copyMap(r.state.Taken), "refused": copyMap(r.state.Refused),
 		"claims": claims, "reemits": copyMap(r.state.Reemits), "parked": parked, "attempts": attempts, "proposalsSeen": copyMap(r.state.ProposalsSeen),
 		"last": last, "alarms": r.Alarm.Standing(),
 	}

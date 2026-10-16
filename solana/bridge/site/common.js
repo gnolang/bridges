@@ -68,15 +68,35 @@ export async function pick() {
   return c.chains.find((x) => x.id === id) || c.chains[0];
 }
 
-// nav marks the page's link and names the chain in the header.
+// kindOf is a chain's kind: /api/chains names it for every chain but Solana's (E-M4).
+export function kindOf(ch) { return (ch && ch.kind) || 'solana'; }
+
+// WORDS are what the pages say of a chain's kind where the chains differ: Solana's are the pages' own words, and
+// Ethereum's replace them on its pages (E-M4).
+export const WORDS = {
+  solana: { unit: 'slot', period: 0.4, every: 'a slot ≈0.4 s', everyShort: '0.4 s/slot', ref: 'signature', gate: 'pausable ISM', admin: 'admin program', adminShort: 'admin program' },
+  ethereum: { unit: 'block', period: 12, every: 'a block ≈12 s', everyShort: '12 s/block', ref: 'transaction hash', gate: 'PausableGate', admin: 'HlAdmin', adminShort: 'HlAdmin' },
+};
+export function words(ch) { return WORDS[kindOf(ch)] || WORDS.solana; }
+
+// chainHref is a page's address on a chain: the first chain listed is the pages' own, the others carry ?chain=.
+export function chainHref(path, c, ch) { return !ch || ch.id === c.chains[0].id ? path : path + '?chain=' + encodeURIComponent(ch.id); }
+
+// nav marks the page's link and names the chain in the header; when the config lists more than one chain, the
+// header switches between them and every link keeps the chain the page shows.
 export async function nav(active) {
   for (const a of document.querySelectorAll('header nav a')) {
     if (a.getAttribute('href') === active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
   try {
+    const c = await chains;
     const ch = await pick();
     const slot = document.querySelector('header .chain');
     if (slot && ch) slot.textContent = 'gno.land ⇄ ' + ch.name;
+    if (slot && ch && c.chains.length > 1) {
+      for (const a of document.querySelectorAll('header nav a')) a.setAttribute('href', chainHref(a.getAttribute('href'), c, ch));
+      slot.replaceChildren('gno.land ⇄ ', ...c.chains.flatMap((x, i) => [i ? ' · ' : '', el('a', { href: chainHref(location.pathname, c, x), 'aria-current': x.id === ch.id ? 'true' : null }, x.name)]));
+    }
     if ((await chains).preview && !document.getElementById('preview')) {
       document.querySelector('main').prepend(el('div', { id: 'preview', class: 'preview', role: 'note' },
         'Preview: the bridge is not deployed yet. The figures are examples, and sending opens at launch.'));

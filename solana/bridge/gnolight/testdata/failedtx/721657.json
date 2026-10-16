@@ -1,0 +1,571 @@
+{
+ "block": {
+  "block": {
+   "data": {
+    "txs": [
+     "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",
+     "CnYKDS9iYW5rLk1zZ1NlbmQSZQooZzFzNDlkMHFnZW5nc2o2eHdhcXZobnNmcmVwM2N6czV2M3p4ZG1oORIoZzFudzMzdGc4ajVoaHhkc3podWN3OXMwZnBtNHd5cm1kZDNudHgychoPMTk4MTM1OTk2NnVnbm90EhAIgJL0ARIJMzAwMHVnbm90Gn4KOgoTL3RtLlB1YktleVNlY3AyNTZrMRIjCiECxEIVeoJ3AERLwv0iG0xgkpGqLfYlxv2Um05Flw1pqXYSQNT8FAQV+v0obaKF7ZRPp7HCoqnFhkjvRcMEW0ITstqgD+8KOpVxMC3Yl2BY7P+EdtrqHMyf7Oudtw6OJF8eGmY=",
+     "CnQKDS9iYW5rLk1zZ1NlbmQSYwooZzFoMzJ3NmU3M2swZm1xcjBqZDd2Njc1NTU1YTN1NGhyM2UzbnhjdRIoZzFudzMzdGc4ajVoaHhkc3podWN3OXMwZnBtNHd5cm1kZDNudHgychoNMzcyNDMyMzN1Z25vdBIQCICS9AESCTMwMDB1Z25vdBp+CjoKEy90bS5QdWJLZXlTZWNwMjU2azESIwohA6+NRx65tkX2aVmUFd5O4nkgNMKS1BYlZzhmJ5rwOJlOEkCnHwnpFN2mIoWjB++ZKoRYRF7SZPeVfnQWLluEsFRK/SQkX4XAW7SLlGVf8mPWM3d0UbGEXaE6EbZA9e114I87",
+     "CnYKDS9iYW5rLk1zZ1NlbmQSZQooZzE4d2c4MHAyNnd6andkZ2djbHV4MG16ZWV0ZGFwZmhqY3kyNzh0NBIoZzFudzMzdGc4ajVoaHhkc3podWN3OXMwZnBtNHd5cm1kZDNudHgychoPNzg1MDk0NzYzMHVnbm90EhAIgJL0ARIJMzAwMHVnbm90Gn4KOgoTL3RtLlB1YktleVNlY3AyNTZrMRIjCiEDtGP8gNQXeCIBPJgAUrtGXkyQxZwsd3gaPRYMcYID9XoSQPq5F3WdpmZehKzl7tigzb8r4lheTKmSakh67OokvS+HRcA3v0LaWc9/ebPdya+bVjPgvy5VDvcfcj/3uXF4nog=",
+     "CnEKDS9iYW5rLk1zZ1NlbmQSYAooZzFqdXNzMnR1Yzk3c3I3N3JuNnZwcmhoOWxyN2Q5ZTA3dXU2OHg1ORIoZzE5dWx2aDQ0cjU0bmM0NHBla25lNGN5NmU3bHB0aGVxN2Ewd2F2dBoKMzA2MTF1Z25vdBIPCIaDeBIJMTAyN3Vnbm90GqgBCjoKEy90bS5QdWJLZXlTZWNwMjU2azESIwohAy1RzMHAo8yq98JebqHEsKFKceaj3bEo3e+3TR3zvnezEkCNLym5q5AzRGsuKdkZY+X02yAw5uiJM6AzR+1DxddO7lUpVI0ru+3pv5OZhbPU5eg9uRHNEbz0zf8h0JfNbpqCGihnMXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcWx1dXhl"
+    ]
+   },
+   "header": {
+    "app_hash": "rJczP6in9f92YVmziTWlfNWX7X9MJhcZt361rNeatVs=",
+    "app_version": "",
+    "chain_id": "gnoland-1",
+    "consensus_hash": "uJmaP/mPzdzmA1t3/6z5QWOFFzl4v14QsTCvjvJoZ7A=",
+    "data_hash": "tuuDkFMcyjEBQLrE/RNDk5622arWGvzjGpXLuNoJ96c=",
+    "height": "721657",
+    "last_block_id": {
+     "hash": "vAy5OJsNAmbPgelxpHtycmcnytzxHxfywGUtagEEWTE=",
+     "parts": {
+      "hash": "kESN5cMRt7N1/nWwq1/GAYLd1QbS6oWRJw8FpvV1ZqY=",
+      "total": "1"
+     }
+    },
+    "last_commit_hash": "eYQaTCw71h7FHuPeSEXl4/+W1pqR8CCqYgY7UNDfbVo=",
+    "last_results_hash": null,
+    "next_validators_hash": "/ph9dJ2z93PFZfwZ9D1yA8RViNWHLmXnzO4zkjOOfZg=",
+    "num_txs": "12",
+    "proposer_address": "g1mmgvcssjw6x4fzphupfg6mtxqt36v000c5rf2a",
+    "time": "2026-10-11T06:58:00.903322854Z",
+    "total_txs": "127973",
+    "validators_hash": "/ph9dJ2z93PFZfwZ9D1yA8RViNWHLmXnzO4zkjOOfZg=",
+    "version": "v1.0.0-rc.0"
+   },
+   "last_commit": {
+    "block_id": {
+     "hash": "vAy5OJsNAmbPgelxpHtycmcnytzxHxfywGUtagEEWTE=",
+     "parts": {
+      "hash": "kESN5cMRt7N1/nWwq1/GAYLd1QbS6oWRJw8FpvV1ZqY=",
+      "total": "1"
+     }
+    },
+    "precommits": [
+     {
+      "block_id": {
+       "hash": "vAy5OJsNAmbPgelxpHtycmcnytzxHxfywGUtagEEWTE=",
+       "parts": {
+        "hash": "kESN5cMRt7N1/nWwq1/GAYLd1QbS6oWRJw8FpvV1ZqY=",
+        "total": "1"
+       }
+      },
+      "height": "721656",
+      "round": "0",
+      "signature": "WUNIebrxogX9Flc5OoSLbHkiPVqCIZxJ4ksF7OKtJ50CCI0kfrPaCdugE//RO6/IddQ26nNcp6w9Vl7eQgghDw==",
+      "timestamp": "2026-10-11T06:58:00.807201765Z",
+      "type": 2,
+      "validator_address": "g1g0yrmdhney8pcaf9rfut4604equz604pszdsyt",
+      "validator_index": "0"
+     },
+     {
+      "block_id": {
+       "hash": "vAy5OJsNAmbPgelxpHtycmcnytzxHxfywGUtagEEWTE=",
+       "parts": {
+        "hash": "kESN5cMRt7N1/nWwq1/GAYLd1QbS6oWRJw8FpvV1ZqY=",
+        "total": "1"
+       }
+      },
+      "height": "721656",
+      "round": "0",
+      "signature": "2VTzIhgd0J03few0jFA2DVlPoChZ7XI18MHVzsPE2lJsuwJ4U8jWZZ7jRx6wnbIbEG6MNI2+TevCv9l/zlPFCQ==",
+      "timestamp": "2026-10-11T06:58:00.941971451Z",
+      "type": 2,
+      "validator_address": "g15t7f9q6km3ldt885duwl8xu5dncs98528amk4f",
+      "validator_index": "1"
+     },
+     {
+      "block_id": {
+       "hash": "vAy5OJsNAmbPgelxpHtycmcnytzxHxfywGUtagEEWTE=",
+       "parts": {
+        "hash": "kESN5cMRt7N1/nWwq1/GAYLd1QbS6oWRJw8FpvV1ZqY=",
+        "total": "1"
+       }
+      },
+      "height": "721656",
+      "round": "0",
+      "signature": "Ty47l6/bOMbaeX48yYEeM0Twk6vdADlq/oqIHVB1M9bdUbFV1kDHgBaP2H8539ZYWJmJSFueZQ++3AX4UnK4BQ==",
+      "timestamp": "2026-10-11T06:58:00.903322854Z",
+      "type": 2,
+      "validator_address": "g1hqhetnnz0raw5hps6yxexl7q09a6f8w3anlptt",
+      "validator_index": "2"
+     },
+     {
+      "block_id": {
+       "hash": "vAy5OJsNAmbPgelxpHtycmcnytzxHxfywGUtagEEWTE=",
+       "parts": {
+        "hash": "kESN5cMRt7N1/nWwq1/GAYLd1QbS6oWRJw8FpvV1ZqY=",
+        "total": "1"
+       }
+      },
+      "height": "721656",
+      "round": "0",
+      "signature": "RKCQNnNwjCozR56L/yUMYp2aKK6UD29bH7xHzGM42ZUW2j2ii4aKV8eXUUsmC5oXZgVJ/DsVZAE0capWOXYmCQ==",
+      "timestamp": "2026-10-11T06:58:00.949629031Z",
+      "type": 2,
+      "validator_address": "g1h97x8geqqwhh0prepcwrqskcd35g6gy5s39eny",
+      "validator_index": "3"
+     },
+     {
+      "block_id": {
+       "hash": "vAy5OJsNAmbPgelxpHtycmcnytzxHxfywGUtagEEWTE=",
+       "parts": {
+        "hash": "kESN5cMRt7N1/nWwq1/GAYLd1QbS6oWRJw8FpvV1ZqY=",
+        "total": "1"
+       }
+      },
+      "height": "721656",
+      "round": "0",
+      "signature": "FgnNWsOp8xH9CuKN1noGj8w6ix9xiJJPdbinL+Tus4nnLUIiAeDOpD3a7X/fxC6giSWCkHruxS+KlwZulOcmCA==",
+      "timestamp": "2026-10-11T06:58:00.760422535Z",
+      "type": 2,
+      "validator_address": "g1mmgvcssjw6x4fzphupfg6mtxqt36v000c5rf2a",
+      "validator_index": "4"
+     },
+     {
+      "block_id": {
+       "hash": "vAy5OJsNAmbPgelxpHtycmcnytzxHxfywGUtagEEWTE=",
+       "parts": {
+        "hash": "kESN5cMRt7N1/nWwq1/GAYLd1QbS6oWRJw8FpvV1ZqY=",
+        "total": "1"
+       }
+      },
+      "height": "721656",
+      "round": "0",
+      "signature": "hhUGsX1kLk1NAEQzVOboV/x3ZIKA3APuq9358cv4OIGaq+3aLLGH48yJHjWYpFYBGHZQPs4izUL9GmfpqfueDQ==",
+      "timestamp": "2026-10-11T06:58:00.937374695Z",
+      "type": 2,
+      "validator_address": "g1l983yy3kpmapyzcfy53y5charfxupa5czjalea",
+      "validator_index": "5"
+     }
+    ]
+   }
+  },
+  "block_meta": {
+   "block_id": {
+    "hash": "ryO3TaNaTFPAnKMDJYSB4jZBcV3+w0tKEP4LpFaUo9Q=",
+    "parts": {
+     "hash": "om7NPbIC8kOAskmOh+4GnwCTfRyMCrv1SKyCSy47rWU=",
+     "total": "1"
+    }
+   },
+   "header": {
+    "app_hash": "rJczP6in9f92YVmziTWlfNWX7X9MJhcZt361rNeatVs=",
+    "app_version": "",
+    "chain_id": "gnoland-1",
+    "consensus_hash": "uJmaP/mPzdzmA1t3/6z5QWOFFzl4v14QsTCvjvJoZ7A=",
+    "data_hash": "tuuDkFMcyjEBQLrE/RNDk5622arWGvzjGpXLuNoJ96c=",
+    "height": "721657",
+    "last_block_id": {
+     "hash": "vAy5OJsNAmbPgelxpHtycmcnytzxHxfywGUtagEEWTE=",
+     "parts": {
+      "hash": "kESN5cMRt7N1/nWwq1/GAYLd1QbS6oWRJw8FpvV1ZqY=",
+      "total": "1"
+     }
+    },
+    "last_commit_hash": "eYQaTCw71h7FHuPeSEXl4/+W1pqR8CCqYgY7UNDfbVo=",
+    "last_results_hash": null,
+    "next_validators_hash": "/ph9dJ2z93PFZfwZ9D1yA8RViNWHLmXnzO4zkjOOfZg=",
+    "num_txs": "12",
+    "proposer_address": "g1mmgvcssjw6x4fzphupfg6mtxqt36v000c5rf2a",
+    "time": "2026-10-11T06:58:00.903322854Z",
+    "total_txs": "127973",
+    "validators_hash": "/ph9dJ2z93PFZfwZ9D1yA8RViNWHLmXnzO4zkjOOfZg=",
+    "version": "v1.0.0-rc.0"
+   }
+  }
+ },
+ "block_results": {
+  "height": "721657",
+  "results": {
+   "begin_block": {
+    "ResponseBase": {
+     "Data": null,
+     "Error": null,
+     "Events": null,
+     "Info": "",
+     "Log": ""
+    }
+   },
+   "deliver_tx": [
+    {
+     "GasUsed": "624889",
+     "GasWanted": "2000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": {
+       "@type": "/std.VestingLockedCoinsError"
+      },
+      "Events": null,
+      "Info": "",
+      "Log": "msg:0,success:false,log:--= Error =--\nData: std.VestingLockedCoinsError{abciError:std.abciError{}}\nMsg Traces:\n    0  /gnoroot/tm2/pkg/std/errors.go:169 - insufficient spendable coins; 416958ugnot < 2105259979ugnot (locked=2104843021ugnot)\nStack Trace:\n    0  /gnoroot/tm2/pkg/errors/errors.go:93\n    1  /gnoroot/tm2/pkg/std/errors.go:169\n    2  /gnoroot/tm2/pkg/sdk/bank/keeper.go:288\n    3  /gnoroot/tm2/pkg/sdk/bank/keeper.go:181\n    4  /gnoroot/tm2/pkg/sdk/bank/keeper.go:158\n    5  /gnoroot/tm2/pkg/sdk/bank/handler.go:50\n    6  /gnoroot/tm2/pkg/sdk/bank/handler.go:28\n    7  /gnoroot/tm2/pkg/sdk/baseapp.go:719\n    8  /gnoroot/tm2/pkg/sdk/baseapp.go:963\n    9  /gnoroot/tm2/pkg/sdk/baseapp.go:650\n   10  /gnoroot/tm2/pkg/bft/abci/client/local_client.go:95\n... 14 more lines elided,events:[]"
+     }
+    },
+    {
+     "GasUsed": "624817",
+     "GasWanted": "2000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": {
+       "@type": "/std.VestingLockedCoinsError"
+      },
+      "Events": null,
+      "Info": "",
+      "Log": "msg:0,success:false,log:--= Error =--\nData: std.VestingLockedCoinsError{abciError:std.abciError{}}\nMsg Traces:\n    0  /gnoroot/tm2/pkg/std/errors.go:169 - insufficient spendable coins; 54370ugnot < 270761155ugnot (locked=270706785ugnot)\nStack Trace:\n    0  /gnoroot/tm2/pkg/errors/errors.go:93\n    1  /gnoroot/tm2/pkg/std/errors.go:169\n    2  /gnoroot/tm2/pkg/sdk/bank/keeper.go:288\n    3  /gnoroot/tm2/pkg/sdk/bank/keeper.go:181\n    4  /gnoroot/tm2/pkg/sdk/bank/keeper.go:158\n    5  /gnoroot/tm2/pkg/sdk/bank/handler.go:50\n    6  /gnoroot/tm2/pkg/sdk/bank/handler.go:28\n    7  /gnoroot/tm2/pkg/sdk/baseapp.go:719\n    8  /gnoroot/tm2/pkg/sdk/baseapp.go:963\n    9  /gnoroot/tm2/pkg/sdk/baseapp.go:650\n   10  /gnoroot/tm2/pkg/bft/abci/client/local_client.go:95\n... 14 more lines elided,events:[]"
+     }
+    },
+    {
+     "GasUsed": "624817",
+     "GasWanted": "2000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": {
+       "@type": "/std.VestingLockedCoinsError"
+      },
+      "Events": null,
+      "Info": "",
+      "Log": "msg:0,success:false,log:--= Error =--\nData: std.VestingLockedCoinsError{abciError:std.abciError{}}\nMsg Traces:\n    0  /gnoroot/tm2/pkg/std/errors.go:169 - insufficient spendable coins; 79227ugnot < 349587511ugnot (locked=349508284ugnot)\nStack Trace:\n    0  /gnoroot/tm2/pkg/errors/errors.go:93\n    1  /gnoroot/tm2/pkg/std/errors.go:169\n    2  /gnoroot/tm2/pkg/sdk/bank/keeper.go:288\n    3  /gnoroot/tm2/pkg/sdk/bank/keeper.go:181\n    4  /gnoroot/tm2/pkg/sdk/bank/keeper.go:158\n    5  /gnoroot/tm2/pkg/sdk/bank/handler.go:50\n    6  /gnoroot/tm2/pkg/sdk/bank/handler.go:28\n    7  /gnoroot/tm2/pkg/sdk/baseapp.go:719\n    8  /gnoroot/tm2/pkg/sdk/baseapp.go:963\n    9  /gnoroot/tm2/pkg/sdk/baseapp.go:650\n   10  /gnoroot/tm2/pkg/bft/abci/client/local_client.go:95\n... 14 more lines elided,events:[]"
+     }
+    },
+    {
+     "GasUsed": "624817",
+     "GasWanted": "2000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": {
+       "@type": "/std.VestingLockedCoinsError"
+      },
+      "Events": null,
+      "Info": "",
+      "Log": "msg:0,success:false,log:--= Error =--\nData: std.VestingLockedCoinsError{abciError:std.abciError{}}\nMsg Traces:\n    0  /gnoroot/tm2/pkg/std/errors.go:169 - insufficient spendable coins; 95626ugnot < 488236036ugnot (locked=488140410ugnot)\nStack Trace:\n    0  /gnoroot/tm2/pkg/errors/errors.go:93\n    1  /gnoroot/tm2/pkg/std/errors.go:169\n    2  /gnoroot/tm2/pkg/sdk/bank/keeper.go:288\n    3  /gnoroot/tm2/pkg/sdk/bank/keeper.go:181\n    4  /gnoroot/tm2/pkg/sdk/bank/keeper.go:158\n    5  /gnoroot/tm2/pkg/sdk/bank/handler.go:50\n    6  /gnoroot/tm2/pkg/sdk/bank/handler.go:28\n    7  /gnoroot/tm2/pkg/sdk/baseapp.go:719\n    8  /gnoroot/tm2/pkg/sdk/baseapp.go:963\n    9  /gnoroot/tm2/pkg/sdk/baseapp.go:650\n   10  /gnoroot/tm2/pkg/bft/abci/client/local_client.go:95\n... 14 more lines elided,events:[]"
+     }
+    },
+    {
+     "GasUsed": "624817",
+     "GasWanted": "2000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": {
+       "@type": "/std.VestingLockedCoinsError"
+      },
+      "Events": null,
+      "Info": "",
+      "Log": "msg:0,success:false,log:--= Error =--\nData: std.VestingLockedCoinsError{abciError:std.abciError{}}\nMsg Traces:\n    0  /gnoroot/tm2/pkg/std/errors.go:169 - insufficient spendable coins; 56887ugnot < 266312738ugnot (locked=266255851ugnot)\nStack Trace:\n    0  /gnoroot/tm2/pkg/errors/errors.go:93\n    1  /gnoroot/tm2/pkg/std/errors.go:169\n    2  /gnoroot/tm2/pkg/sdk/bank/keeper.go:288\n    3  /gnoroot/tm2/pkg/sdk/bank/keeper.go:181\n    4  /gnoroot/tm2/pkg/sdk/bank/keeper.go:158\n    5  /gnoroot/tm2/pkg/sdk/bank/handler.go:50\n    6  /gnoroot/tm2/pkg/sdk/bank/handler.go:28\n    7  /gnoroot/tm2/pkg/sdk/baseapp.go:719\n    8  /gnoroot/tm2/pkg/sdk/baseapp.go:963\n    9  /gnoroot/tm2/pkg/sdk/baseapp.go:650\n   10  /gnoroot/tm2/pkg/bft/abci/client/local_client.go:95\n... 14 more lines elided,events:[]"
+     }
+    },
+    {
+     "GasUsed": "624817",
+     "GasWanted": "2000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": {
+       "@type": "/std.VestingLockedCoinsError"
+      },
+      "Events": null,
+      "Info": "",
+      "Log": "msg:0,success:false,log:--= Error =--\nData: std.VestingLockedCoinsError{abciError:std.abciError{}}\nMsg Traces:\n    0  /gnoroot/tm2/pkg/std/errors.go:169 - insufficient spendable coins; 52319ugnot < 270885851ugnot (locked=270833532ugnot)\nStack Trace:\n    0  /gnoroot/tm2/pkg/errors/errors.go:93\n    1  /gnoroot/tm2/pkg/std/errors.go:169\n    2  /gnoroot/tm2/pkg/sdk/bank/keeper.go:288\n    3  /gnoroot/tm2/pkg/sdk/bank/keeper.go:181\n    4  /gnoroot/tm2/pkg/sdk/bank/keeper.go:158\n    5  /gnoroot/tm2/pkg/sdk/bank/handler.go:50\n    6  /gnoroot/tm2/pkg/sdk/bank/handler.go:28\n    7  /gnoroot/tm2/pkg/sdk/baseapp.go:719\n    8  /gnoroot/tm2/pkg/sdk/baseapp.go:963\n    9  /gnoroot/tm2/pkg/sdk/baseapp.go:650\n   10  /gnoroot/tm2/pkg/bft/abci/client/local_client.go:95\n... 14 more lines elided,events:[]"
+     }
+    },
+    {
+     "GasUsed": "624889",
+     "GasWanted": "2000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": {
+       "@type": "/std.VestingLockedCoinsError"
+      },
+      "Events": null,
+      "Info": "",
+      "Log": "msg:0,success:false,log:--= Error =--\nData: std.VestingLockedCoinsError{abciError:std.abciError{}}\nMsg Traces:\n    0  /gnoroot/tm2/pkg/std/errors.go:169 - insufficient spendable coins; 377790ugnot < 1943488720ugnot (locked=1943110930ugnot)\nStack Trace:\n    0  /gnoroot/tm2/pkg/errors/errors.go:93\n    1  /gnoroot/tm2/pkg/std/errors.go:169\n    2  /gnoroot/tm2/pkg/sdk/bank/keeper.go:288\n    3  /gnoroot/tm2/pkg/sdk/bank/keeper.go:181\n    4  /gnoroot/tm2/pkg/sdk/bank/keeper.go:158\n    5  /gnoroot/tm2/pkg/sdk/bank/handler.go:50\n    6  /gnoroot/tm2/pkg/sdk/bank/handler.go:28\n    7  /gnoroot/tm2/pkg/sdk/baseapp.go:719\n    8  /gnoroot/tm2/pkg/sdk/baseapp.go:963\n    9  /gnoroot/tm2/pkg/sdk/baseapp.go:650\n   10  /gnoroot/tm2/pkg/bft/abci/client/local_client.go:95\n... 14 more lines elided,events:[]"
+     }
+    },
+    {
+     "GasUsed": "624673",
+     "GasWanted": "2000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": {
+       "@type": "/std.VestingLockedCoinsError"
+      },
+      "Events": null,
+      "Info": "",
+      "Log": "msg:0,success:false,log:--= Error =--\nData: std.VestingLockedCoinsError{abciError:std.abciError{}}\nMsg Traces:\n    0  /gnoroot/tm2/pkg/std/errors.go:169 - insufficient spendable coins; 16472ugnot < 6093021ugnot (locked=6076549ugnot)\nStack Trace:\n    0  /gnoroot/tm2/pkg/errors/errors.go:93\n    1  /gnoroot/tm2/pkg/std/errors.go:169\n    2  /gnoroot/tm2/pkg/sdk/bank/keeper.go:288\n    3  /gnoroot/tm2/pkg/sdk/bank/keeper.go:181\n    4  /gnoroot/tm2/pkg/sdk/bank/keeper.go:158\n    5  /gnoroot/tm2/pkg/sdk/bank/handler.go:50\n    6  /gnoroot/tm2/pkg/sdk/bank/handler.go:28\n    7  /gnoroot/tm2/pkg/sdk/baseapp.go:719\n    8  /gnoroot/tm2/pkg/sdk/baseapp.go:963\n    9  /gnoroot/tm2/pkg/sdk/baseapp.go:650\n   10  /gnoroot/tm2/pkg/bft/abci/client/local_client.go:95\n... 14 more lines elided,events:[]"
+     }
+    },
+    {
+     "GasUsed": "624889",
+     "GasWanted": "2000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": {
+       "@type": "/std.VestingLockedCoinsError"
+      },
+      "Events": null,
+      "Info": "",
+      "Log": "msg:0,success:false,log:--= Error =--\nData: std.VestingLockedCoinsError{abciError:std.abciError{}}\nMsg Traces:\n    0  /gnoroot/tm2/pkg/std/errors.go:169 - insufficient spendable coins; 367221ugnot < 1981359966ugnot (locked=1980992745ugnot)\nStack Trace:\n    0  /gnoroot/tm2/pkg/errors/errors.go:93\n    1  /gnoroot/tm2/pkg/std/errors.go:169\n    2  /gnoroot/tm2/pkg/sdk/bank/keeper.go:288\n    3  /gnoroot/tm2/pkg/sdk/bank/keeper.go:181\n    4  /gnoroot/tm2/pkg/sdk/bank/keeper.go:158\n    5  /gnoroot/tm2/pkg/sdk/bank/handler.go:50\n    6  /gnoroot/tm2/pkg/sdk/bank/handler.go:28\n    7  /gnoroot/tm2/pkg/sdk/baseapp.go:719\n    8  /gnoroot/tm2/pkg/sdk/baseapp.go:963\n    9  /gnoroot/tm2/pkg/sdk/baseapp.go:650\n   10  /gnoroot/tm2/pkg/bft/abci/client/local_client.go:95\n... 14 more lines elided,events:[]"
+     }
+    },
+    {
+     "GasUsed": "624745",
+     "GasWanted": "2000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": {
+       "@type": "/std.VestingLockedCoinsError"
+      },
+      "Events": null,
+      "Info": "",
+      "Log": "msg:0,success:false,log:--= Error =--\nData: std.VestingLockedCoinsError{abciError:std.abciError{}}\nMsg Traces:\n    0  /gnoroot/tm2/pkg/std/errors.go:169 - insufficient spendable coins; 31290ugnot < 37243233ugnot (locked=37211943ugnot)\nStack Trace:\n    0  /gnoroot/tm2/pkg/errors/errors.go:93\n    1  /gnoroot/tm2/pkg/std/errors.go:169\n    2  /gnoroot/tm2/pkg/sdk/bank/keeper.go:288\n    3  /gnoroot/tm2/pkg/sdk/bank/keeper.go:181\n    4  /gnoroot/tm2/pkg/sdk/bank/keeper.go:158\n    5  /gnoroot/tm2/pkg/sdk/bank/handler.go:50\n    6  /gnoroot/tm2/pkg/sdk/bank/handler.go:28\n    7  /gnoroot/tm2/pkg/sdk/baseapp.go:719\n    8  /gnoroot/tm2/pkg/sdk/baseapp.go:963\n    9  /gnoroot/tm2/pkg/sdk/baseapp.go:650\n   10  /gnoroot/tm2/pkg/bft/abci/client/local_client.go:95\n... 14 more lines elided,events:[]"
+     }
+    },
+    {
+     "GasUsed": "624889",
+     "GasWanted": "2000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": {
+       "@type": "/std.VestingLockedCoinsError"
+      },
+      "Events": null,
+      "Info": "",
+      "Log": "msg:0,success:false,log:--= Error =--\nData: std.VestingLockedCoinsError{abciError:std.abciError{}}\nMsg Traces:\n    0  /gnoroot/tm2/pkg/std/errors.go:169 - insufficient spendable coins; 1440441ugnot < 7850947630ugnot (locked=7849507189ugnot)\nStack Trace:\n    0  /gnoroot/tm2/pkg/errors/errors.go:93\n    1  /gnoroot/tm2/pkg/std/errors.go:169\n    2  /gnoroot/tm2/pkg/sdk/bank/keeper.go:288\n    3  /gnoroot/tm2/pkg/sdk/bank/keeper.go:181\n    4  /gnoroot/tm2/pkg/sdk/bank/keeper.go:158\n    5  /gnoroot/tm2/pkg/sdk/bank/handler.go:50\n    6  /gnoroot/tm2/pkg/sdk/bank/handler.go:28\n    7  /gnoroot/tm2/pkg/sdk/baseapp.go:719\n    8  /gnoroot/tm2/pkg/sdk/baseapp.go:963\n    9  /gnoroot/tm2/pkg/sdk/baseapp.go:650\n   10  /gnoroot/tm2/pkg/bft/abci/client/local_client.go:95\n... 14 more lines elided,events:[]"
+     }
+    },
+    {
+     "GasUsed": "936478",
+     "GasWanted": "983235",
+     "ResponseBase": {
+      "Data": null,
+      "Error": null,
+      "Events": [
+       {
+        "@type": "/bank.TransferEvent",
+        "coins": "30611ugnot",
+        "from": "g1juss2tuc97sr77rn6vprhh9lr7d9e07uu68x59",
+        "to": "g19ulvh44r54nc44pekne4cy6e7lptheq7a0wavt"
+       }
+      ],
+      "Info": "",
+      "Log": "msg:0,success:true,log:,events:[]"
+     }
+    }
+   ],
+   "end_block": {
+    "ConsensusParams": null,
+    "Events": null,
+    "ResponseBase": {
+     "Data": null,
+     "Error": null,
+     "Events": null,
+     "Info": "",
+     "Log": ""
+    },
+    "ValidatorUpdates": null
+   }
+  }
+ },
+ "commit": {
+  "canonical": true,
+  "signed_header": {
+   "commit": {
+    "block_id": {
+     "hash": "ryO3TaNaTFPAnKMDJYSB4jZBcV3+w0tKEP4LpFaUo9Q=",
+     "parts": {
+      "hash": "om7NPbIC8kOAskmOh+4GnwCTfRyMCrv1SKyCSy47rWU=",
+      "total": "1"
+     }
+    },
+    "precommits": [
+     {
+      "block_id": {
+       "hash": "ryO3TaNaTFPAnKMDJYSB4jZBcV3+w0tKEP4LpFaUo9Q=",
+       "parts": {
+        "hash": "om7NPbIC8kOAskmOh+4GnwCTfRyMCrv1SKyCSy47rWU=",
+        "total": "1"
+       }
+      },
+      "height": "721657",
+      "round": "0",
+      "signature": "ikrmzXNe/PR7/nHjFlU/4B7SPxpYjOW2LKWt7PdYU1xrF3fbwIh1LodD0Zh+1ubNj30xJLvdl8OWfJdOrXZhDg==",
+      "timestamp": "2026-10-11T06:58:04.453475337Z",
+      "type": 2,
+      "validator_address": "g1g0yrmdhney8pcaf9rfut4604equz604pszdsyt",
+      "validator_index": "0"
+     },
+     {
+      "block_id": {
+       "hash": "ryO3TaNaTFPAnKMDJYSB4jZBcV3+w0tKEP4LpFaUo9Q=",
+       "parts": {
+        "hash": "om7NPbIC8kOAskmOh+4GnwCTfRyMCrv1SKyCSy47rWU=",
+        "total": "1"
+       }
+      },
+      "height": "721657",
+      "round": "0",
+      "signature": "+UCSir/Ni5eLh6hql/tY+/3ItEqABlRZBmkzC70AjSc/fdRRD/2VZfW7GUnqynCJu1/EAbWBVld6DgiD/ov3Cw==",
+      "timestamp": "2026-10-11T06:58:04.385612396Z",
+      "type": 2,
+      "validator_address": "g15t7f9q6km3ldt885duwl8xu5dncs98528amk4f",
+      "validator_index": "1"
+     },
+     {
+      "block_id": {
+       "hash": "ryO3TaNaTFPAnKMDJYSB4jZBcV3+w0tKEP4LpFaUo9Q=",
+       "parts": {
+        "hash": "om7NPbIC8kOAskmOh+4GnwCTfRyMCrv1SKyCSy47rWU=",
+        "total": "1"
+       }
+      },
+      "height": "721657",
+      "round": "0",
+      "signature": "7tWjc5ZeXM9/6xV9fRlLo3fi9vPsXs/PzFHCzqGhi6VeUvzk6Z/96/w0s+wMj/xn4JJKP/ud0eUsewxVj84ZDg==",
+      "timestamp": "2026-10-11T06:58:04.445313335Z",
+      "type": 2,
+      "validator_address": "g1hqhetnnz0raw5hps6yxexl7q09a6f8w3anlptt",
+      "validator_index": "2"
+     },
+     {
+      "block_id": {
+       "hash": "ryO3TaNaTFPAnKMDJYSB4jZBcV3+w0tKEP4LpFaUo9Q=",
+       "parts": {
+        "hash": "om7NPbIC8kOAskmOh+4GnwCTfRyMCrv1SKyCSy47rWU=",
+        "total": "1"
+       }
+      },
+      "height": "721657",
+      "round": "0",
+      "signature": "kTiuxEtUO7w2IrCB9ALXZIxNlj45SqU870j+GvCp4HJGnjz/OL0XgHdG2+0AhPRK+q6yWV0Q4eFRcAvUQyEtAw==",
+      "timestamp": "2026-10-11T06:58:04.499885676Z",
+      "type": 2,
+      "validator_address": "g1h97x8geqqwhh0prepcwrqskcd35g6gy5s39eny",
+      "validator_index": "3"
+     },
+     {
+      "block_id": {
+       "hash": "ryO3TaNaTFPAnKMDJYSB4jZBcV3+w0tKEP4LpFaUo9Q=",
+       "parts": {
+        "hash": "om7NPbIC8kOAskmOh+4GnwCTfRyMCrv1SKyCSy47rWU=",
+        "total": "1"
+       }
+      },
+      "height": "721657",
+      "round": "0",
+      "signature": "KvMQQ0mXkoQkx87f4SsmYEWKtbU9jmWG0TG1rC/S6lqKkSjOgdzwkEHZpn6V5xqd+jM0BBjrT1fqMOL4ZZjNBw==",
+      "timestamp": "2026-10-11T06:58:04.441768448Z",
+      "type": 2,
+      "validator_address": "g1mmgvcssjw6x4fzphupfg6mtxqt36v000c5rf2a",
+      "validator_index": "4"
+     },
+     {
+      "block_id": {
+       "hash": "ryO3TaNaTFPAnKMDJYSB4jZBcV3+w0tKEP4LpFaUo9Q=",
+       "parts": {
+        "hash": "om7NPbIC8kOAskmOh+4GnwCTfRyMCrv1SKyCSy47rWU=",
+        "total": "1"
+       }
+      },
+      "height": "721657",
+      "round": "0",
+      "signature": "wilIm6pJLaiFAAW4PC4A7aLGIkQ2CUqGzHqKNM4pTC4IROYZJipzAbPRKZZ7zeAYEbJlB1QZpquPxqZr24OtBw==",
+      "timestamp": "2026-10-11T06:58:04.395761475Z",
+      "type": 2,
+      "validator_address": "g1l983yy3kpmapyzcfy53y5charfxupa5czjalea",
+      "validator_index": "5"
+     }
+    ]
+   },
+   "header": {
+    "app_hash": "rJczP6in9f92YVmziTWlfNWX7X9MJhcZt361rNeatVs=",
+    "app_version": "",
+    "chain_id": "gnoland-1",
+    "consensus_hash": "uJmaP/mPzdzmA1t3/6z5QWOFFzl4v14QsTCvjvJoZ7A=",
+    "data_hash": "tuuDkFMcyjEBQLrE/RNDk5622arWGvzjGpXLuNoJ96c=",
+    "height": "721657",
+    "last_block_id": {
+     "hash": "vAy5OJsNAmbPgelxpHtycmcnytzxHxfywGUtagEEWTE=",
+     "parts": {
+      "hash": "kESN5cMRt7N1/nWwq1/GAYLd1QbS6oWRJw8FpvV1ZqY=",
+      "total": "1"
+     }
+    },
+    "last_commit_hash": "eYQaTCw71h7FHuPeSEXl4/+W1pqR8CCqYgY7UNDfbVo=",
+    "last_results_hash": null,
+    "next_validators_hash": "/ph9dJ2z93PFZfwZ9D1yA8RViNWHLmXnzO4zkjOOfZg=",
+    "num_txs": "12",
+    "proposer_address": "g1mmgvcssjw6x4fzphupfg6mtxqt36v000c5rf2a",
+    "time": "2026-10-11T06:58:00.903322854Z",
+    "total_txs": "127973",
+    "validators_hash": "/ph9dJ2z93PFZfwZ9D1yA8RViNWHLmXnzO4zkjOOfZg=",
+    "version": "v1.0.0-rc.0"
+   }
+  }
+ },
+ "height": 721657,
+ "validators": {
+  "block_height": "721657",
+  "validators": [
+   {
+    "address": "g1g0yrmdhney8pcaf9rfut4604equz604pszdsyt",
+    "proposer_priority": "48",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "WcLVW8DMrLVb/bxEPshzCJBAOfyHrOYBWxkGTFsv7Wo="
+    },
+    "voting_power": "60"
+   },
+   {
+    "address": "g15t7f9q6km3ldt885duwl8xu5dncs98528amk4f",
+    "proposer_priority": "-1",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "ttILeghsqDTcV/ca746GTBxa/1sPVRG4i/z+hm3jINo="
+    },
+    "voting_power": "60"
+   },
+   {
+    "address": "g1hqhetnnz0raw5hps6yxexl7q09a6f8w3anlptt",
+    "proposer_priority": "-61",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "lp0lXyQoOH4DOsVComZIletIckwmt0n3AU+FWu/PwcA="
+    },
+    "voting_power": "60"
+   },
+   {
+    "address": "g1h97x8geqqwhh0prepcwrqskcd35g6gy5s39eny",
+    "proposer_priority": "-161",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "LnOiG+RlrblqMDmndrJBLdasqynt3ZMSHGa+7Jm28Lw="
+    },
+    "voting_power": "1"
+   },
+   {
+    "address": "g1mmgvcssjw6x4fzphupfg6mtxqt36v000c5rf2a",
+    "proposer_priority": "-62",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "C/ttNQ/pBO7jysLremYWNab6sJ0NpvaHMXuJxAR/ku8="
+    },
+    "voting_power": "60"
+   },
+   {
+    "address": "g1l983yy3kpmapyzcfy53y5charfxupa5czjalea",
+    "proposer_priority": "239",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "TPzWMVagYuF4e4ls/sA2AX7Ypcp7xpNNIBkn3REiB6I="
+    },
+    "voting_power": "60"
+   }
+  ]
+ }
+}

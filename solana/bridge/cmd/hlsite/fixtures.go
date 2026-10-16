@@ -44,7 +44,8 @@ import (
 //
 // -mock starts both transfers at 0 and POST /api/mock/step moves them (the browser suite); the tests' and the
 // preview's world is done. The figures move with the stages so that the identity holds at every one: a send in
-// flight is a gap until its mint, a burn until its credit.
+// flight is a gap until its mint, a burn until its credit. The Ethereum deployment beside it (fixtures_eth.go, -mock
+// and its tests) lives in the same world with stages of its own (eout, ein).
 
 const (
 	mockNS        = "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/"
@@ -155,28 +156,56 @@ func mockConfig() *Config {
 // ---------------------------------------------------------------- the world --
 
 type mockWorld struct {
-	mu      sync.Mutex
-	now     func() time.Time
-	start   time.Time
-	out, in int
-	down    bool             // signer 3 does not answer
-	at      map[string]int64 // when a stage was reached ("out1", "in3"): the events' times
+	mu        sync.Mutex
+	now       func() time.Time
+	start     time.Time
+	out, in   int
+	down      bool             // signer 3 does not answer
+	eout, ein int              // the Ethereum deployment's transfers in flight (fixtures_eth.go)
+	edown     bool             // its signer 3 does not answer
+	at        map[string]int64 // when a stage was reached ("out1", "in3", "eout1", "ein4"): the events' times
 }
 
 func newMockWorld(now func() time.Time, done bool) *mockWorld {
 	w := &mockWorld{now: now, start: now(), at: map[string]int64{}}
 	if done {
-		w.out, w.in = 3, 5
-		for _, k := range []string{"out1", "out2", "out3", "in1", "in2", "in3", "in4", "in5"} {
+		w.out, w.in, w.eout, w.ein = 3, 5, 2, 6
+		for _, k := range []string{"out1", "out2", "out3", "in1", "in2", "in3", "in4", "in5", "eout1", "eout2", "ein1", "ein2", "ein3", "ein4", "ein5", "ein6"} {
 			w.at[k] = w.start.Unix()
 		}
 	}
 	return w
 }
 
-func (w *mockWorld) step(flow string) error {
+// step moves one chain's transfers in flight a stage on: the Solana deployment's by default, the Ethereum one's
+// with chain "ethereum"; a reset starts both again.
+func (w *mockWorld) step(chain, flow string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if chain == "ethereum" && flow != "reset" {
+		switch flow {
+		case "out":
+			if w.eout >= 2 {
+				return errors.New("the send is minted already")
+			}
+			w.eout++
+			w.at["eout"+strconv.Itoa(w.eout)] = w.now().Unix()
+		case "in":
+			if w.ein >= 6 {
+				return errors.New("the claim is paid already")
+			}
+			w.ein++
+			w.at["ein"+strconv.Itoa(w.ein)] = w.now().Unix()
+		case "down":
+			w.edown = !w.edown
+		default:
+			return errors.New("flow: out, in, down or reset")
+		}
+		return nil
+	}
+	if chain != "" && chain != "solana" && chain != "ethereum" {
+		return errors.New("chain: solana or ethereum")
+	}
 	switch flow {
 	case "out":
 		if w.out >= 3 {
@@ -194,6 +223,7 @@ func (w *mockWorld) step(flow string) error {
 		w.down = !w.down
 	case "reset": // the browser suite's next run starts from the same world
 		w.out, w.in, w.down, w.at = 0, 0, false, map[string]int64{}
+		w.eout, w.ein, w.edown = 0, 0, false
 	default:
 		return errors.New("flow: out, in, down or reset")
 	}
@@ -203,7 +233,13 @@ func (w *mockWorld) step(flow string) error {
 func (w *mockWorld) stages() map[string]any {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return map[string]any{"out": w.out, "in": w.in, "down": w.down}
+	return map[string]any{"out": w.out, "in": w.in, "down": w.down, "ethOut": w.eout, "ethIn": w.ein, "ethDown": w.edown}
+}
+
+func (w *mockWorld) getEth() (out, in int, down bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.eout, w.ein, w.edown
 }
 
 func (w *mockWorld) get() (out, in int, down bool) {
@@ -261,6 +297,9 @@ func (m *mockGno) GasPrice(ctx context.Context) (gno.GasPrice, error) {
 }
 
 func (m *mockGno) TxEvents(ctx context.Context, hash string) (*gnoTx, error) {
+	if hash == mockEthGnoTx {
+		return &gnoTx{Height: ethOutHeight, Events: []gnoEvent{{Type: "SentTransferRemote", PkgPath: mockEthNS("hlgnot"), Attrs: map[string]string{"id": mockEthOutID, "amount": "120000000", "from": mockSender, "destination": strconv.FormatUint(uint64(mockEthDomain), 10)}}}}, nil
+	}
 	if hash != mockGnoTx {
 		return nil, errors.New("gno rpc tx: tx (" + hash + ") not found")
 	}
@@ -284,6 +323,9 @@ func (m *mockGno) RenderAt(ctx context.Context, pkgPath, path string, height int
 	m.mu.Lock()
 	m.renders[strings.SplitN(path, "/", 2)[0]]++
 	m.mu.Unlock()
+	if strings.HasPrefix(realm, "eth/") {
+		return m.ethRender(strings.TrimPrefix(realm, "eth/"), path)
+	}
 	_, in, _ := m.w.get()
 	switch {
 	case realm == "hlmailbox" && path == "json":
@@ -716,7 +758,10 @@ func (m *mockSol) GetLatestBlockhash(ctx context.Context, commitment rpc.Commitm
 // it is down.
 type mockProber struct{ w *mockWorld }
 
-func (p mockProber) Probe(ctx context.Context, base string, nonce uint64) (int, error) {
+func (p mockProber) Probe(ctx context.Context, base, lane string, nonce uint64) (int, error) {
+	if lane == "eth" {
+		return p.probeEth(base, nonce)
+	}
 	_, in, down := p.w.get()
 	n, _ := strconv.Atoi(base[strings.LastIndexByte(base, '/')+1:])
 	if n == 3 && down {

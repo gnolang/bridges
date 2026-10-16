@@ -1,0 +1,484 @@
+{
+ "block": {
+  "block": {
+   "data": {
+    "txs": [
+     "CnEKDS9iYW5rLk1zZ1NlbmQSYAooZzE2cnYwbmM1dGEwbHJ2bXZqYTh6aDcwMnJ3c3A0MnE1M3l3OHUzNRIoZzFkZDNtdmwweXM5dDZ4MHZhMGw3ZWd5aDA1M3NmdjQyYW16ajlmcRoKMjQzODR1Z25vdBIQCICS9AESCTUwMDB1Z25vdBp+CjoKEy90bS5QdWJLZXlTZWNwMjU2azESIwohA50jb9wBZQ+GgpUpiGqeuWRjoOHGRRcjQ8yR9lyStANaEkCwJTi4uM1K+EIVqFv/IfvlPpOsfubxMJ9+zv9leHx8twmySyk6yaCke60qP/UWkIbM7JzBY9BUJ7J31AKly/N8",
+     "CpQBCgovdm0ubV9jYWxsEoUBCihnMWFqOTJkc2ZocnVneXdqOXZmZ21xcnh6c3A5bnR4MHcydmMwOHQ1Ij9nbm8ubGFuZC9yL2cxbjRwbDV1YzR5dDVyOTZtOXc2Zm1kem54M3gwanlnOGw2YXJobXQvZ25vbWkvcGFkdjMqA0J1eTIHMDAwMDAwMTIHMjAwMDAwMDIBMBIRCIDC1y8SCjUwMDAwdWdub3QaqAEKOgoTL3RtLlB1YktleVNlY3AyNTZrMRIjCiED1m8vwKPGCAf8w9mYO4wzqn7C3G9Q4vT3p/iOx8Dv3nYSQJo+SJshpiwYvLFKzGizUeWrO0yn0NMAL3TX2w/5SA//H8KHn6H86dlGNONcbePK3Gk+vETMMZFCn0Zg/Eoo+lsaKGcxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxbHV1eGU=",
+     "Cm0KCi92bS5tX2NhbGwSXwooZzFmN2dmN2d5eDNxNTl2ZHhmMDZ1dzY4enhtOGZ5Z3k3d3A4Z2UwYRIPNTAwMDAwMDAwMHVnbm90Ihlnbm8ubGFuZC9yL2dub2xhbmQvd3Vnbm90KgdEZXBvc2l0CpQBCgovdm0ubV9jYWxsEoUBCihnMWY3Z2Y3Z3l4M3E1OXZkeGYwNnV3Njh6eG04ZnlneTd3cDhnZTBhIhlnbm8ubGFuZC9yL2dub2xhbmQvd3Vnbm90KghUcmFuc2ZlcjIoZzF1a21sM2oycHA1d21uMnU2bTdyemVhbXRwNThyMHI3ZjdkOWV5bTIKNTAwMDAwMDAwMAqXAQoKL3ZtLm1fY2FsbBKIAQooZzFmN2dmN2d5eDNxNTl2ZHhmMDZ1dzY4enhtOGZ5Z3k3d3A4Z2UwYSI/Z25vLmxhbmQvci9nMW40cGw1dWM0eXQ1cjk2bTl3NmZtZHpueDN4MGp5ZzhsNmFyaG10L2dub21pL3BhZHYzKgNCdXkyBzAwMDAwMDEyCjUwMDAwMDAwMDAyATASEQjAv/YbEgoyOTI4M3Vnbm90Gn4KOgoTL3RtLlB1YktleVNlY3AyNTZrMRIjCiEDPMIV6hY5F+9PZ2wsPN+9FWKupQGo9UkeIGX8qSlGQTASQICbf+8sWMhgHzXI4z6g0aXPprq4EnV7nYYoTa6gAW/9fGImhp5M4zVF5XtnDScXVBIryKiYDrLqacyxPN0Leq4iBWdub21p"
+    ]
+   },
+   "header": {
+    "app_hash": "mffLAvFywpU8i8WDHC2QbdgKc+qpAQzYBFElOF+DNOc=",
+    "app_version": "",
+    "chain_id": "gnoland-1",
+    "consensus_hash": "uJmaP/mPzdzmA1t3/6z5QWOFFzl4v14QsTCvjvJoZ7A=",
+    "data_hash": "AqLfWaODf/dWyrYdrYzpM4LVPXpTWUMmItvWzS2bIHw=",
+    "height": "210414",
+    "last_block_id": {
+     "hash": "MP3bBrSKl0HbhhJL+R+TZ3VIbN2UuFCxc3f9OYmw4sU=",
+     "parts": {
+      "hash": "YQHfq0ywwcGJPylbOUX8dGxSGqbOeiRon3vjL+9lLMI=",
+      "total": "1"
+     }
+    },
+    "last_commit_hash": "R5ZQpXyeSTPaO/0muGB43v8ZjZMdE7h2wjq8U9ddhas=",
+    "last_results_hash": "/e0/dRbHKvOdbMFmEt5uLr4tTb4mJRRzFIQ6O5260uk=",
+    "next_validators_hash": "jsqr7nfq8QYaLfjdJPVY48czrhMWd+L3tiX6XbeaRLk=",
+    "num_txs": "3",
+    "proposer_address": "g15t7f9q6km3ldt885duwl8xu5dncs98528amk4f",
+    "time": "2026-09-21T07:00:51.075613155Z",
+    "total_txs": "7373",
+    "validators_hash": "jsqr7nfq8QYaLfjdJPVY48czrhMWd+L3tiX6XbeaRLk=",
+    "version": "v1.0.0-rc.0"
+   },
+   "last_commit": {
+    "block_id": {
+     "hash": "MP3bBrSKl0HbhhJL+R+TZ3VIbN2UuFCxc3f9OYmw4sU=",
+     "parts": {
+      "hash": "YQHfq0ywwcGJPylbOUX8dGxSGqbOeiRon3vjL+9lLMI=",
+      "total": "1"
+     }
+    },
+    "precommits": [
+     {
+      "block_id": {
+       "hash": "MP3bBrSKl0HbhhJL+R+TZ3VIbN2UuFCxc3f9OYmw4sU=",
+       "parts": {
+        "hash": "YQHfq0ywwcGJPylbOUX8dGxSGqbOeiRon3vjL+9lLMI=",
+        "total": "1"
+       }
+      },
+      "height": "210413",
+      "round": "0",
+      "signature": "xmbUDOWyRrWNZl5It/9fEn6Uh59kWFa5gzdKg2neQMppDY17Lv1a8EXyWjkOX75jlZjuNQ3Fjj7Yu/XBTBGkAg==",
+      "timestamp": "2026-09-21T07:00:51.105631973Z",
+      "type": 2,
+      "validator_address": "g15t7f9q6km3ldt885duwl8xu5dncs98528amk4f",
+      "validator_index": "0"
+     },
+     {
+      "block_id": {
+       "hash": "MP3bBrSKl0HbhhJL+R+TZ3VIbN2UuFCxc3f9OYmw4sU=",
+       "parts": {
+        "hash": "YQHfq0ywwcGJPylbOUX8dGxSGqbOeiRon3vjL+9lLMI=",
+        "total": "1"
+       }
+      },
+      "height": "210413",
+      "round": "0",
+      "signature": "KLNLG5UKcSUQyVGQZrvDSCWPWQNrK3yTE4qNykcSFwWuaXenYLAyFsoO2Oui9lURtcfcgMhboD7zZpmTPuZjCQ==",
+      "timestamp": "2026-09-21T07:00:51.075613155Z",
+      "type": 2,
+      "validator_address": "g1hqhetnnz0raw5hps6yxexl7q09a6f8w3anlptt",
+      "validator_index": "1"
+     },
+     {
+      "block_id": {
+       "hash": "MP3bBrSKl0HbhhJL+R+TZ3VIbN2UuFCxc3f9OYmw4sU=",
+       "parts": {
+        "hash": "YQHfq0ywwcGJPylbOUX8dGxSGqbOeiRon3vjL+9lLMI=",
+        "total": "1"
+       }
+      },
+      "height": "210413",
+      "round": "0",
+      "signature": "r7OSJtAYSCmX++vOq4Ed7OuBayK6+U8iaPEbZ5JMaUE+7vEmQurCS5Gu/K3B1vf6X0fEc2pu0qb+A7aby9BWAA==",
+      "timestamp": "2026-09-21T07:00:51.054793732Z",
+      "type": 2,
+      "validator_address": "g1mmgvcssjw6x4fzphupfg6mtxqt36v000c5rf2a",
+      "validator_index": "2"
+     },
+     {
+      "block_id": {
+       "hash": "MP3bBrSKl0HbhhJL+R+TZ3VIbN2UuFCxc3f9OYmw4sU=",
+       "parts": {
+        "hash": "YQHfq0ywwcGJPylbOUX8dGxSGqbOeiRon3vjL+9lLMI=",
+        "total": "1"
+       }
+      },
+      "height": "210413",
+      "round": "0",
+      "signature": "WxAh2rPCq4AFhxOaRToIRQI6J9gOjXY347iaw9Bm8r/9De2dawF8RkkkFBSXOoIVrOnUAdghLGDRHjKUIzuxBA==",
+      "timestamp": "2026-09-21T07:00:51.094617463Z",
+      "type": 2,
+      "validator_address": "g1l983yy3kpmapyzcfy53y5charfxupa5czjalea",
+      "validator_index": "3"
+     }
+    ]
+   }
+  },
+  "block_meta": {
+   "block_id": {
+    "hash": "cmnq1DuPeE2ep9vJEy0N4tmp3l1xukO6uhho0o4SjiE=",
+    "parts": {
+     "hash": "ts9B6aG2ORBHOMhfloFazdAFdUD3y9xsenfcQoGvkNQ=",
+     "total": "1"
+    }
+   },
+   "header": {
+    "app_hash": "mffLAvFywpU8i8WDHC2QbdgKc+qpAQzYBFElOF+DNOc=",
+    "app_version": "",
+    "chain_id": "gnoland-1",
+    "consensus_hash": "uJmaP/mPzdzmA1t3/6z5QWOFFzl4v14QsTCvjvJoZ7A=",
+    "data_hash": "AqLfWaODf/dWyrYdrYzpM4LVPXpTWUMmItvWzS2bIHw=",
+    "height": "210414",
+    "last_block_id": {
+     "hash": "MP3bBrSKl0HbhhJL+R+TZ3VIbN2UuFCxc3f9OYmw4sU=",
+     "parts": {
+      "hash": "YQHfq0ywwcGJPylbOUX8dGxSGqbOeiRon3vjL+9lLMI=",
+      "total": "1"
+     }
+    },
+    "last_commit_hash": "R5ZQpXyeSTPaO/0muGB43v8ZjZMdE7h2wjq8U9ddhas=",
+    "last_results_hash": "/e0/dRbHKvOdbMFmEt5uLr4tTb4mJRRzFIQ6O5260uk=",
+    "next_validators_hash": "jsqr7nfq8QYaLfjdJPVY48czrhMWd+L3tiX6XbeaRLk=",
+    "num_txs": "3",
+    "proposer_address": "g15t7f9q6km3ldt885duwl8xu5dncs98528amk4f",
+    "time": "2026-09-21T07:00:51.075613155Z",
+    "total_txs": "7373",
+    "validators_hash": "jsqr7nfq8QYaLfjdJPVY48czrhMWd+L3tiX6XbeaRLk=",
+    "version": "v1.0.0-rc.0"
+   }
+  }
+ },
+ "block_results": {
+  "height": "210414",
+  "results": {
+   "begin_block": {
+    "ResponseBase": {
+     "Data": null,
+     "Error": null,
+     "Events": null,
+     "Info": "",
+     "Log": ""
+    }
+   },
+   "deliver_tx": [
+    {
+     "GasUsed": "935779",
+     "GasWanted": "2000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": null,
+      "Events": [
+       {
+        "@type": "/bank.TransferEvent",
+        "coins": "24384ugnot",
+        "from": "g16rv0nc5ta0lrvmvja8zh702rwsp42q53yw8u35",
+        "to": "g1dd3mvl0ys9t6x0va0l7egyh053sfv42amzj9fq"
+       }
+      ],
+      "Info": "",
+      "Log": "msg:0,success:true,log:,events:[]"
+     }
+    },
+    {
+     "GasUsed": "16629229",
+     "GasWanted": "50000000",
+     "ResponseBase": {
+      "Data": null,
+      "Error": {
+       "@type": "/abci.StringError",
+       "value": "storage deposit processing encountered one or more errors: lockStorageDeposit failed for realm gno.land/r/g1n4pl5uc4yt5r96m9w6fmdznx3x0jyg8l6arhmt/gnomi/padv3: unable to transfer deposit gno.land/r/g1n4pl5uc4yt5r96m9w6fmdznx3x0jyg8l6arhmt/gnomi/padv3, insufficient coins error"
+      },
+      "Events": null,
+      "Info": "vm.version=heads/chain/mainnet.3444+e75fef82c",
+      "Log": "msg:0,success:false,log:&fmt.wrapError{msg:\"storage deposit processing encountered one or more errors: lockStorageDeposit failed for realm gno.land/r/g1n4pl5uc4yt5r96m9w6fmdznx3x0jyg8l6arhmt/gnomi/padv3: unable to transfer deposit gno.land/r/g1n4pl5uc4yt5r96m9w6fmdznx3x0jyg8l6arhmt/gnomi/padv3, insufficient coins error\", err:(*errors.joinError)(0xc0447ff1b8)},events:[]"
+     }
+    },
+    {
+     "GasUsed": "26620938",
+     "GasWanted": "29282272",
+     "ResponseBase": {
+      "Data": "CgoKCig0NTQ2ODE4NiBpbnQ2NCkKCg==",
+      "Error": null,
+      "Events": [
+       {
+        "@type": "/bank.TransferEvent",
+        "coins": "5000000000ugnot",
+        "from": "g1f7gf7gyx3q59vdxf06uw68zxm8fygy7wp8ge0a",
+        "to": "g15vj5q08amlvyd0nx6zjgcvwq2d0gt9fcchrvum"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoland/wugnot.wugnot.0000000"
+         },
+         {
+          "key": "from",
+          "value": ""
+         },
+         {
+          "key": "to",
+          "value": "g1f7gf7gyx3q59vdxf06uw68zxm8fygy7wp8ge0a"
+         },
+         {
+          "key": "value",
+          "value": "5000000000"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Transfer"
+       },
+       {
+        "@type": "/tm.StorageDepositEvent",
+        "bytes_delta": "7",
+        "fee_delta": "700ugnot",
+        "pkg_path": "gno.land/r/gnoland/wugnot"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoland/wugnot.wugnot.0000000"
+         },
+         {
+          "key": "from",
+          "value": "g1f7gf7gyx3q59vdxf06uw68zxm8fygy7wp8ge0a"
+         },
+         {
+          "key": "to",
+          "value": "g1ukml3j2pp5wmn2u6m7rzeamtp58r0r7f7d9eym"
+         },
+         {
+          "key": "value",
+          "value": "5000000000"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Transfer"
+       },
+       {
+        "@type": "/tm.StorageUnlockEvent",
+        "bytes_delta": "-7",
+        "fee_refund": "700ugnot",
+        "pkg_path": "gno.land/r/gnoland/wugnot",
+        "refund_withheld": false
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/g1n4pl5uc4yt5r96m9w6fmdznx3x0jyg8l6arhmt/gnomi/padv3.GNOMI.0000001"
+         },
+         {
+          "key": "from",
+          "value": ""
+         },
+         {
+          "key": "to",
+          "value": "g1f7gf7gyx3q59vdxf06uw68zxm8fygy7wp8ge0a"
+         },
+         {
+          "key": "value",
+          "value": "45468186"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Transfer"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "id",
+          "value": "0000001"
+         },
+         {
+          "key": "buyer",
+          "value": "g1f7gf7gyx3q59vdxf06uw68zxm8fygy7wp8ge0a"
+         },
+         {
+          "key": "ugnot",
+          "value": "5000000000"
+         },
+         {
+          "key": "wugnot",
+          "value": "5000000000"
+         },
+         {
+          "key": "tokens",
+          "value": "45468186"
+         }
+        ],
+        "pkg_path": "gno.land/r/g1n4pl5uc4yt5r96m9w6fmdznx3x0jyg8l6arhmt/gnomi/padv3",
+        "type": "Buy"
+       },
+       {
+        "@type": "/tm.StorageDepositEvent",
+        "bytes_delta": "9120",
+        "fee_delta": "912000ugnot",
+        "pkg_path": "gno.land/r/g1n4pl5uc4yt5r96m9w6fmdznx3x0jyg8l6arhmt/gnomi/padv3"
+       }
+      ],
+      "Info": "\n\n",
+      "Log": "msg:0,success:true,log:,events:[]\nmsg:1,success:true,log:,events:[]\nmsg:2,success:true,log:,events:[]"
+     }
+    }
+   ],
+   "end_block": {
+    "ConsensusParams": null,
+    "Events": null,
+    "ResponseBase": {
+     "Data": null,
+     "Error": null,
+     "Events": null,
+     "Info": "",
+     "Log": ""
+    },
+    "ValidatorUpdates": null
+   }
+  }
+ },
+ "commit": {
+  "canonical": true,
+  "signed_header": {
+   "commit": {
+    "block_id": {
+     "hash": "cmnq1DuPeE2ep9vJEy0N4tmp3l1xukO6uhho0o4SjiE=",
+     "parts": {
+      "hash": "ts9B6aG2ORBHOMhfloFazdAFdUD3y9xsenfcQoGvkNQ=",
+      "total": "1"
+     }
+    },
+    "precommits": [
+     {
+      "block_id": {
+       "hash": "cmnq1DuPeE2ep9vJEy0N4tmp3l1xukO6uhho0o4SjiE=",
+       "parts": {
+        "hash": "ts9B6aG2ORBHOMhfloFazdAFdUD3y9xsenfcQoGvkNQ=",
+        "total": "1"
+       }
+      },
+      "height": "210414",
+      "round": "0",
+      "signature": "ZArFdjYM0gvH7AtIZXzkXsqKKZPUtmeJu9GYT973wwlQmTIBf7I9WITOXO80K4XHbXLg6AvYn004NmaBL2NBBw==",
+      "timestamp": "2026-09-21T07:00:54.410972716Z",
+      "type": 2,
+      "validator_address": "g15t7f9q6km3ldt885duwl8xu5dncs98528amk4f",
+      "validator_index": "0"
+     },
+     {
+      "block_id": {
+       "hash": "cmnq1DuPeE2ep9vJEy0N4tmp3l1xukO6uhho0o4SjiE=",
+       "parts": {
+        "hash": "ts9B6aG2ORBHOMhfloFazdAFdUD3y9xsenfcQoGvkNQ=",
+        "total": "1"
+       }
+      },
+      "height": "210414",
+      "round": "0",
+      "signature": "9eWRQ9crDXbRV3UA4vsodt6H1IwfQ40Sw8piLW+DOPeDUOveu63+bvJjv0WGlYyH/1FVMk6GXHUWfoR+mj1dDA==",
+      "timestamp": "2026-09-21T07:00:54.361291462Z",
+      "type": 2,
+      "validator_address": "g1hqhetnnz0raw5hps6yxexl7q09a6f8w3anlptt",
+      "validator_index": "1"
+     },
+     {
+      "block_id": {
+       "hash": "cmnq1DuPeE2ep9vJEy0N4tmp3l1xukO6uhho0o4SjiE=",
+       "parts": {
+        "hash": "ts9B6aG2ORBHOMhfloFazdAFdUD3y9xsenfcQoGvkNQ=",
+        "total": "1"
+       }
+      },
+      "height": "210414",
+      "round": "0",
+      "signature": "bzGjl+IP2Z08k27BoXn70Ex6uFVXrFqSqr780oGg0T/uJEgHsfDVD0G2XbKayKrP+v56z0q9ouoI4WlRhd96Ag==",
+      "timestamp": "2026-09-21T07:00:54.360734561Z",
+      "type": 2,
+      "validator_address": "g1mmgvcssjw6x4fzphupfg6mtxqt36v000c5rf2a",
+      "validator_index": "2"
+     },
+     {
+      "block_id": {
+       "hash": "cmnq1DuPeE2ep9vJEy0N4tmp3l1xukO6uhho0o4SjiE=",
+       "parts": {
+        "hash": "ts9B6aG2ORBHOMhfloFazdAFdUD3y9xsenfcQoGvkNQ=",
+        "total": "1"
+       }
+      },
+      "height": "210414",
+      "round": "0",
+      "signature": "T8ky0fTciY1YUZM3R3cIHf4C8OvBidLBBYfcIVv3AzMfIOyRs1CcDDD4lXWS6fhb9kuwzdLZzxxJ9Wn88RRXCA==",
+      "timestamp": "2026-09-21T07:00:54.406025278Z",
+      "type": 2,
+      "validator_address": "g1l983yy3kpmapyzcfy53y5charfxupa5czjalea",
+      "validator_index": "3"
+     }
+    ]
+   },
+   "header": {
+    "app_hash": "mffLAvFywpU8i8WDHC2QbdgKc+qpAQzYBFElOF+DNOc=",
+    "app_version": "",
+    "chain_id": "gnoland-1",
+    "consensus_hash": "uJmaP/mPzdzmA1t3/6z5QWOFFzl4v14QsTCvjvJoZ7A=",
+    "data_hash": "AqLfWaODf/dWyrYdrYzpM4LVPXpTWUMmItvWzS2bIHw=",
+    "height": "210414",
+    "last_block_id": {
+     "hash": "MP3bBrSKl0HbhhJL+R+TZ3VIbN2UuFCxc3f9OYmw4sU=",
+     "parts": {
+      "hash": "YQHfq0ywwcGJPylbOUX8dGxSGqbOeiRon3vjL+9lLMI=",
+      "total": "1"
+     }
+    },
+    "last_commit_hash": "R5ZQpXyeSTPaO/0muGB43v8ZjZMdE7h2wjq8U9ddhas=",
+    "last_results_hash": "/e0/dRbHKvOdbMFmEt5uLr4tTb4mJRRzFIQ6O5260uk=",
+    "next_validators_hash": "jsqr7nfq8QYaLfjdJPVY48czrhMWd+L3tiX6XbeaRLk=",
+    "num_txs": "3",
+    "proposer_address": "g15t7f9q6km3ldt885duwl8xu5dncs98528amk4f",
+    "time": "2026-09-21T07:00:51.075613155Z",
+    "total_txs": "7373",
+    "validators_hash": "jsqr7nfq8QYaLfjdJPVY48czrhMWd+L3tiX6XbeaRLk=",
+    "version": "v1.0.0-rc.0"
+   }
+  }
+ },
+ "height": 210414,
+ "validators": {
+  "block_height": "210414",
+  "validators": [
+   {
+    "address": "g15t7f9q6km3ldt885duwl8xu5dncs98528amk4f",
+    "proposer_priority": "-180",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "ttILeghsqDTcV/ca746GTBxa/1sPVRG4i/z+hm3jINo="
+    },
+    "voting_power": "60"
+   },
+   {
+    "address": "g1hqhetnnz0raw5hps6yxexl7q09a6f8w3anlptt",
+    "proposer_priority": "60",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "lp0lXyQoOH4DOsVComZIletIckwmt0n3AU+FWu/PwcA="
+    },
+    "voting_power": "60"
+   },
+   {
+    "address": "g1mmgvcssjw6x4fzphupfg6mtxqt36v000c5rf2a",
+    "proposer_priority": "60",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "C/ttNQ/pBO7jysLremYWNab6sJ0NpvaHMXuJxAR/ku8="
+    },
+    "voting_power": "60"
+   },
+   {
+    "address": "g1l983yy3kpmapyzcfy53y5charfxupa5czjalea",
+    "proposer_priority": "60",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "TPzWMVagYuF4e4ls/sA2AX7Ypcp7xpNNIBkn3REiB6I="
+    },
+    "voting_power": "60"
+   }
+  ]
+ }
+}

@@ -80,6 +80,7 @@ func (s *solanaChain) link(kind, k string) string {
 func (s *solanaChain) TxLink(sig string) string    { return s.link("tx", sig) }
 func (s *solanaChain) AccountLink(k string) string { return s.link("address", k) }
 func (s *solanaChain) Address(b [32]byte) string   { return solana.PublicKeyFromBytes(b[:]).String() }
+func (s *solanaChain) KindName(kind byte) string   { return sol.KindName(kind) }
 
 func (s *solanaChain) IsSignature(ref string) bool {
 	_, err := solana.SignatureFromBase58(ref)
@@ -334,11 +335,14 @@ func (s *solanaChain) Burn(ctx context.Context, ref string) ([]Burn, error) {
 
 // realmOf is the bridge realm a g1… address belongs to, "" for a wallet (the compare ignores case, as bech32
 // does: the agent's G27).
-func (s *solanaChain) realmOf(addr string) string {
-	if s.realms == nil {
+func (s *solanaChain) realmOf(addr string) string { return realmOfAddress(s.realms, addr) }
+
+// realmOfAddress is the bridge realm among realms() that a g1… address belongs to, "" for a wallet.
+func realmOfAddress(realms func() []string, addr string) string {
+	if realms == nil {
 		return ""
 	}
-	for _, p := range s.realms() {
+	for _, p := range realms() {
 		if strings.EqualFold(hl.GnoPackageAddress(p), addr) {
 			return p
 		}

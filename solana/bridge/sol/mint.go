@@ -66,22 +66,35 @@ type MultiReader interface {
 // GetMultipleChunked reads the accounts MultiMax at a time and answers as one getMultipleAccounts would: the values
 // in the keys' order, the context slot the lowest any chunk answered at.
 func GetMultipleChunked(ctx context.Context, c MultiReader, keys []solana.PublicKey, opts *rpc.GetMultipleAccountsOpts) (*rpc.GetMultipleAccountsResult, error) {
+	out, _, err := GetMultipleChunkedAt(ctx, c, keys, opts)
+	return out, err
+}
+
+// GetMultipleChunkedAt is GetMultipleChunked with the slot each account was read at: one getMultipleAccounts answers
+// every account it holds from one bank, at one slot, but two chunks are two calls, and the finalized root moves
+// between them (E4-SF1: a reading that holds accounts read at two slots against one slot counts what moved between
+// them twice, or not at all). slots[i] is the context slot of the chunk that read keys[i].
+func GetMultipleChunkedAt(ctx context.Context, c MultiReader, keys []solana.PublicKey, opts *rpc.GetMultipleAccountsOpts) (*rpc.GetMultipleAccountsResult, []uint64, error) {
 	out := &rpc.GetMultipleAccountsResult{Value: make([]*rpc.Account, 0, len(keys))}
+	slots := make([]uint64, 0, len(keys))
 	for start := 0; start < len(keys); start += MultiMax {
 		end := min(start+MultiMax, len(keys))
 		res, err := c.GetMultipleAccountsWithOpts(ctx, keys[start:end], opts)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if res == nil || len(res.Value) != end-start {
-			return nil, fmt.Errorf("getMultipleAccounts answered %d of %d accounts", lenValues(res), end-start)
+			return nil, nil, fmt.Errorf("getMultipleAccounts answered %d of %d accounts", lenValues(res), end-start)
 		}
 		out.Value = append(out.Value, res.Value...)
+		for range res.Value {
+			slots = append(slots, res.Context.Slot)
+		}
 		if out.Context.Slot == 0 || res.Context.Slot < out.Context.Slot {
 			out.Context.Slot = res.Context.Slot
 		}
 	}
-	return out, nil
+	return out, slots, nil
 }
 
 func lenValues(r *rpc.GetMultipleAccountsResult) int {

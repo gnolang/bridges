@@ -15,6 +15,8 @@ header .brand { font-weight: 700; margin-right: 6px; }
 header nav a { text-decoration: none; }
 header nav a[aria-current] { font-weight: 700; text-decoration: underline; }
 header .chain { margin-left: auto; color: var(--mute); font-size: 13px; }
+header .chain a { text-decoration: none; }
+header .chain a[aria-current] { font-weight: 700; text-decoration: underline; color: var(--fg); }
 main { padding-top: 10px; }
 h1 { font-size: 20px; margin: 0 0 8px; }
 h2 { font-size: 16px; margin: 14px 0 4px; }

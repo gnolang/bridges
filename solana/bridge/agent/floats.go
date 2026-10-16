@@ -20,15 +20,25 @@ const (
 )
 
 // plannedPerDay is the launch-day planned spend of each float, in its base unit a day (§5.5's figures: 0.00095
-// SOL a delivery record, 0.0015 SOL a first-time recipient's token account, ≈0.11 GNOT a Solana → gno delivery;
-// the updater's four transactions of 5,000 lamports a header at a header every ten minutes — 0.00288 SOL a day,
-// so its 0.3 SOL is ≈3.4 months, as §5.5 measures it; the earlier "0.3 SOL over five months" sat 30% below that).
+// SOL a delivery record, 0.0015 SOL a first-time recipient's token account, relayerGnoPerTransfer a Solana → gno
+// transfer; the updater's four transactions of 5,000 lamports a header at a header every ten minutes — 0.00288 SOL a
+// day, so its 0.3 SOL is ≈3.4 months, as §5.5 measures it; the earlier "0.3 SOL over five months" sat 30% below that).
 var plannedPerDay = map[string]float64{
 	"relayer-sol": 50 * 0.00095 * lamportsPerSOL,
 	"ata-payer":   25 * 0.0015 * lamportsPerSOL,
-	"relayer-gno": 50 * 0.11 * ugnotPerGNOT,
+	"relayer-gno": 50 * relayerGnoPerTransfer * ugnotPerGNOT,
 	"updater-sol": 144 * 4 * 5_000,
 }
+
+// relayerGnoPerTransfer is what one Solana → gno transfer costs the relayers' gno key, in GNOT (E5-GS5's Solana side,
+// measured on a gno v1.5.1 node with the routes at mainnet's values, lane s6): its Process — 44M to 60M gas, ≈0.07 GNOT at
+// the floor price — the storage deposit its credit locks — ≈1.49 GNOT for a claim to a fresh recipient, ≈1.00 to one
+// whose queue is open, ≈0.76 for a sweep entry, of which ≈0.31 comes back with the Claim that pays a claim in full (a
+// runway counts the spend, never the refund) — and its Claims at E5-GS1's cadence (≈0.15 GNOT for a small claim, ≈0.55
+// for 1,000 GNOT to a fresh recipient). §5.5 planned ≈0.11 GNOT, the Process alone: at 50 transfers a day the key spends
+// ≈93 GNOT a day, so the runway's seven days need ≈650 GNOT. A burn below its route's fee costs it nothing: the relayer
+// leaves it to whoever pays for it (E5-GS5).
+const relayerGnoPerTransfer = 0.07 + 1.49 + 0.3
 
 // sample is one reading of a float's balance.
 type sample struct {

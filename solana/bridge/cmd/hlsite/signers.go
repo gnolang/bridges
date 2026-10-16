@@ -11,20 +11,21 @@ import (
 )
 
 // The signers' lamps (M7): each signer machine serves the signatures it made at a public endpoint, GET
-// <url>/v1/sol/<nonce> — what the relayers read to deliver a burn (PLAN.md §5.6). The site asks each for the
+// <url>/v1/<lane>/<nonce> — "sol" for the Solana deployment's, "eth" for the Ethereum one's (E-M4) — what the
+// relayers read to deliver a burn (PLAN.md §5.6). The site asks each for the
 // newest burn: a signature served is the signer vouching for it, a 404 is the signer up and not (yet) vouching, no
 // answer is the signer down. The answers are read by the backend, never by the page, and kept fifteen seconds.
 
 // signerProber asks one signer's endpoint for one burn's signature: the HTTP status, or an error when nothing
 // answered.
 type signerProber interface {
-	Probe(ctx context.Context, base string, nonce uint64) (int, error)
+	Probe(ctx context.Context, base, lane string, nonce uint64) (int, error)
 }
 
 type httpProber struct{ c *http.Client }
 
-func (p httpProber) Probe(ctx context.Context, base string, nonce uint64) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(base, "/")+"/v1/sol/"+strconv.FormatUint(nonce, 10), nil)
+func (p httpProber) Probe(ctx context.Context, base, lane string, nonce uint64) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(base, "/")+"/v1/"+lane+"/"+strconv.FormatUint(nonce, 10), nil)
 	if err != nil {
 		return 0, err
 	}
@@ -93,7 +94,7 @@ func (s *server) lamps(ctx context.Context, ch *ChainConfig, nonce int64) []sign
 			defer wg.Done()
 			c, cancel := context.WithTimeout(ctx, 4*time.Second)
 			defer cancel()
-			code, err := s.prober.Probe(c, url, ask)
+			code, err := s.prober.Probe(c, url, kindWords(ch).lane, ask)
 			st := lampState(code, err)
 			if nonce < 0 && st == "vouching" {
 				st = "up" // nothing burned yet: a signature for nonce 0 cannot be one (a stale store), and up is all it says

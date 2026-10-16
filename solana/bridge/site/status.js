@@ -1,6 +1,6 @@
 // bridge.gno.world — the Status page: per token the lock against the supply (the identity), the caps and fees,
 // the flags on both sides, the client, the pending decisions, who governs. Read every ten seconds.
-import { api, chains, el, fmt, whole, nav, pick, short, when, date, realmLink, tokenAddress } from './common.js';
+import { api, chains, el, fmt, whole, nav, pick, short, when, date, realmLink, kindOf, words, tokenAddress } from './common.js';
 import { mountLocked } from './chart.js';
 
 const $ = (id) => document.getElementById(id);
@@ -21,9 +21,11 @@ async function main() {
 }
 
 function render(c, chain, st) {
-  const o = st.other || {};
+  const o = st.other || {}, w = words(chain), eth = kindOf(chain) === 'ethereum';
   $('head').className = 'line';
-  $('head').textContent = `gno.land height ${st.gno.height} (${date(st.gno.time)}) · ${chain.name} slot ${o.slot || '—'} · read ${when(st.at)}` + (st.gno.live ? '' : ' · NOT LAUNCHED') + (c.preview ? ' · PREVIEW: example figures' : '');
+  // Ethereum's supplies are read at its finalized block, the newest block's figures beside them (E-M4)
+  const far = eth ? `${chain.name} block ${o.head || '—'} (supplies at the finalized block ${o.slot || '—'})` : `${chain.name} slot ${o.slot || '—'}`;
+  $('head').textContent = `gno.land height ${st.gno.height} (${date(st.gno.time)}) · ${far} · read ${when(st.at)}` + (st.gno.live ? '' : ' · NOT LAUNCHED') + (c.preview ? ' · PREVIEW: example figures' : '');
   // the tokens
   const rows = st.tokens.map((t) => {
     const idCls = t.identity === 'BROKEN' ? 'bad' : t.identity === 'holds' ? 'ok' : 'warn';
@@ -46,7 +48,7 @@ function render(c, chain, st) {
   // the flags
   const flags = [];
   for (const f of st.gno.flags) flags.push(el('li', { class: 'warn' }, `gno.land: ${f.fn} of ${short(f.route.split('/').pop(), 12)} paused by seat ${f.seat} (${short(f.addr, 6)}) ${when(f.at)}` + (f.ids && f.ids.length ? `, naming ${f.ids.length} ids` : '')));
-  for (const [name, g] of [['the deliveries (pausable ISM)', o.pausable], ['the decisions (admin program)', o.admin]]) {
+  for (const [name, g] of [[`the deliveries (${w.gate})`, o.pausable], [`the decisions (${w.admin})`, o.admin]]) {
     if (!g) continue;
     g.flags.forEach((f, i) => { if (f) flags.push(el('li', { class: 'warn' }, `${chain.name}: ${name} flagged by seat ${i + 1}${i >= 4 ? ' (watch key)' : ''} (${short(g.keys[i], 6)}) ${when(f.time)}`)); });
     if (g.hold) flags.push(el('li', { class: 'bad' }, `${chain.name}: a HOLD stands on ${name} since ${date(g.holdSince && g.holdSince.time)}: two guardians' flags; it ends when they lift, or when governance replaces them (the hold's 21st day at the earliest)`));

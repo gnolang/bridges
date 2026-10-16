@@ -45,6 +45,25 @@ func TestFindLeaf(t *testing.T) {
 	if findLeaf(leaves, [32]byte{9}, path) != -1 || findLeaf(leaves, id1, "gno.land/r/other") != -1 {
 		t.Fatal("found where there is none")
 	}
+	// anyone may Reemit a message: a stranger's Reemit of nonce 2 beside junk events, ahead of the relayer's own in
+	// the block, is a bigger leaf carrying the same Dispatch; the proof stages the smaller (E3-RT2)
+	_, d2, _ := dispatchOf(2, path)
+	junk := gnolight.Any(gnolight.EventTypeURL, gnolight.EncodeEvent(&gnolight.Event{Type: "Junk", Attributes: []gnolight.Attribute{{Key: "k", Value: string(make([]byte, 9000))}}, PkgPath: "gno.land/r/stranger"}))
+	bigger := gnolight.EncodeResult(nil, nil, [][]byte{junk, gnolight.Any(gnolight.EventTypeURL, gnolight.EncodeEvent(d2.ToEvent(path)))})
+	if got := findLeaf([][]byte{plain, bigger, l1, l2}, id2, path); got != 3 {
+		t.Fatalf("leaf %d (%d bytes), not the smaller leaf 3", got, len(bigger))
+	}
+	if got := findLeaf([][]byte{l2, bigger, l2}, id2, path); got != 0 {
+		t.Fatalf("leaf %d: equals go to the lowest index", got)
+	}
+}
+
+// dispatchOf is a message of the nonce, its id and its Dispatch.
+func dispatchOf(nonce uint32, path string) ([]byte, gnolight.Dispatch, [32]byte) {
+	m := hl.Message{Version: 3, Nonce: nonce, Origin: hl.DomainGnoTest, Destination: hl.DomainSolanaTestnet, Body: []byte("x")}
+	raw := m.Bytes()
+	id := hl.ID(raw)
+	return raw, gnolight.Dispatch{ID: id, Nonce: nonce, Origin: m.Origin, Destination: m.Destination, Sender: m.Sender, Recipient: m.Recipient, Hash: gnolight.MessageHash(raw)}, id
 }
 
 // The relayer classifies hlmailbox's messages: a route's token message from the route's own realm, r/hlgov's

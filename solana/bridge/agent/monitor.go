@@ -81,6 +81,28 @@ type Monitor struct {
 	admins   *adminChain
 	diverted map[string]bool
 	stale    string
+	// cutStale is since when, and why, no cut has held ("" after one held): an identity not judged by the poll that set
+	// it shows it as stale (the review of lane s7, R5: the status kept the last held cut's "holds" through every poll a
+	// forger's credits kept from holding)
+	cutStale string
+	// unread names the tokens whose sends in flight had their processed marks unread this poll (E4-SF2): no verdict
+	// for them, alarmed once it has stood two minutes.
+	unread map[string]string
+	// unconfirmed names the tokens with a burn not credited yet that is no reading of Solana this poll — one provider
+	// alone lists it, or the two show it differently (E5-SF4, G17) — and unconfirmedIDs those burns: no verdict for the
+	// token, alarmed once it has stood two minutes; no message waiting for the stall and age alarms.
+	unconfirmed    map[string]string
+	unconfirmedIDs map[string]bool
+	// minCtx is the providers' minContextSlot self-check (E5-SF2), and minCtxWhy why it refuses this poll's readings that
+	// rest on the dispatch index ("" when it does not); minCtxOne says only one provider has shown it honours the bound
+	// this poll — the identities are judged, the forged-credit rule waits (E6-SF2).
+	minCtx    minContextCheck
+	minCtxWhy string
+	minCtxOne bool
+	// marksAt is when every uncredited mark was last read (markRefresh).
+	marksAt time.Time
+	// gaps are the providers refused for a route's history (E6-SF1): the token no verdict while one stands.
+	gaps historyGaps
 }
 
 type dispatchRec struct {
@@ -99,6 +121,40 @@ type dispatchRec struct {
 	// a disputed record counts for nothing — neither in flight nor credited after the snapshot — until a read
 	// through both providers agrees; hlwatch prints it UNCONFIRMED.
 	Disputed string `json:"disputed,omitempty"`
+	// DustAt is when a monitor's poll last found it below the fee of the realm that would credit it (unix; 0 never): the
+	// relayers leave such dust (E5-GS5), so it waits for nobody, and once a lowered fee makes it a delivery its wait counts
+	// from then, never from Seen (the round-6 audit's E6-SF6, the integration lane I3's DustAt)
+	DustAt int64 `json:"dustAt,omitempty"`
+
+	mark markSeen // when its delivered mark was last read unset, in memory (E5-SF5)
+}
+
+// readMarks reads the delivered marks of an index's burns not credited yet — a disputed record's too: the credits'
+// count holds every credited id (E4-RL1) — each read again only once hlmailbox's delivered count d (the reading's first
+// read of it) moved since it was read unset (E5-SF5: the burns nobody credits were read on every poll, for good), or all
+// of them (all: the book holds a window the index could not place, or markRefresh passed), and answers how many it found
+// credited now.
+func readMarks(ctx context.Context, g gnoReader, mailbox string, index map[string]*dispatchRec, d int, H int64, all bool) (int, error) {
+	var unread []string
+	for id, rec := range index {
+		if rec.Credited == 0 && (all || rec.mark.stale(d)) {
+			unread = append(unread, id)
+		}
+	}
+	marks, err := deliveredMarks(ctx, g, mailbox, unread, d, H)
+	if err != nil {
+		return 0, err
+	}
+	credited := 0
+	for _, id := range unread {
+		if rec := index[id]; marks[id] != 0 {
+			rec.Credited = marks[id]
+			credited++
+		} else {
+			rec.mark = markSeen{delivered: d, read: true}
+		}
+	}
+	return credited, nil
 }
 
 type sendRec struct {
@@ -108,6 +164,9 @@ type sendRec struct {
 	Processed bool   `json:"processed"`
 	Seen      int64  `json:"seen"`
 	ID        string `json:"id,omitempty"` // the message id (hex), the key of the route's send record
+	// Sender is the message's sender (hex), a realm of the token's line when the send was recorded (E3-CF1);
+	// a state file from before it holds none, and an in-flight send's is read once (readSends).
+	Sender string `json:"sender,omitempty"`
 	// Refunded says GovDAO's refund decision paid the sender back on gno.land (AQ2): the amount left the lock, so
 	// the send is in flight no more; while it still sits undelivered in hlmailbox it must never deliver.
 	// RefundRead is when its mark was last read (F23: read once, then only when the token's refund count rose).
@@ -115,6 +174,10 @@ type sendRec struct {
 	Refunded   bool  `json:"refunded,omitempty"`
 	RefundRead int64 `json:"refundRead,omitempty"`
 	WrittenOff bool  `json:"writtenOff,omitempty"`
+
+	// ProcessedSlot is the slot Solana processed it in, as its record says (E3-GT9: held to the snapshot's slot; 0
+	// for a mark from before it, read as processed at any slot).
+	ProcessedSlot uint64 `json:"processedSlot,omitempty"`
 }
 
 // DoubleMinted says whether a send was refunded on gno.land and processed on Solana after all, with no write-off
@@ -124,6 +187,12 @@ func (s *sendRec) DoubleMinted() bool { return s.Refunded && s.Processed && !s.W
 // InFlight says whether a send still counts toward the identity's in-flight amount: undelivered and not
 // refunded.
 func (s *sendRec) InFlight() bool { return !s.Processed && !s.Refunded }
+
+// InFlightAt says whether a send counts in flight against a supply read at a slot: not refunded, and not processed
+// at or before it (E3-GT9: its mark is read after the snapshot and kept, while the supply's slot can be lower).
+func (s *sendRec) InFlightAt(slot uint64) bool {
+	return !s.Refunded && (!s.Processed || s.ProcessedSlot > slot)
+}
 
 type monitorState struct {
 	Cursors          map[string]string       `json:"cursors"`  // "SYM#i" → provider i's scan cursor
@@ -138,10 +207,8 @@ type monitorState struct {
 	DecisionsChecked uint64                  `json:"decisionsChecked"`
 	SendsSet         bool                    `json:"sendsSet"`    // the monitor's own sends flags stand (deliveries paused)
 	SolFlagsSet      int                     `json:"solFlagsSet"` // flag transactions sent to the Solana objects
-	// ClaimsFrom is where each realm's claims walk resumes (G34); CapReached which tokens' locks reached the
-	// expected first-week lock (C341); RefundCounts each token's refund count at the last poll (F23: the marks
-	// are read again when it rises).
-	ClaimsFrom   map[string]int   `json:"claimsFrom,omitempty"`
+	// CapReached which tokens' locks reached the expected first-week lock (C341); RefundCounts each token's refund
+	// count at the last poll (F23: the marks are read again when it rises).
 	CapReached   map[string]bool  `json:"capReached,omitempty"`
 	RefundCounts map[string]int64 `json:"refundCounts,omitempty"`
 	// LineEnds is each token's line's last realm at the last poll (M1h, AR2: a migrate re-pointed before page 0
@@ -154,6 +221,20 @@ type monitorState struct {
 	IndexFromHeight int64 `json:"indexFromHeight,omitempty"`
 	IndexSeeded     bool  `json:"indexSeeded,omitempty"`
 	IndexSeedTried  int64 `json:"indexSeedTried,omitempty"`
+	// Floor is the highest finalized slot a poll's snapshot was taken at (the Go trust audit's E3-GT9): a finalized
+	// slot never un-finalizes, so a snapshot below it is a provider stepped back — no verdict.
+	Floor uint64 `json:"floor,omitempty"`
+	// Credits is hlmailbox's delivered count at the last poll whose cut held and the windows of credits the index has
+	// not placed yet (E4-GT1).
+	Credits creditBook `json:"credits"`
+	// Unindexed are hlmailbox's delivered ids the dispatch index does not hold, by id, which the forged-credit rule
+	// judges by their claims (E4-RL1: found by id, never by a walk of the routes' claims pages).
+	Unindexed map[string]*unindexedCredit `json:"unindexed,omitempty"`
+	// Through is the slot each cursor's route was read through, by "SYM#i" (E6-SF1: a listing the provider cannot give
+	// with the cursor as `until` is read back to it — a quiet route's cursor leaves a day of history, this slot does not),
+	// and ThroughHosts the providers, by place, it was read through (a slot is dropped when another takes the place).
+	Through      map[string]uint64 `json:"through,omitempty"`
+	ThroughHosts []string          `json:"throughHosts,omitempty"`
 }
 
 type monitorStatus struct {
@@ -163,6 +244,7 @@ type monitorStatus struct {
 	Floats     map[string]string `json:"floats"`
 	Flags      []string          `json:"flags"`
 	Waiting    map[string]int    `json:"waiting"`
+	Dust       map[string]int    `json:"dust"` // by symbol: the burns below the fee that would credit them (E6-SF6)
 	Client     map[string]any    `json:"client"`
 	Pausable   map[string]any    `json:"pausable"`
 	Decisions  map[string]any    `json:"decisions"`
@@ -183,6 +265,9 @@ func (m *Monitor) load() error {
 	if s.Cursors == nil {
 		s.Cursors = map[string]string{}
 	}
+	if s.Through == nil {
+		s.Through = map[string]uint64{}
+	}
 	if s.Skipped == nil {
 		s.Skipped = map[string][]scanSkip{}
 	}
@@ -195,8 +280,8 @@ func (m *Monitor) load() error {
 	if s.Floats == nil {
 		s.Floats = map[string][]sample{}
 	}
-	if s.ClaimsFrom == nil {
-		s.ClaimsFrom = map[string]int{}
+	if s.Unindexed == nil {
+		s.Unindexed = map[string]*unindexedCredit{}
 	}
 	if s.CapReached == nil {
 		s.CapReached = map[string]bool{}
@@ -248,6 +333,7 @@ func (m *Monitor) Run(ctx context.Context) error {
 	}
 	m.sol = [2]*rpc.Client{sol.NewRPC(urls[0]), sol.NewRPC(urls[1])}
 	m.both = twoProviders(m.sol)
+	m.state.ThroughHosts = keepThroughOf(m.state.Through, m.state.ThroughHosts, urls[:])
 	if m.own == nil {
 		m.own = m.Cfg.SourceClient(m.Cfg.Gno.RPC)
 	}
@@ -283,7 +369,9 @@ func (m *Monitor) Run(ctx context.Context) error {
 		return err
 	}
 	log.Printf("monitor: own node %s, sources %v, providers %s and %s, every %s", m.Cfg.Gno.RPC, m.Cfg.Gno.Sources, urls[0], urls[1], m.Every)
+	var qc qevalCheck // E4-SF6: at the start and hourly
 	for {
+		qc.run(ctx, m.own, m.Cfg.Gno.Mailbox, m.Alarm, m.now())
 		m.afterPoll(m.poll(ctx))
 		if err := m.save(); err != nil {
 			log.Printf("monitor: state: %v", err)
@@ -305,6 +393,7 @@ func (m *Monitor) afterPoll(err error) {
 	if err == nil {
 		m.stale = ""
 		m.clearPersisted("monitor:no-verdict")
+		m.Alarm.Clear(noVerdictHourKey)
 		return
 	}
 	log.Printf("monitor: %v", err)
@@ -313,6 +402,22 @@ func (m *Monitor) afterPoll(err error) {
 	m.mu.Unlock()
 	m.stale = m.now().UTC().Format(time.RFC3339) + ": " + err.Error()
 	m.persist("monitor:no-verdict", "no verdict: the poll fails ("+err.Error()+"); the identity, the stalls and the runways are not judged until it passes", cutFailAfter)
+	// an hour of failing polls says so at flag level, as an hour without a held cut does (the review of lane s7, R5: one
+	// provider failing every listing kept the watch at alarm level for good)
+	if m.persisted("monitor:no-verdict", cutFlagAfter) {
+		m.Alarm.Flag(noVerdictHourKey, "no poll has passed for "+m.now().Sub(m.seen["monitor:no-verdict"]).Round(time.Minute).String()+": "+err.Error()+" — nothing is judged while it stands")
+	}
+}
+
+// noVerdictHourKey is the flag-level alarm of a monitor whose polls have failed for cutFlagAfter.
+const noVerdictHourKey = "monitor:no-verdict:hour"
+
+// orElse is a, or b when a is "".
+func orElse(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // judgeHead applies judgeOwnHead to the own node's head: no verdict (the cut's alarm after two minutes) while
@@ -362,17 +467,41 @@ func (m *Monitor) poll(ctx context.Context) error {
 		m.persist("solana:providers", "the Solana snapshot failed: "+err.Error(), cutFailAfter)
 		return err
 	}
+	// the floor (E3-GT9): a snapshot below the highest slot a poll's reading already rested on is a provider stepped
+	// back (a lagging backend, or a liar) — no verdict, alarmed once it has stood two minutes; never a reading
+	if why := belowFloor(snap.Slot, m.state.Floor); why != "" {
+		m.clearPersisted("solana:providers")
+		m.setCut("no verdict: " + why)
+		m.persist("solana:finalized-floor", why, cutFailAfter)
+		return nil
+	}
+	m.state.Floor = snap.Slot
 	var cs *clientState
 	if m.Cfg.HasPrograms() {
 		if cs, err = m.readClientBoth(ctx); err != nil {
 			m.persist("solana:providers", "the Solana snapshot failed: "+err.Error(), cutFailAfter)
 			return err
 		}
-		if cs.Slot < snap.Slot {
-			snap.Slot = cs.Slot
+		// the client's state at or above the supplies' slot from both providers (E3-GT9: a lower answer lowered the
+		// snapshot's slot, and the burns between — burned in the supply already — counted in flight no more)
+		if why := clientBelow(cs.Slot, snap.Slot); why != "" {
+			m.clearPersisted("solana:providers")
+			m.setCut("no verdict: " + why)
+			m.persist("solana:finalized-floor", why, cutFailAfter)
+			return nil
 		}
 	}
 	m.clearPersisted("solana:providers")
+	m.clearPersisted("solana:finalized-floor")
+	// a provider whose listing ignores minContextSlot feeds an index that cannot be held to the supplies' slot (E5-SF2):
+	// the readings resting on it are refused (the identities, the forged-credit rule), the rest of the poll runs
+	m.minCtxWhy = m.minCtx.check(ctx, m.sol, m.Cfg, snap.Slot, m.now(), m.Alarm, false)
+	m.minCtxOne = m.minCtxWhy == "" && !m.minCtx.both()
+	if m.minCtxWhy != "" {
+		m.persist("solana:min-context", "no identity and no forged-credit judgement: "+m.minCtxWhy, cutFailAfter)
+	} else {
+		m.clearPersisted("solana:min-context")
+	}
 
 	// 2. gno.land's head, waited for until it is after the snapshot; catching up, stale or not after it is no
 	// verdict (gno:own); the client's trusted height T against it.
@@ -413,7 +542,7 @@ func (m *Monitor) poll(ctx context.Context) error {
 	cut := Cut{SolSlot: snap.Slot, SolTime: snap.At, GnoHeight: head.Height, GnoTime: head.Time}
 	if ok, why := cut.Holds(); !ok {
 		m.setCut("no verdict: " + why)
-		m.persist("cut", "the order never holds: "+why, cutFailAfter)
+		m.cutFailed("the order never holds: " + why)
 		return nil
 	}
 	H := head.Height
@@ -438,52 +567,115 @@ func (m *Monitor) poll(ctx context.Context) error {
 	// the open migrations (AQ3, K28): each token is judged over its line, a successor mid-import alarmed; a
 	// token whose line could not be read is no verdict this poll, the rest runs (G44)
 	migs := m.readMigrations(ctx, routes, mb, H)
+	// hlmailbox's count again after the routes and their lines (E3-GT2): a gno node answers its latest state at any
+	// height, so a send dispatched between the reads is in the lock and not walked — room a forged mint of its
+	// amount would hide in for the poll; the counts equal, the routes hold exactly the sends the walk counts
+	if again, err := mailboxAt(ctx, m.own, m.Cfg.Gno.Mailbox, H); err != nil {
+		return err
+	} else if again.Count != mb.Count {
+		why := movedText(fmt.Sprintf("hlmailbox dispatched %d message(s) while the routes were read (its count %d, then %d: a send between the reads is in the lock and not counted in flight)", again.Count-mb.Count, mb.Count, again.Count), "poll")
+		m.setCut("no verdict: " + why)
+		m.cutFailed(why)
+		return nil
+	}
 
 	// 5. The dispatch index (both providers) and the sends, then what each side has delivered at H / at the slot.
 	m.retrySeed(ctx) // a checkpointed index still unseeded lists the mailbox's accounts again, hourly (G49)
-	if err := m.index(ctx, mb.Domain); err != nil {
+	if err := m.index(ctx, mb.Domain, snap); err != nil {
 		return err
 	}
-	if err := m.sends(ctx, mb, routes, H); err != nil {
+	marked := map[string]uint64{}
+	if err := m.sends(ctx, mb, routes, H, snap, marked); err != nil {
 		m.solErr("the sends", err)
 	}
+	m.unread = marksUnread(m.state.Sends, marked, snap)
 	inflightIn, inflightOut := map[string]int64{}, map[string]int64{}
-	delivered := 0
-	for id, rec := range m.state.Index {
+	allMarks := len(m.state.Credits.Open) > 0 || m.now().Sub(m.marksAt) >= markRefresh
+	delivered, err := readMarks(ctx, m.own, m.Cfg.Gno.Mailbox, m.state.Index, mb.Delivered, H, allMarks)
+	if err != nil {
+		return err
+	}
+	if allMarks {
+		m.marksAt = m.now()
+	}
+	m.unconfirmed, m.unconfirmedIDs = map[string]string{}, map[string]bool{}
+	for _, id := range sortedKeys(m.state.Index) {
+		rec := m.state.Index[id]
+		// each burn against its own route's supply slot (E4-SF3): a burn between two routes' reads is in flight
+		// against the route whose supply has it burned
+		slot := snap.SlotOf(rec.Symbol)
+		// a burn on one provider's word, or one they show differently, is no reading: neither in flight nor dropped,
+		// its token no verdict (E5-SF4, G17)
+		if why := unconfirmedOf(id, rec, slot); why != "" {
+			m.unconfirmedIDs[id] = true
+			if m.unconfirmed[rec.Symbol] == "" {
+				m.unconfirmed[rec.Symbol] = why
+			}
+			continue
+		}
 		if rec.Disputed != "" {
-			continue // no reading of Solana (G17): out of the cut and the identity until the providers agree
+			continue // no reading of Solana (G17): out of the cut until the providers agree, its credit placed by time
 		}
-		if rec.Credited == 0 {
-			at, err := deliveredAt(ctx, m.own, m.Cfg.Gno.Mailbox, id, H)
-			if err != nil {
-				return err
-			}
-			if at != 0 {
-				rec.Credited = at
-				delivered++
-			}
-		}
-		if rec.Credited != 0 && rec.Slot > snap.Slot {
+		if rec.Credited != 0 && rec.Slot > slot {
 			cut.CreditedAfterSlot = append(cut.CreditedAfterSlot, id)
 		}
-		if rec.Credited == 0 && rec.Slot <= snap.Slot {
+		if rec.Credited == 0 && rec.Slot <= slot {
 			inflightIn[rec.Symbol] += rec.Amount
 		}
 	}
 	for _, s := range m.state.Sends {
-		if s.InFlight() { // a refunded send left the lock: in flight no more (AQ2)
+		// a refunded send left the lock: in flight no more (AQ2); one processed after its route's supply slot still is
+		// (E3-GT9) — its own route's, never another's (E4-SF1: a send minted between two routes' reads counted twice)
+		if s.InFlightAt(snap.SlotOf(s.Symbol)) {
 			inflightOut[s.Symbol] += s.Amount
 		}
 	}
 	if delivered > 0 {
 		m.state.LastDelivery = m.now().Unix()
 	}
+	// the height the delivered count is exact at (E4-GT1): read between the cut's two reads of hlmailbox, where the
+	// count stands still (cutMoved holds it), so every credit at or below it is counted and none above it
+	atHead, err := m.own.Status(ctx)
+	if err != nil {
+		return err
+	}
+	// every mark read: hlmailbox and the counters held to the first read (E3-GT2) — a credit landing after the routes
+	// were read and before its burn's mark is in neither owed nor in flight, a reading short by its amount; a refund
+	// or a migration's page between the reads the same
+	mv, err := cutMovedBy(ctx, m.own, m.Cfg, H, mb, routes, migs, true)
+	if err != nil {
+		return fmt.Errorf("the cut read again after the marks: %w", err)
+	}
+	if mv.why != "" {
+		why := movedText(mv.why, "poll")
+		m.setCut("no verdict: " + why)
+		m.cutFailed(why)
+		// a move of the delivered count alone makes a reading short, never over: a token BROKEN by more than the credits
+		// it cannot place could explain is broken whatever landed (E6-GT1's Solana sibling)
+		if mv.creditsOnly {
+			m.brokenPastTheCut(ctx, mb, mv.again.Delivered, routes, migs, H, snap, inflightOut, inflightIn, "read across a moving cut")
+		}
+		return m.pastTheCut(ctx, cs, mb, routes, H)
+	}
+	// the credits no index holds yet may be burns above the snapshot's slot (E4-GT1): no verdict until the index
+	// places them or the snapshot passes their time
+	cut.Unplaced, _ = m.state.Credits.place(mb.Delivered, atHead.Height, atHead.Time, placedHeights(m.state.Index, m.state.Unindexed), snap.Time)
+	// a credit no index can place may be a burn of nothing, which moves nothing the identity reads: placed by its claim
+	// (E5-SF1)
+	if cut.Unplaced != "" && placeZeros(ctx, m.own, m.Cfg, m.migs, m.migErrs, mb, H, &m.state.Credits, m.state.Index, m.state.Unindexed) {
+		cut.Unplaced, _ = m.state.Credits.place(mb.Delivered, atHead.Height, atHead.Time, placedHeights(m.state.Index, m.state.Unindexed), snap.Time)
+	}
 	if ok, why := cut.Holds(); !ok {
 		m.setCut("no verdict: " + why)
-		m.persist("cut", "the order never holds: "+why, cutFailAfter)
-		return nil
+		m.cutFailed("the order never holds: " + why)
+		// credits the index cannot place yet, or burns credited above their slot, put a reading over by their amounts at
+		// most: a token BROKEN by more is broken (E6-GT1's Solana sibling: a forger's credit a block keeps a window open)
+		m.brokenPastTheCut(ctx, mb, mb.Delivered, routes, migs, H, snap, inflightOut, inflightIn, "read with credits the index cannot place yet")
+		return m.pastTheCut(ctx, cs, mb, routes, H)
 	}
 	m.clearPersisted("cut")
+	m.Alarm.Clear(cutHourKey)
+	m.cutStale = ""
 	m.setCut(fmt.Sprintf("slot %d at %s, then height %d at %s", cut.SolSlot, cut.SolTime.UTC().Format(time.RFC3339), cut.GnoHeight, cut.GnoTime.UTC().Format(time.RFC3339)))
 
 	// 6. The identity of every token — over the line's summed counters while a migration is open (AQ3, AR6) —
@@ -503,9 +695,14 @@ func (m *Monitor) poll(ctx context.Context) error {
 	}
 
 	// 8. Stalls and ages; 9. runways.
-	m.stalls()
+	m.stalls(routes)
 	m.runways(ctx)
+	m.publishFlags(mb)
+	return nil
+}
 
+// publishFlags puts the routes' standing flags on the status.
+func (m *Monitor) publishFlags(mb *mailboxJSON) {
 	m.mu.Lock()
 	m.status.Flags = nil
 	for path, rf := range mb.Routes {
@@ -514,7 +711,107 @@ func (m *Monitor) poll(ctx context.Context) error {
 		}
 	}
 	m.mu.Unlock()
+}
+
+// cutHourKey is the flag-level alarm of a monitor with no held cut for cutFlagAfter.
+const cutHourKey = "cut:hour"
+
+// cutFlagAfter is how long a monitor reads no held cut before it says so at flag level (E6-GT1's Solana sibling: a
+// forger's stream of credits, a gno block apart, keeps every cut moving or its book open, and the alarm-level `cut` —
+// the words of honest churn — was the only trace).
+const cutFlagAfter = time.Hour
+
+// cutFailed is a reading whose cut did not hold: `cut` once it has stood two minutes, and at flag level once an hour.
+func (m *Monitor) cutFailed(why string) {
+	if m.cutStale == "" {
+		m.cutStale = "no cut held since " + m.now().UTC().Format(time.RFC3339) + ": " + why
+	}
+	m.persist("cut", why, cutFailAfter)
+	if m.persisted("cut", cutFlagAfter) {
+		m.Alarm.Flag(cutHourKey, "no held cut for "+m.now().Sub(m.seen["cut"]).Round(time.Minute).String()+": "+why+" — the identities and the forged-credit rule wait while it stands, every rule past the cut still runs (a stream of credits a gno block apart, a forger's, looks so: read the chain)")
+	}
+}
+
+// pastTheCut is what a poll whose cut did not hold still judges (E6-GT1's Solana sibling): every rule that reads no
+// hlmailbox count — the diverted credits, the Solana side (the header record, the decisions, the pause mirror, the caps
+// against the locks, the client's lag), the stalls and ages, the runways — so a stream of credits that keeps every cut
+// from holding hides none of them.
+func (m *Monitor) pastTheCut(ctx context.Context, cs *clientState, mb *mailboxJSON, routes map[string]*routeJSON, H int64) error {
+	if err := m.divertedCredits(ctx, mb, H); err != nil {
+		return err
+	}
+	if cs != nil {
+		m.solChecks(ctx, cs, mb, routes, H)
+	}
+	m.stalls(routes)
+	m.runways(ctx)
+	m.publishFlags(mb)
 	return nil
+}
+
+// brokenPastTheCut flags a token whose reading is BROKEN by more than the credits this reading cannot place could put it
+// over by (overBound) and its burns in flight besides: a reading whose cut moved by credits alone, or held with credits
+// the index cannot place yet (the Go trust audit's E6-GT1, its Solana sibling: a forger with two signer keys landing one
+// forged Process a gno block kept every cut from holding, and nothing after the cut ever ran). The burns in flight are
+// left out of the measure — supply + owed + voided − lost + sends in flight against the lock — since a burn credited
+// whose mark a backend a block behind read unset counts in flight and owed alike (the review of lane s6, F1: no verdict
+// and heal, never a flag): a forger is caught once his credits pass what is in flight and what the recent credits no
+// index holds claim. Only the tokens judgeIdentities would judge; nothing is cleared, and a token within the bound is left
+// to the next held cut.
+func (m *Monitor) brokenPastTheCut(ctx context.Context, mb *mailboxJSON, d int, routes map[string]*routeJSON, migs map[string]*migration, H int64, snap *Snapshot, inflightOut, inflightIn map[string]int64, how string) {
+	gapped := gapsOf(m.gaps.why)
+	ids := map[string]Identity{}
+	for _, r := range m.Cfg.Routes {
+		if r.Token == "" || m.minCtxWhy != "" || gapped[r.Symbol] != "" || m.migErrs[r.Symbol] != nil || m.unread[r.Symbol] != "" || m.unconfirmed[r.Symbol] != "" {
+			continue
+		}
+		id := identityOf(r, routes[r.Symbol], migs[r.Symbol], H, snap.Supplies[r.Symbol], snap.SlotOf(r.Symbol), inflightOut[r.Symbol], inflightIn[r.Symbol])
+		if v, _ := id.Verdict(); v == Broken {
+			ids[r.Symbol] = id
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	// every burn the index holds above its route's supply slot may be credited in owed while the snapshot still holds
+	// its supply — read credited (the cut's CreditedAfterSlot) or not (its mark read unset at a count that has not
+	// moved, or by a backend behind; the review of lane s7, R1) — so each one's amount is in the bound; one the
+	// providers dispute above its slot leaves its token unjudged (its amount is one provider's word)
+	after := map[string]int64{}
+	for _, rec := range m.state.Index {
+		if rec.Slot <= snap.SlotOf(rec.Symbol) {
+			continue
+		}
+		if rec.Disputed != "" {
+			delete(ids, rec.Symbol)
+			continue
+		}
+		after[rec.Symbol] += rec.Amount
+	}
+	if len(ids) == 0 {
+		return
+	}
+	indexed := func(id string) bool { _, ok := m.state.Index[id]; return ok }
+	bound, ok := overBound(ctx, m.own, m.Cfg, m.migs, m.migErrs, d, H, m.state.Credits.boundFrom(), snap.Time, indexed, after)
+	if !ok {
+		return
+	}
+	for _, r := range m.Cfg.Routes {
+		id, broken := ids[r.Symbol]
+		over := id.Right() + id.InflightOut - id.Lock // burns in flight left out (a stale mark counts one twice)
+		if !broken || over <= bound[r.Symbol] {
+			continue
+		}
+		v, text := id.Verdict()
+		text = fmt.Sprintf("%s — %s, over by %d with no burn in flight counted: more than the %d the credits it cannot place could put it over by (E6-GT1)", text, how, over, bound[r.Symbol])
+		if mig := m.migs[r.Symbol]; mig != nil {
+			text += " (" + mig.Text() + ")"
+			r.Gno = mig.Live()
+		}
+		m.setIdentity(r.Symbol, id, v.String(), text)
+		m.short[r.Symbol] = 0
+		m.breakFlags(ctx, r, mb, "identity:"+r.Symbol, text)
+	}
 }
 
 // secondHead is the first other gno source's head (gno.sources[0]: rpc.gno.land in a deployment); ok false when
@@ -572,7 +869,7 @@ func (m *Monitor) setIdentity(sym string, id Identity, verdict, text string) {
 	m.mu.Lock()
 	entry := map[string]any{"lock": id.Lock, "supply": id.Supply, "owed": id.Owed, "voided": id.Voided, "lost": id.Lost,
 		"right": id.Right(), "gap": id.Gap(), "inflightOut": id.InflightOut, "inflightIn": id.InflightIn, "slot": id.Slot, "height": id.Height,
-		"verdict": verdict, "ok": verdict == Holds.String(), "text": text}
+		"verdict": verdict, "ok": verdict == Holds.String(), "text": text, "poll": m.status.Polls}
 	if mig := m.migs[sym]; mig != nil {
 		entry["migration"] = mig.Text()
 	}
@@ -633,13 +930,41 @@ func (m *Monitor) readMigrations(ctx context.Context, routes map[string]*routeJS
 // a route with no Solana program, or a token whose line could not be read this poll (G44), is no verdict and
 // nothing is flagged or cleared for it.
 func (m *Monitor) judgeIdentities(ctx context.Context, mb *mailboxJSON, routes map[string]*routeJSON, migs map[string]*migration, H int64, snap *Snapshot, inflightOut, inflightIn map[string]int64) {
+	gapped := gapsOf(m.gaps.why)
 	for _, r := range m.Cfg.Routes {
-		id := identityOf(r, routes[r.Symbol], migs[r.Symbol], H, snap.Supplies[r.Symbol], snap.Slot, inflightOut[r.Symbol], inflightIn[r.Symbol])
+		id := identityOf(r, routes[r.Symbol], migs[r.Symbol], H, snap.Supplies[r.Symbol], snap.SlotOf(r.Symbol), inflightOut[r.Symbol], inflightIn[r.Symbol])
+		unreadKey := "sends:unread:" + r.Symbol
+		if m.unread[r.Symbol] == "" {
+			m.clearPersisted(unreadKey)
+		}
+		unconfirmedKey := "solana:unconfirmed:" + r.Symbol
+		if m.unconfirmed[r.Symbol] == "" {
+			m.clearPersisted(unconfirmedKey)
+		}
 		switch {
 		case r.Token == "":
 			m.setIdentity(r.Symbol, id, "no verdict", "no Solana program configured for this route")
+		case m.minCtxWhy != "":
+			m.setIdentity(r.Symbol, id, "no verdict", m.minCtxWhy)
+		case gapped[r.Symbol] != "":
+			// a provider that cannot list the route back to where it was read (E6-SF1): the index of this token rests on the
+			// other provider's word alone — no verdict, never a guess, until a provider that keeps the history is named
+			m.setIdentity(r.Symbol, id, "no verdict", "the dispatch index of "+r.Symbol+" rests on one provider's listing: "+gapped[r.Symbol]+" — no verdict, never a reading on one provider's word (E6-SF1)")
 		case m.migErrs[r.Symbol] != nil:
 			m.setIdentity(r.Symbol, id, "no verdict", "the token's line of migrations could not be read this poll (G44): "+m.migErrs[r.Symbol].Error())
+		case m.unread[r.Symbol] != "":
+			// a send of the token's in flight whose record went unread may be minted in the supply already: counted in
+			// flight beside its mint it reads as a break by its amount, on one provider's lag (E4-SF2)
+			text := "the processed marks of the token's sends in flight were not all read this poll (E4-SF2): " + m.unread[r.Symbol] + "; a send minted meanwhile would count twice"
+			m.setIdentity(r.Symbol, id, "no verdict", text)
+			m.persist(unreadKey, "no verdict on "+r.Symbol+": "+text, cutFailAfter)
+		case m.unconfirmed[r.Symbol] != "":
+			// a burn on one provider's word (E5-SF4) or shown differently (G17): counted in flight a liar flags, dropped a
+			// lagging provider hides a real burn — no verdict until both providers show it alike, read again through the
+			// pair each poll
+			text := "a burn toward gno.land is not on both providers' word: " + m.unconfirmed[r.Symbol] + " — neither counted in flight nor dropped until both show it alike (E5-SF4)"
+			m.setIdentity(r.Symbol, id, "no verdict", text)
+			m.persist(unconfirmedKey, "no verdict on "+r.Symbol+": "+text, cutFailAfter)
 		default:
 			m.judge(ctx, r, mb, id)
 		}
@@ -779,16 +1104,20 @@ func (m *Monitor) applySources(ctx context.Context, H int64, v SourceVerdict, ow
 	}
 }
 
-// index scans both providers for every route's new dispatches toward gno.land and records them by id.
-func (m *Monitor) index(ctx context.Context, gnoDomain uint32) error {
-	return indexDispatches(ctx, m.sol, m.both, m.Cfg, gnoDomain, m.state.Cursors, m.state.Skipped, m.state.Index, m.now(), m.Alarm)
+// index scans both providers for every route's new dispatches toward gno.land and records them by id, each
+// route's listing reaching the slot its supply was read at.
+func (m *Monitor) index(ctx context.Context, gnoDomain uint32, snap *supplySnapshot) error {
+	err := indexDispatches(ctx, m.sol, m.both, m.Cfg, gnoDomain, m.state.Cursors, m.state.Through, m.minCtx.honouring(), m.state.Skipped, m.state.Index, snap.Slots, m.now(), m.Alarm, &m.gaps)
+	m.gaps.alarm(m.Alarm, m.now())
+	return err
 }
 
 // sends reads hlmailbox's new messages toward the routes' Solana programs and marks the ones Solana has
-// processed (the mailbox's processed-message record, finalized, on both providers) and the ones gno.land
-// refunded (AQ2).
-func (m *Monitor) sends(ctx context.Context, mb *mailboxJSON, routes map[string]*routeJSON, H int64) error {
-	delivered, err := readSends(ctx, m.own, m.both, m.Cfg, mb, H, m.state.Sends, &m.state.SendNext, m.now(), sendReads{Routes: routes, Migs: m.migs, RefundCounts: m.state.RefundCounts})
+// processed (the mailbox's processed-message record, finalized, on both providers, at or above every supply's slot
+// of snap) and the ones gno.land refunded (AQ2); marked receives the slot each unprocessed send's record was read at
+// (E4-SF2).
+func (m *Monitor) sends(ctx context.Context, mb *mailboxJSON, routes map[string]*routeJSON, H int64, snap *supplySnapshot, marked map[string]uint64) error {
+	delivered, err := readSends(ctx, m.own, m.both, m.Cfg, mb, H, m.state.Sends, &m.state.SendNext, m.now(), sendReads{Routes: routes, Migs: m.migs, LineErrs: m.migErrs, RefundCounts: m.state.RefundCounts, Alarm: m.Alarm, Slots: snap.Slots, Marked: marked})
 	if delivered > 0 {
 		m.state.LastDelivery = m.now().Unix()
 	}
@@ -858,7 +1187,7 @@ func (m *Monitor) applyCheckpoint(ctx context.Context, cs *clientState) error {
 	if err != nil {
 		log.Printf("monitor: the checkpoint's stages could not be listed (the transactions' window stands): %v", err)
 	}
-	cursors, err := seedCursors(ctx, [2]solReader{m.sol[0], m.sol[1]}, m.Cfg, cs.Slot, m.state.Cursors)
+	cursors, err := seedCursors(ctx, [2]solReader{m.sol[0], m.sol[1]}, m.Cfg, cs.Slot, m.state.Cursors, m.state.Through)
 	if err != nil {
 		return fmt.Errorf("monitor: the checkpoint's cursors: %w", err)
 	}
@@ -936,8 +1265,12 @@ func (m *Monitor) checkpointedHeaderCheck(ctx context.Context, cs *clientState) 
 // a transaction a provider cannot read is skipped, alarmed and retried from a side list (K5). The second
 // provider's sight of an indexed dispatch is compared with the first's (G17): a different slot, amount or
 // recipient disputes the record, which then counts for nothing until a read through both providers (both)
-// agrees — tried first on every scan.
-func indexDispatches(ctx context.Context, providers [2]*rpc.Client, both solReader, cfg *Config, gnoDomain uint32, cursors map[string]string, skipped map[string][]scanSkip, index map[string]*dispatchRec, now time.Time, alarm *Alarmer) error {
+// agrees — tried first on every scan. Each route's listing must reach minSlots[symbol] (the slot its supply was
+// read at, E4-SF3; none when absent): a provider whose finalized view is below it fails the scan. Each cursor is its
+// signature (cursors) and the slot the route was read through (through, E6-SF1), which a provider that honours
+// minContextSlot (honours) is read through to minSlots; a provider that cannot list a route back to its cursor is no
+// error of the scan but a gap in gaps (its token has no verdict, the rest of the reading goes on).
+func indexDispatches(ctx context.Context, providers [2]*rpc.Client, both solReader, cfg *Config, gnoDomain uint32, cursors map[string]string, through map[string]uint64, honours [2]bool, skipped map[string][]scanSkip, index map[string]*dispatchRec, minSlots map[string]uint64, now time.Time, alarm *Alarmer, gaps *historyGaps) error {
 	mailbox := sol.Mailbox{Program: cfg.SolMailbox()}
 	resolveDisputes(ctx, both, cfg, mailbox, gnoDomain, index, alarm)
 	var firstErr error
@@ -947,14 +1280,26 @@ func indexDispatches(ctx context.Context, providers [2]*rpc.Client, both solRead
 		}
 		for i, c := range providers {
 			key := r.Symbol + "#" + strconv.Itoa(i)
-			ds, next, skips, err := solScan(ctx, c, mailbox, r.TokenKey(), cfg.Solana.Domain, gnoDomain, cursors[key])
+			ds, next, skips, err := solScan(ctx, c, mailbox, r.TokenKey(), cfg.Solana.Domain, gnoDomain, scanCursor{Sig: cursors[key], Through: through[key]}, minSlots[r.Symbol], honours[i])
+			if g, ok := asHistoryGap(err); ok {
+				gaps.set(key, g.why, now) // its cursor kept: listed again next reading
+				continue
+			}
 			if err != nil {
 				if firstErr == nil {
 					firstErr = fmt.Errorf("%s from provider %d: %w", r.Symbol, i+1, err)
 				}
 				continue
 			}
-			cursors[key] = next
+			gaps.end(key)
+			if next.Sig == "" {
+				delete(cursors, key)
+			} else {
+				cursors[key] = next.Sig
+			}
+			if next.Through > 0 {
+				through[key] = next.Through
+			}
 			more, keep := retrySkipped(ctx, c, mailbox, r.TokenKey(), cfg.Solana.Domain, gnoDomain, skipped[key], now)
 			keep = append(keep, skips...)
 			if len(keep) > 0 {
@@ -970,6 +1315,26 @@ func indexDispatches(ctx context.Context, providers [2]*rpc.Client, both solRead
 		}
 	}
 	return firstErr
+}
+
+// unconfirmedOf says why a burn not credited yet is no reading of Solana this reading, "" when it is one: the providers
+// show it differently (G17), or one provider alone lists it at or below its route's supply slot — the other's listing,
+// which reaches that slot (minContextSlot), passed it (E5-SF4: counted in flight, a lying provider's fabricated burn read
+// as a break, credits, payouts and the pausable ISM flagged on one provider's word; dropped, a provider that hid a real
+// burn would leave the reading short by it). Its token has no verdict until the other provider lists it too, or its
+// credit proves it — not on the other provider answering its transaction by signature: the listing is a provider's word
+// that a transaction of the route exists, and the audit's honest provider, its listing without the lie, answered the
+// liar's transaction when asked by signature all the same.
+func unconfirmedOf(id string, rec *dispatchRec, supplySlot uint64) string {
+	switch {
+	case rec.Credited != 0:
+		return "" // its credit proves it: the signers signed it once both their providers showed it
+	case rec.Disputed != "":
+		return fmt.Sprintf("dispatch %s is disputed (%s)", id, rec.Disputed)
+	case rec.Providers != 3 && rec.Slot <= supplySlot:
+		return fmt.Sprintf("dispatch %s (%d at slot %d) is listed by provider %d alone, the other's listing past its slot %d", id, rec.Amount, rec.Slot, rec.Providers, supplySlot)
+	}
+	return ""
 }
 
 // foldDispatch records one provider's sight of a dispatch in the index: a new record, or the second provider's
@@ -1038,12 +1403,36 @@ func resolveDisputes(ctx context.Context, both solReader, cfg *Config, mailbox s
 }
 
 // sendReads is what readSends reads beside the sends: the routes' jsons at the height and their open migrations
-// (where a refund mark can be set, and the refund counts that say when one may have been), and the refund counts
-// seen at the last poll, persisted in the machine's state (F23).
+// (where a refund mark can be set, and the refund counts that say when one may have been, and whose realms are
+// the token's senders), the lines that could not be read this poll, and the refund counts seen at the last
+// poll, persisted in the machine's state (F23); and where the walk's alarms go (E3-RL1; nil logs them).
 type sendReads struct {
 	Routes       map[string]*routeJSON
 	Migs         map[string]*migration
+	LineErrs     map[string]error // by symbol: the line of migrations not read this poll (G44)
 	RefundCounts map[string]int64 // by symbol: the line's refund count at the last read
+	Alarm        *Alarmer
+	// Slots is the slot each token's supply was read at (the snapshot's, by symbol): the processed records are read
+	// at or above the highest of them (minContextSlot), so a record's absence says its send was minted in no supply
+	// of the reading (E4-SF2); nil reads them at any slot.
+	Slots map[string]uint64
+	// Marked, when not nil, receives the slot each unprocessed send's processed record was read at, by nonce
+	// (E4-SF2): a token with a send in flight whose record went unread this reading — the read failed, or it was
+	// answered below the token's supply slot — has no verdict (marksUnread).
+	Marked map[string]uint64
+}
+
+// lineSend says whether a message to a token's program is one of the token's sends: sent by a route realm of
+// its line (E3-CF1: hlmailbox's Dispatch is open to anyone, and the token program refuses a stranger's message,
+// so a stranger's message to it would sit in flight for good with whatever amount its body says — the identity
+// BROKEN by it, and the monitors flagging the route and the pausable ISM, for one transaction's fee). held says
+// the sender cannot be judged this poll: the line was not read and the sender is not the configured realm, so
+// it may be a successor the line names once it reads (G46).
+func lineSend(rt *Route, sr sendReads, sender [32]byte) (ours, held bool) {
+	if routeLineSender(rt, sr.Migs[rt.Symbol], sender) {
+		return true, false
+	}
+	return false, sr.LineErrs[rt.Symbol] != nil
 }
 
 // refundCount is a token's refund count: the route's, or the line's sum while a migration is open.
@@ -1070,8 +1459,9 @@ func refundable(rj *routeJSON, mig *migration) bool {
 	return mig != nil || (rj != nil && (rj.IsSuccessor() || rj.MigratedTo != ""))
 }
 
-// readSends reads hlmailbox's new messages toward the routes' Solana programs at a height (their ids kept, never
-// re-read, F23), marks the ones Solana has processed — the mailbox's processed-message records, finalized,
+// readSends reads hlmailbox's new messages toward the routes' Solana programs at a height — a token's sends only,
+// the messages a route realm of its line sent (E3-CF1), the walk held at one whose sender it cannot judge yet
+// (their ids kept, never re-read, F23), marks the ones Solana has processed — the mailbox's processed-message records, finalized,
 // fetched by 100 through the reader as §5.7's walk does — and the ones gno.land refunded (AQ2: the route's send
 // record under the message id carries the mark; a send never refunded moves to a successor with its page, so the
 // line's other realms are read when the route holds none). A mark is read only where one can be set — a route
@@ -1080,51 +1470,95 @@ func refundable(rj *routeJSON, mig *migration) bool {
 // message and every mark, a thousand renders and a thousand provider reads repeating the last poll's answers);
 // a processed send's mark is read on a rise too, since a refund landing after the delivery is a double mint (AR1).
 // It reports how many it marked processed now. A message that cannot be read is skipped, never the rest (G8);
-// the first error comes back at the end.
+// the first error comes back at the end. A message whose page cannot be read is judged from its header (E3-RL1):
+// no send of a token's line is walked past, alarmed; a send of the line holds the walk, alarmed — a send is
+// counted from its page alone. Whatever the walk did — held at a message it cannot pass, or at one whose sender it
+// cannot judge — the processed marks of every send it knows are read (E4-SF2: a held walk returned before them, and
+// a send delivered meanwhile counted in flight beside its mint, BROKEN at once), its error returned after them.
 func readSends(ctx context.Context, own gnoReader, provider solReader, cfg *Config, mb *mailboxJSON, H int64, sends map[string]*sendRec, next *uint32, now time.Time, sr sendReads) (int, error) {
-	var firstErr error
+	var firstErr, walkErr error
 	for n := *next; n < mb.Count; n++ {
-		s, err := own.RenderAt(ctx, cfg.Gno.Mailbox, "msg/"+strconv.FormatUint(uint64(n), 10), H)
+		msg, hdr, err := walkMessage(ctx, own, cfg.Gno.Mailbox, mb.Domain, n, H)
 		if err != nil {
-			return 0, err // the walk cannot pass a nonce it has not read
+			walkErr = err // the walk cannot pass a nonce it has not read; the marks are read all the same
+			break
 		}
-		msg, err := parseGnoMsg(s, mb.Domain, n)
-		if err != nil {
-			return 0, err
+		if hdr == nil {
+			sr.Alarm.Clear(unreadableKey(n))
 		}
-		*next = n + 1
 		rt := cfg.RouteByToken(solana.PublicKeyFromBytes(msg.Msg.Recipient[:]))
 		if rt == nil || msg.Msg.Destination != cfg.Solana.Domain {
+			if hdr != nil {
+				sendPast(sr, n, hdr)
+			}
+			*next = n + 1
 			continue
+		}
+		ours, held := lineSend(rt, sr, msg.Msg.Sender)
+		if held {
+			break // nor past a message whose sender it cannot judge (G46): a later poll reads the line
+		}
+		if hdr != nil {
+			if ours {
+				walkErr = sendHeld(sr, n, rt.Symbol, hdr)
+				break
+			}
+			sendPast(sr, n, hdr)
+		}
+		*next = n + 1
+		if !ours {
+			continue // a stranger's message to the token program: no send (E3-CF1)
 		}
 		_, amount, _, err := hl.ParseTokenMessage(msg.Msg.Body)
 		if err != nil || amount > 1<<63-1 {
 			continue
 		}
-		sends[strconv.FormatUint(uint64(n), 10)] = &sendRec{Symbol: rt.Symbol, Amount: int64(amount), Height: msg.Height, Seen: now.Unix(), ID: hex.EncodeToString(msg.ID[:])}
+		sends[strconv.FormatUint(uint64(n), 10)] = &sendRec{Symbol: rt.Symbol, Amount: int64(amount), Height: msg.Height, Seen: now.Unix(), ID: hex.EncodeToString(msg.ID[:]), Sender: hex.EncodeToString(msg.Msg.Sender[:])}
 	}
-	nonces := sortedNonces(sends)
-	// an id a state file from before M3h never stored is read once (the message page), then kept
-	for _, n := range nonces {
-		if s := sends[n]; s.ID == "" {
-			nn, _ := strconv.ParseUint(n, 10, 32)
-			msg, err := gnoMessage(ctx, own, cfg.Gno.Mailbox, mb.Domain, uint32(nn))
-			if err != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("message %d: %w", nn, err)
-				}
-				continue
+	// an id a state file from before M3h never stored is read once (the message page), then kept; so is the
+	// sender of a send in flight that a state file from before E3-CF1 recorded, and a stranger's message is
+	// dropped — never a send, it would have stood in flight for good
+	for _, n := range sortedNonces(sends) {
+		s := sends[n]
+		if s.ID != "" && (s.Sender != "" || !s.InFlight()) {
+			continue
+		}
+		nn, _ := strconv.ParseUint(n, 10, 32)
+		msg, hdr, err := walkMessage(ctx, own, cfg.Gno.Mailbox, mb.Domain, uint32(nn), 0) // from the header when the page cannot be read (E3-RL1)
+		if err == nil && hdr != nil && !hdr.Event {
+			err = fmt.Errorf("its page cannot be read (%w), and its id was not read from its block", hdr.Page)
+		}
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("message %d: %w", nn, err)
 			}
-			s.ID = hex.EncodeToString(msg.ID[:])
+			continue
+		}
+		s.ID = hex.EncodeToString(msg.ID[:])
+		rt := cfg.RouteBySymbol(s.Symbol)
+		if s.Sender != "" || !s.InFlight() || rt == nil {
+			continue
+		}
+		switch ours, held := lineSend(rt, sr, msg.Msg.Sender); {
+		case ours:
+			s.Sender = hex.EncodeToString(msg.Msg.Sender[:])
+		case !held:
+			delete(sends, n)
+			log.Printf("gno #%s (%s, %d) was sent by %x, no realm of the token's line: a stranger's message, no send — dropped from the sends in flight (E3-CF1)", n, s.Symbol, s.Amount, msg.Msg.Sender[:])
 		}
 	}
-	// the processed-message records of every unprocessed send, by 100
+	nonces := sortedNonces(sends)
+	// the processed-message records of every unprocessed send, by 100, at or above every token's supply slot
 	mailbox := sol.Mailbox{Program: cfg.SolMailbox()}
 	var pending []string
 	for _, n := range nonces {
 		if s := sends[n]; !s.Processed && s.ID != "" {
 			pending = append(pending, n)
 		}
+	}
+	var minSlot uint64
+	for _, sl := range sr.Slots {
+		minSlot = max(minSlot, sl)
 	}
 	delivered := 0
 	for start := 0; start < len(pending); start += 100 {
@@ -1134,7 +1568,7 @@ func readSends(ctx context.Context, own gnoReader, provider solReader, cfg *Conf
 			id, _ := hl.ParseKey32(sends[n].ID)
 			ids = append(ids, id)
 		}
-		done, err := solProcessedMany(ctx, provider, mailbox, ids)
+		done, slots, readAt, err := solProcessedMany(ctx, provider, mailbox, ids, minSlot)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("the processed records of messages %s to %s: %w", pending[start], pending[end-1], err)
@@ -1142,8 +1576,11 @@ func readSends(ctx context.Context, own gnoReader, provider solReader, cfg *Conf
 			continue
 		}
 		for i, n := range pending[start:end] {
+			if sr.Marked != nil {
+				sr.Marked[n] = readAt[i]
+			}
 			if done[i] {
-				sends[n].Processed = true
+				sends[n].Processed, sends[n].ProcessedSlot = true, slots[i]
 				delivered++
 			}
 		}
@@ -1201,7 +1638,31 @@ func readSends(ctx context.Context, own gnoReader, provider solReader, cfg *Conf
 			sr.RefundCounts[sym] = count // a read that failed keeps the rise for the next poll
 		}
 	}
-	return delivered, firstErr
+	return delivered, errors.Join(walkErr, firstErr)
+}
+
+// marksUnread names, by symbol, the tokens with a send in flight whose processed record was not read this reading at
+// or above the token's supply slot (E4-SF2): the read failed (a provider's error or timeout, the two providers
+// answering differently — one backend below the mint), or it was answered below the supply's slot, or it was never
+// read. Such a send may have been minted in the supply all the same, and counting it in flight beside its mint reads
+// an honest delivery as a break by its amount — on one provider's lag. The token has no verdict for the reading;
+// a send processed (its slot exact) or refunded needs no read. marked is readSends' Marked.
+func marksUnread(sends map[string]*sendRec, marked map[string]uint64, snap *supplySnapshot) map[string]string {
+	out := map[string]string{}
+	for _, n := range sortedNonces(sends) {
+		s := sends[n]
+		if !s.InFlight() || out[s.Symbol] != "" {
+			continue
+		}
+		slot := snap.SlotOf(s.Symbol)
+		switch at, read := marked[n]; {
+		case !read:
+			out[s.Symbol] = fmt.Sprintf("gno #%s's processed record (%d in flight) was not read this reading", n, s.Amount)
+		case at < slot:
+			out[s.Symbol] = fmt.Sprintf("gno #%s's processed record (%d in flight) was read at slot %d, below the supply's slot %d", n, s.Amount, at, slot)
+		}
+	}
+	return out
 }
 
 // sortedNonces are a sends map's keys in nonce order.
@@ -1287,117 +1748,288 @@ func (m *Monitor) divertedCredits(ctx context.Context, mb *mailboxJSON, H int64)
 // unindexedCredits is §5.9's other rule on a credit (AP1): a waiting claim the verifier credited (never one
 // GovDAO voted) whose message id neither provider's dispatch index holds is a forged credit — the verdict
 // hlwatch's flag -ids computes — and flags credits and payouts on its route, and the pausable ISM, as an invariant
-// break does, once it has stood one more poll (a provider's finalized view a few slots behind the delivery is a
-// lag, not a forgery). It runs only when both providers' scans succeeded this poll with nothing skipped (G21: an
-// id absent from a failed or partial scan is not forged); an id that appears in the index clears its sighting
-// and its alarm (the flags set stay for an unpause decision, as every flag does).
+// break does, once it has stood one more poll. It runs only when both providers' scans succeeded this poll with
+// nothing skipped (G21: an id absent from a failed or partial scan is not forged), and only on a poll whose cut held —
+// every credit the index has not placed older than the snapshot by the margin, so the index, which reaches the
+// snapshot's slot, is past its time (E4-GT1). The credits are found by id (E4-RL1): hlmailbox's delivered ids the
+// index does not hold (findUnindexed), each judged by its claim read by id — never a walk of the routes' claims
+// pages, whose cost grows with every waiting claim before the page; an id that appears in the index, or whose claim
+// is voided, paid, swept or gone, clears its sighting and its alarm (the flags set stay for an unpause decision, as
+// every flag does).
 func (m *Monitor) unindexedCredits(ctx context.Context, mb *mailboxJSON, H int64) error {
-	if len(m.state.Skipped) > 0 {
+	// an index that cannot be held to the supplies' slot by both providers (E5-SF2; E6-SF2: one that ignores the bound may
+	// lag past the margin, and a burn the other hid is then in no index), or that a provider cannot list back to where it
+	// was read (E6-SF1), holds no verdict on what it lacks
+	if len(m.state.Skipped) > 0 || m.minCtxWhy != "" || m.minCtxOne || len(m.gaps.why) > 0 {
 		return nil
 	}
+	m.findUnindexed(ctx, mb)
 	beforeBase := 0
-	for _, r := range m.Cfg.Routes {
-		if r.Token == "" || m.lineUnread(r.Symbol) {
+	for _, id := range sortedKeys(m.state.Unindexed) {
+		u := m.state.Unindexed[id]
+		key := "credit:unindexed:" + id
+		baseKey := "credit:unindexed-before-base:" + id
+		clear := func() {
+			m.clearPersisted(key)
+			m.Alarm.Clear(key + ":flag")
+			m.Alarm.Clear(baseKey)
+		}
+		if _, ok := m.state.Index[id]; ok {
+			delete(m.state.Unindexed, id) // the index holds it now (a provider's lag ended)
+			clear()
 			continue
 		}
-		// the route's waiting claims and, while a migration is open, every realm of its line (AQ3, AR6): the walk
-		// resumes where the last poll's stopped and wraps (G34)
-		realms := []string{r.Gno}
-		if mig := m.migs[r.Symbol]; mig != nil {
-			realms = mig.Paths()
+		switch u.Class {
+		case unindexedVote, unindexedNone, unindexedSweep, unindexedPaid:
+			continue
+		case unindexedBase:
+			beforeBase++
+			continue
 		}
-		for _, realm := range realms {
-			claims, next, _, err := openClaims(ctx, m.own, realm, H, m.state.ClaimsFrom[realm])
-			m.state.ClaimsFrom[realm] = next
-			if err != nil {
-				return err
-			}
-			for _, c := range claims {
-				if c.By == "vote" {
-					continue
-				}
-				id := strings.ToLower(strings.TrimPrefix(c.ID, "0x"))
-				key := "credit:unindexed:" + id
-				baseKey := "credit:unindexed-before-base:" + id
-				if _, ok := m.state.Index[id]; ok {
-					if _, seen := m.seen[key]; seen {
-						m.clearPersisted(key)
-						m.Alarm.Clear(key + ":flag")
-					}
-					m.Alarm.Clear(baseKey)
-					continue
-				}
-				// a checkpointed index (G49, AS3): a claim credited at or below the cut's height is trusted as the
-				// headers below the checkpoint are; one credited after it, while the mailbox's accounts were never
-				// listed, is alarmed and never flagged (its burn may predate the checkpoint's slot)
-				switch judgeUnindexed(c.Height, m.state.IndexFromHeight, m.state.IndexSeeded) {
-				case unindexedBeforeBase:
-					beforeBase++
-					continue
-				case unindexedUnseeded:
-					m.Alarm.AlarmEvery(baseKey, beforeBaseText(id, r.Symbol, c.To, c.Amount, c.Height, m.state.IndexFromHeight), 24*time.Hour)
-					continue
-				}
-				m.Alarm.Clear(baseKey)
-				if !m.persisted(key, m.Every) {
-					continue
-				}
-				m.breakFlags(ctx, r, mb, key, fmt.Sprintf("forged credit %s on %s: the claim names %s for %d (credited at height %d) and neither provider's dispatch index holds a burn under its id", id, r.Symbol, c.To, c.Amount, c.Height))
-			}
+		// a checkpointed index (G49, AS3): a credit at or below the cut's height is trusted as the headers below the
+		// checkpoint are; one after it, while the mailbox's accounts were never listed, is alarmed and never flagged
+		// (its burn may predate the checkpoint's slot)
+		base := judgeUnindexed(u.Height, m.state.IndexFromHeight, m.state.IndexSeeded)
+		if base == unindexedBeforeBase {
+			u.Class = unindexedBase
+			beforeBase++
+			clear()
+			continue
 		}
+		c, r, err := m.creditClaim(ctx, id, H)
+		if err != nil {
+			log.Printf("monitor: the claim of the unindexed credit %s could not be read (read again next poll): %v", id, err)
+			continue
+		}
+		if class := unindexedClass(c); class != "" {
+			u.Class = class // settled: never a waiting claim of the verifier's again, never read again
+			clear()
+			continue
+		}
+		if c.State != "open" {
+			clear() // a claim voided: nothing waits on it (read again: a restore reopens one)
+			continue
+		}
+		if base == unindexedUnseeded {
+			m.Alarm.AlarmEvery(baseKey, beforeBaseText(id, r.Symbol, c.To, c.Amount, u.Height, m.state.IndexFromHeight), 24*time.Hour)
+			continue
+		}
+		m.Alarm.Clear(baseKey)
+		if !m.persisted(key, m.Every) {
+			continue
+		}
+		m.breakFlags(ctx, *r, mb, key, fmt.Sprintf("forged credit %s on %s: the claim names %s for %d (credited at height %d) and neither provider's dispatch index holds a burn under its id", id, r.Symbol, c.To, c.Amount, u.Height))
 	}
 	m.mu.Lock()
 	m.status.ClaimsBeforeBase = beforeBase
 	m.mu.Unlock()
-	// a suspect's sighting and flag alarm end with their cure (G35): the claim voided by GovDAO, paid under a
-	// vote, or gone — read by id, since the walk may not visit it this poll
-	for key := range m.seen {
-		if !strings.HasPrefix(key, "credit:unindexed:") {
-			continue
-		}
-		id := strings.TrimPrefix(key, "credit:unindexed:")
-		if _, ok := m.state.Index[id]; ok {
-			m.clearPersisted(key)
-			m.Alarm.Clear(key + ":flag")
-			continue
-		}
-		open, read := false, false
-		for _, r := range m.Cfg.Routes {
-			if r.Token == "" {
-				continue
-			}
-			c, _, err := claimOnPair(ctx, m.own, r.Gno, m.migs[r.Symbol], id, H)
-			if err != nil {
-				log.Printf("monitor: the suspect claim %s on %s could not be read (its sighting stands): %v", id, r.Symbol, err)
-				continue
-			}
-			read = true
-			if c != nil && c.Swept == 0 && c.State == "open" {
-				open = true
-				break
-			}
-		}
-		if read && !open {
-			m.clearPersisted(key)
-			m.Alarm.Clear(key + ":flag")
+	return nil
+}
+
+// The classes of a credit no index holds, once its claim was read: a credit by GovDAO's vote, no credit of ours (no
+// claim or sweep entry on any route's line), credited at or below the checkpoint's height (G49), a sweep entry, a claim
+// paid in full — none judged again (E5-SF1: a sweep entry or a paid claim settled no class, so each was read again by
+// id on every poll for good, a stranger's zero credits a render each a poll, growing with every one he ever made).
+const (
+	unindexedVote  = "vote"
+	unindexedNone  = "none"
+	unindexedBase  = "base"
+	unindexedSweep = "sweep"
+	unindexedPaid  = "paid"
+)
+
+// unindexedClass is the settled class of an unindexed credit by its claim (or sweep entry), "" while it must be read
+// again: no entry on any route's line (no credit of ours), GovDAO's credit by vote (never forged), a sweep entry (never a
+// waiting claim: GovDAO's credit by id replaces one with a claim by vote), a claim paid in full (never open again: a
+// void as forged and its restore leave it done, a credit by vote replaces it). An open claim is judged; a voided one is
+// read again, since a restore reopens it.
+func unindexedClass(c *claimJSON) string {
+	switch {
+	case c == nil:
+		return unindexedNone
+	case c.By == "vote":
+		return unindexedVote
+	case c.sweep():
+		return unindexedSweep
+	case c.State == "done":
+		return unindexedPaid
+	}
+	return ""
+}
+
+// unindexedCredit is a delivered id of hlmailbox's that the dispatch index does not hold (E4-RL1): the height it was
+// delivered at, and its class once its claim settles it ("" while it is judged each poll).
+type unindexedCredit struct {
+	Height int64  `json:"height"`
+	Class  string `json:"class,omitempty"`
+	// Zero says its claim is a sweep of nothing — a burn of nothing, credited by whoever brought its signatures (E5-SF1)
+	// — which moves neither owed nor the supply, so the book of credits counts it placed (placeZeros).
+	Zero bool `json:"zero,omitempty"`
+}
+
+// placedHeights are the heights of the credits the cut can place: the index's credited burns (creditedHeights) and the
+// credits no index holds whose claim is a sweep of nothing (E5-SF1).
+func placedHeights(index map[string]*dispatchRec, unindexed map[string]*unindexedCredit) []int64 {
+	out := creditedHeights(index)
+	for id, u := range unindexed {
+		if _, indexed := index[id]; !indexed && u.Zero {
+			out = append(out, u.Height)
 		}
 	}
-	return nil
+	return out
+}
+
+// placeZeros reads the credits of the book's open windows that no index holds — hlmailbox's delivered ids, by its done
+// tree, as findUnindexed reads them — and marks the ones whose claim is a sweep of nothing (E5-SF1: a burn of nothing
+// the signers signed before they stopped signing such burns, brought by a stranger, a credit no index can place; one
+// every few seconds held the monitors and hlwatch at no verdict for as long as he repeated it). Such a credit moves
+// neither owed nor the supply, wherever its burn lies, so it is placed at once; any other waits for the index or the
+// margin as before, and its judgement is the forged-credit rule's, unchanged. It answers whether it marked one.
+func placeZeros(ctx context.Context, g gnoReader, cfg *Config, migs map[string]*migration, lineErrs map[string]error, mb *mailboxJSON, H int64, book *creditBook, index map[string]*dispatchRec, unindexed map[string]*unindexedCredit) bool {
+	if len(book.Open) == 0 {
+		return false
+	}
+	if unindexedMissing(mb.Delivered, index, unindexed) > 0 {
+		entries, err := doneIDs(ctx, g, cfg.Gno.Mailbox, mb.Delivered)
+		if err != nil {
+			return false
+		}
+		addUnindexed(entries, index, unindexed)
+	}
+	inWindow := func(h int64) bool {
+		for _, w := range book.Open {
+			if h > w.From && h <= w.To {
+				return true
+			}
+		}
+		return false
+	}
+	marked := false
+	for _, id := range sortedKeys(unindexed) {
+		u := unindexed[id]
+		if _, indexed := index[id]; indexed || u.Zero || u.Class != "" || !inWindow(u.Height) {
+			continue
+		}
+		c, _, err := creditClaimOf(ctx, g, cfg, migs, lineErrs, id, H)
+		if err != nil || c == nil || !c.sweep() || c.Swept != 0 {
+			continue
+		}
+		u.Class, u.Zero, marked = unindexedSweep, true, true
+	}
+	return marked
+}
+
+// findUnindexed adds to the state the delivered ids the index does not hold, read from hlmailbox's done tree, when its
+// delivered count is more than the index's credited burns and the unindexed credits already found (E4-RL1). A read
+// that fails is alarmed once it has stood two minutes (credit:unindexed:unread): the identity still judges every
+// credit, the forged-credit rule only the ones found.
+func (m *Monitor) findUnindexed(ctx context.Context, mb *mailboxJSON) {
+	missing := unindexedMissing(mb.Delivered, m.state.Index, m.state.Unindexed)
+	if missing <= 0 {
+		m.clearPersisted("credit:unindexed:unread")
+		return
+	}
+	entries, err := doneIDs(ctx, m.own, m.Cfg.Gno.Mailbox, mb.Delivered)
+	if err != nil {
+		m.persist("credit:unindexed:unread", fmt.Sprintf("hlmailbox's delivered ids could not be read (%v): %d credit(s) no dispatch index holds are not judged by the forged-credit rule until they read (the identity judges them still; E4-RL1)", err, missing), cutFailAfter)
+		return
+	}
+	m.clearPersisted("credit:unindexed:unread")
+	addUnindexed(entries, m.state.Index, m.state.Unindexed)
+}
+
+// unindexedMissing is how many of hlmailbox's delivered ids are neither a credited burn of the index nor an unindexed
+// credit found already.
+func unindexedMissing(delivered int, index map[string]*dispatchRec, found map[string]*unindexedCredit) int {
+	n := delivered
+	for _, rec := range index {
+		if rec.Credited != 0 {
+			n--
+		}
+	}
+	for id := range found {
+		if _, ok := index[id]; !ok {
+			n--
+		}
+	}
+	return n
+}
+
+// addUnindexed records the delivered ids the index does not hold.
+func addUnindexed(entries []doneEntry, index map[string]*dispatchRec, found map[string]*unindexedCredit) {
+	for _, e := range entries {
+		if _, ok := index[e.ID]; ok {
+			continue
+		}
+		if _, ok := found[e.ID]; !ok {
+			found[e.ID] = &unindexedCredit{Height: e.Height}
+		}
+	}
+}
+
+// creditClaim is the claim (or sweep entry) of a credited id on the route whose line holds it (creditClaimOf).
+func (m *Monitor) creditClaim(ctx context.Context, id string, H int64) (*claimJSON, *Route, error) {
+	return creditClaimOf(ctx, m.own, m.Cfg, m.migs, m.migErrs, id, H)
+}
+
+// creditClaimOf is the claim (or sweep entry) of a credited id on the route whose line holds it, read by id (on the
+// successor too, once migrated, AQ3); nil and no route when no route's line holds one. A route whose line was not read
+// this poll leaves it unread (an error) unless another route holds it (G44).
+func creditClaimOf(ctx context.Context, g gnoReader, cfg *Config, migs map[string]*migration, lineErrs map[string]error, id string, H int64) (*claimJSON, *Route, error) {
+	var unread error
+	for i := range cfg.Routes {
+		r := &cfg.Routes[i]
+		if r.Token == "" {
+			continue
+		}
+		if lineErrs[r.Symbol] != nil {
+			unread = fmt.Errorf("%s's line of migrations was not read this poll (G44)", r.Symbol)
+			continue
+		}
+		c, _, err := claimOnPair(ctx, g, r.Gno, migs[r.Symbol], id, H)
+		if err != nil {
+			return nil, nil, err
+		}
+		if c != nil {
+			return c, r, nil
+		}
+	}
+	return nil, nil, unread
 }
 
 // stalls raises the stall-with-backlog (30 minutes) and delivery-age (two hours) alarms. A disputed record is
 // no message waiting (G27: a lying second sight whose Sig names no transaction stays disputed and raised the age
-// for good); its own alarm, solana:providers:<id>, stands until the providers agree.
-func (m *Monitor) stalls() {
+// for good); its own alarm, solana:providers:<id>, stands until the providers agree. Nor is a burn on one provider's
+// word (E5-SF4: its token's alarm stands), or a burn below the fee of the realm that would credit it, which the relayers
+// leave to whoever pays for it (E5-GS5: a stranger's dust raised the age for good) — counted under the status's dust;
+// judged every poll, so a fee lowered past it makes it a delivery, waiting from the last poll that found it dust (E6-SF6:
+// from Seen, a fee decrease raised the age at once over dust indexed hours before, before any relayer could bring it).
+// routes are the routes' jsons as read this poll (nil: every burn waits).
+func (m *Monitor) stalls(routes map[string]*routeJSON) {
 	now := m.now()
-	waiting := map[string]int{}
+	fee := func(sym string) int64 {
+		if mig := m.migs[sym]; mig != nil && mig.Succ != nil {
+			return mig.Succ.Fee
+		}
+		if rj := routes[sym]; rj != nil {
+			return rj.Fee
+		}
+		return 0
+	}
+	waiting, dust := map[string]int{}, map[string]int{}
 	var oldest time.Time
-	for _, rec := range m.state.Index {
-		if rec.Credited == 0 && rec.Disputed == "" {
-			waiting["solana→gno "+rec.Symbol]++
-			if t := time.Unix(rec.Seen, 0); oldest.IsZero() || t.Before(oldest) {
-				oldest = t
-			}
+	for id, rec := range m.state.Index {
+		if rec.Credited != 0 || rec.Disputed != "" || m.unconfirmedIDs[id] {
+			continue
+		}
+		if rec.Amount < fee(rec.Symbol) {
+			rec.DustAt = now.Unix()
+			dust[rec.Symbol]++
+			continue
+		}
+		waiting["solana→gno "+rec.Symbol]++
+		if t := time.Unix(max(rec.Seen, rec.DustAt), 0); oldest.IsZero() || t.Before(oldest) {
+			oldest = t
 		}
 	}
 	for _, s := range m.state.Sends {
@@ -1409,7 +2041,7 @@ func (m *Monitor) stalls() {
 		}
 	}
 	m.mu.Lock()
-	m.status.Waiting = waiting
+	m.status.Waiting, m.status.Dust = waiting, dust
 	m.mu.Unlock()
 	total := 0
 	for _, n := range waiting {
@@ -1521,18 +2153,21 @@ func (m *Monitor) buildStatus() map[string]any {
 	identity := map[string]any{}
 	for sym, e := range m.status.Identity {
 		entry := copyMap(e.(map[string]any))
-		if m.stale != "" {
+		switch {
+		case m.stale != "":
 			entry["stale"] = m.stale // no verdict since (G30)
+		case m.cutStale != "" && entry["poll"] != m.status.Polls:
+			entry["stale"] = m.cutStale // judged at an earlier poll: no cut has held since
 		}
 		identity[sym] = entry
 	}
 	floats := copyMap(m.status.Floats)
-	waiting := copyMap(m.status.Waiting)
+	waiting, dust := copyMap(m.status.Waiting), copyMap(m.status.Dust)
 	flags := append([]string{}, m.status.Flags...)
 	client, pausable, decisions, migrations := copyMap(m.status.Client), copyMap(m.status.Pausable), copyMap(m.status.Decisions), copyMap(m.status.Migrations)
 	st := map[string]any{
-		"identity": identity, "cut": m.status.Cut, "sources": m.status.Sources, "oddNode": m.state.OddNode, "stale": m.stale,
-		"floats": floats, "flags": flags, "waiting": waiting, "seat": m.seat,
+		"identity": identity, "cut": m.status.Cut, "sources": m.status.Sources, "oddNode": m.state.OddNode, "stale": orElse(m.stale, m.cutStale),
+		"floats": floats, "flags": flags, "waiting": waiting, "dust": dust, "seat": m.seat,
 		"client": client, "pausable": pausable, "decisions": decisions, "migrations": migrations,
 		"record":   map[string]any{"count": m.state.Record.Count, "checked": m.state.Record.Checked, "mismatch": m.state.Record.Mismatch, "gaps": m.state.Record.Gaps, "recent": append([]RecordEntry{}, m.state.Record.Recent...)},
 		"sendsSet": m.state.SendsSet, "solFlagsSet": m.state.SolFlagsSet,

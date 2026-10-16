@@ -414,7 +414,7 @@ func TestRefundedSendDeliveredAfterAll(t *testing.T) {
 	m.both = provider
 	routes := map[string]*routeJSON{"BUBBLE": {Lock: 1000, Imported: 1}} // a successor: its imported sends may be refunded
 	mbj := &mailboxJSON{Domain: hl.DomainGnoTest, Count: 1}
-	if err := m.sends(context.Background(), mbj, routes, 100); err != nil {
+	if err := m.sends(context.Background(), mbj, routes, 100, &supplySnapshot{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if s := m.state.Sends["0"]; !s.Refunded || s.Processed || s.DoubleMinted() {
@@ -425,7 +425,7 @@ func TestRefundedSendDeliveredAfterAll(t *testing.T) {
 	}
 	// Solana processes it after the refund: the standing double-mint alarm, the refunded one ended
 	provider.processed[mailbox.ProcessedMessage(id0)] = true
-	if err := m.sends(context.Background(), mbj, routes, 101); err != nil {
+	if err := m.sends(context.Background(), mbj, routes, 101, &supplySnapshot{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if s := m.state.Sends["0"]; !s.DoubleMinted() {
@@ -441,7 +441,7 @@ func TestRefundedSendDeliveredAfterAll(t *testing.T) {
 	f.renders[testRoute+":send/"+idHex] = `{"id":"` + idHex + `","from":"g1alice","amount":25000,"at":1,"imported":true,"refunded":1800000500,"writtenOff":1800001200}`
 	now := m.now().Add(time.Minute)
 	m.now = func() time.Time { return now }
-	if err := m.sends(context.Background(), mbj, routes, 102); err != nil {
+	if err := m.sends(context.Background(), mbj, routes, 102, &supplySnapshot{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if s := m.state.Sends["0"]; !s.WrittenOff || s.DoubleMinted() {
@@ -983,32 +983,40 @@ func TestCheckpointChecksTheHeaderAndSeedsTheIndex(t *testing.T) {
 		sigs = append(sigs, &rpc.TransactionSignature{Signature: solana.Signature{byte(i), byte(i >> 8), 1}, Slot: uint64(7499 - i)})
 	}
 	reader.sigs = map[solana.PublicKey][]*rpc.TransactionSignature{token: sigs}
-	cursors := map[string]string{"BUBBLE#1": "kept"}
-	n, err = seedCursors(ctx, [2]solReader{reader, reader}, cfg, 5000, cursors)
+	cursors, through := map[string]string{"BUBBLE#1": "kept"}, map[string]uint64{}
+	n, err = seedCursors(ctx, [2]solReader{reader, reader}, cfg, 5000, cursors, through)
 	if err != nil || n != 1 || cursors["BUBBLE#0"] != sigs[2499].Signature.String() || cursors["BUBBLE#1"] != "kept" {
 		t.Fatalf("the cursors: %d %v %v", n, err, cursors)
 	}
-	// every signature above the slot: no cursor (the whole history is after the checkpoint)
-	cursors = map[string]string{}
-	if n, err := seedCursors(ctx, [2]solReader{reader, reader}, cfg, 4000, cursors); err != nil || n != 0 || len(cursors) != 0 {
-		t.Fatalf("cursors with nothing at or below the slot: %d %v %v", n, err, cursors)
+	// each seeded cursor is read through the checkpoint's slot (lane s7, E6-SF1); a kept one keeps its own
+	if through["BUBBLE#0"] != 5000 || through["BUBBLE#1"] != 0 {
+		t.Fatalf("the slots read through: %v", through)
 	}
-	// a null transaction answer is a retention skip, retried after its hour
+	// every signature above the slot: no cursor (the whole history is after the checkpoint), read through the slot
+	cursors, through = map[string]string{}, map[string]uint64{}
+	if n, err := seedCursors(ctx, [2]solReader{reader, reader}, cfg, 4000, cursors, through); err != nil || n != 0 || len(cursors) != 0 || through["BUBBLE#0"] != 4000 {
+		t.Fatalf("cursors with nothing at or below the slot: %d %v %v %v", n, err, cursors, through)
+	}
+	// a null transaction answer is tried again at once nullRetries times (lane s6: a backend behind the listing), then a
+	// retention skip, retried after its hour
 	now := time.Unix(1_800_000_000, 0)
 	old := solana.Signature{5}.String()
-	sk := skipFor(old, 10, rpc.ErrNotFound, now)
+	if first := skipFor(old, 10, rpc.ErrNotFound, now, 1); first.Retry != 0 || strings.Contains(first.Err, "past the provider's retention") {
+		t.Fatalf("a first null answer was taken for the retention: %+v", first)
+	}
+	sk := skipFor(old, 10, rpc.ErrNotFound, now, nullRetries+1)
 	if sk.Retry != now.Add(time.Hour).Unix() || !strings.Contains(sk.Err, "past the provider's retention") {
 		t.Fatalf("the retention skip: %+v", sk)
 	}
-	if other := skipFor(old, 10, errors.New("timeout"), now); other.Retry != 0 {
+	if other := skipFor(old, 10, errors.New("timeout"), now, 1); other.Retry != 0 {
 		t.Fatalf("a transient skip got a retry hour: %+v", other)
 	}
 	mailbox := sol.Mailbox{Program: cfg.SolMailbox()}
 	kept := []scanSkip{sk}
-	if _, keep := retrySkipped(ctx, &fakeSol{txs: map[string]*rpc.GetTransactionResult{}}, mailbox, token, 1, 2, kept, now.Add(30*time.Minute)); len(keep) != 1 || keep[0].Tries != 1 {
+	if _, keep := retrySkipped(ctx, &fakeSol{txs: map[string]*rpc.GetTransactionResult{}}, mailbox, token, 1, 2, kept, now.Add(30*time.Minute)); len(keep) != 1 || keep[0].Tries != nullRetries+1 {
 		t.Fatalf("a retention skip was read inside its hour: %+v", keep)
 	}
-	if _, keep := retrySkipped(ctx, &fakeSol{txs: map[string]*rpc.GetTransactionResult{}}, mailbox, token, 1, 2, kept, now.Add(2*time.Hour)); len(keep) != 1 || keep[0].Tries != 2 {
+	if _, keep := retrySkipped(ctx, &fakeSol{txs: map[string]*rpc.GetTransactionResult{}}, mailbox, token, 1, 2, kept, now.Add(2*time.Hour)); len(keep) != 1 || keep[0].Tries != nullRetries+2 {
 		t.Fatalf("a retention skip was not read after its hour: %+v", keep)
 	}
 	if text := skipText(append(kept, scanSkip{Sig: "9abc", Slot: 11, Err: "timeout", Tries: 3})); !strings.Contains(text, "1 past the provider's retention") || !strings.Contains(text, "9abc (slot 11, 3 tries: timeout)") {
@@ -1124,7 +1132,11 @@ func TestSignerJudgesOverTheLine(t *testing.T) {
 	f.renders[testMailbox+":json"] = fmt.Sprintf(`{"domain":%d,"count":0,"live":true,"routes":{%q:{"successor":%q},%q:{"predecessor":%q}}}`, hl.DomainGnoTest, testRoute, testSucc, testSucc, testRoute)
 	f.renders[testRoute+":json"] = routeJSONWith(0, 0, testSucc, false, 0)
 	f.renders[testSucc+":json"] = routeJSONWith(1_000, 0, "", true, 1)
-	ids, err := signerIdentities(ctx, f, cfg, 100, snap)
+	mb, err := mailboxAt(ctx, f, testMailbox, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, _, _, err := signerIdentities(ctx, f, cfg, 100, snap, mb)
 	if err != nil || ids["BUBBLE"] == nil || ids["BUBBLE"].Lock != 1_000 {
 		t.Fatalf("the signer's identity over the line: %+v %v", ids["BUBBLE"], err)
 	}
@@ -1135,13 +1147,13 @@ func TestSignerJudgesOverTheLine(t *testing.T) {
 	cfg.Routes[0].Gno = testSucc
 	f.renders[testRoute+":json"] = routeJSONWith(1_000, 0, testSucc, false, 0)
 	f.renders[testSucc+":json"] = routeJSONWith(0, 0, "", false, 0)
-	ids, err = signerIdentities(ctx, f, cfg, 100, snap)
+	ids, _, _, err = signerIdentities(ctx, f, cfg, 100, snap, mb)
 	if err != nil || ids["BUBBLE"].Lock != 1_000 || ids["BUBBLE"].SignerStops() {
 		t.Fatalf("a configured successor before page 0: %+v %v", ids["BUBBLE"], err)
 	}
 	// a partner that cannot be read: no verdict
 	delete(f.renders, testRoute+":json")
-	if _, err := signerIdentities(ctx, f, cfg, 100, snap); err == nil {
+	if _, _, _, err := signerIdentities(ctx, f, cfg, 100, snap, mb); err == nil {
 		t.Fatal("an unread partner gave a verdict")
 	}
 }

@@ -1,7 +1,8 @@
 // bridge.gno.world — the wallet adapters, written here rather than fetched: Adena for gno.land (window.adena),
-// and for Solana the Wallet Standard (Phantom, Backpack and the rest register themselves; a transaction is
-// bytes) with the window.solana provider as the fallback. Nothing here talks to a chain: the wallet signs and
-// sends through its own RPC, and the page reads results from this site alone.
+// for Solana the Wallet Standard (Phantom, Backpack and the rest register themselves; a transaction is bytes)
+// with the window.solana provider as the fallback, and for Ethereum an EIP-1193 provider found by EIP-6963 (each
+// wallet announces itself) with window.ethereum as the fallback. Nothing here talks to a chain: the wallet signs
+// and sends through its own RPC, and the page reads results from this site alone.
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
@@ -114,5 +115,70 @@ export const solanaWallet = {
     const sig = (r && r.signature) || r;
     if (!sig) throw new Error('the wallet returned no signature');
     return typeof sig === 'string' ? sig : b58encode(sig);
+  },
+};
+
+// ------------------------------------------------------------- Ethereum --
+
+// EIP-6963: the page asks (eip6963:requestProvider) and every installed wallet answers with its provider and its
+// name (eip6963:announceProvider), so two wallets never fight over window.ethereum; that global is the fallback.
+const announced = [];
+try {
+  window.addEventListener('eip6963:announceProvider', (ev) => {
+    const d = ev.detail;
+    if (d && d.provider && d.info && d.info.uuid && !announced.some((x) => x.info.uuid === d.info.uuid)) announced.push(d);
+  });
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+} catch (e) { /* no window */ }
+
+function walletError(e, who) {
+  if (e && e.code === 4001) return new Error(who + ': you declined the request');
+  return new Error((e && e.message) || who + ' refused the request');
+}
+
+export const ethWallet = {
+  _pick: 0,
+  // wallets are the announced wallets' names, in the order they answered
+  wallets() { return announced.map((d) => d.info.name); },
+  choose(i) { this._pick = i; },
+  _entry() { return announced[this._pick] || announced[0] || null; },
+  provider() { const d = this._entry(); return (d && d.provider) || window.ethereum || null; },
+  found() { return !!this.provider(); },
+  name() {
+    const d = this._entry();
+    if (d) return d.info.name;
+    const p = window.ethereum;
+    return p ? (p.isMetaMask ? 'MetaMask' : 'Ethereum wallet') : '';
+  },
+  // connect asks the wallet for its account (eth_requestAccounts) and returns the address.
+  async connect() {
+    const p = this.provider();
+    if (!p) throw new Error('No Ethereum wallet found: install one (MetaMask, Rabby, …), then reload');
+    let accs;
+    try { accs = await p.request({ method: 'eth_requestAccounts' }); } catch (e) { throw walletError(e, this.name()); }
+    if (!accs || !accs[0]) throw new Error(this.name() + ' gave no account');
+    return String(accs[0]);
+  },
+  // onChain has the wallet on the chain (an EIP-155 id in hex): it asks the wallet to switch when it is on another,
+  // and checks that it did.
+  async onChain(chainId) {
+    const p = this.provider();
+    const want = String(chainId).toLowerCase();
+    const cur = String(await p.request({ method: 'eth_chainId' })).toLowerCase();
+    if (cur === want) return;
+    try { await p.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: want }] }); } catch (e) {
+      if (e && e.code === 4902) throw new Error(this.name() + ' does not know chain ' + parseInt(want, 16) + ': add the network to the wallet, then try again');
+      throw walletError(e, this.name());
+    }
+    const now = String(await p.request({ method: 'eth_chainId' })).toLowerCase();
+    if (now !== want) throw new Error(this.name() + ' is on chain ' + parseInt(now, 16) + ', not ' + parseInt(want, 16) + ': switch it, then try again');
+  },
+  // send has the wallet sign and send the call the site built (eth_sendTransaction); it returns the hash.
+  async send(call) {
+    const p = this.provider();
+    let hash;
+    try { hash = await p.request({ method: 'eth_sendTransaction', params: [{ from: call.from, to: call.to, data: call.data, value: call.value }] }); } catch (e) { throw walletError(e, this.name()); }
+    if (!/^0x[0-9a-fA-F]{64}$/.test(String(hash || ''))) throw new Error(this.name() + ' returned no transaction hash');
+    return String(hash).toLowerCase();
   },
 };

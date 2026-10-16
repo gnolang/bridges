@@ -44,6 +44,37 @@ type transferJSON struct {
 	Signers   int         `json:"signers"`   // in: how many signers there are
 	Threshold int         `json:"threshold"` // in: how many must vouch
 	Meter     *meterJSON  `json:"meter"`     // in, credited and not paid in full: the payout meters now
+	// Finality is an Ethereum burn's (E-M4; absent for Solana, whose burns are read at finalized): the signers sign
+	// a burn only once its block is final.
+	Finality *finalityJSON `json:"finality,omitempty"`
+}
+
+// finalityJSON is a burn's block, the chain's finalized block when it was read, and whether the burn is final.
+type finalityJSON struct {
+	Block     uint64 `json:"block"`
+	Finalized uint64 `json:"finalized"`
+	Final     bool   `json:"final"`
+}
+
+// words are what the shared code says of a chain's kind: where its figures are read, what names one of its
+// transactions, what its token programs are, the signers' endpoint lane.
+type words struct {
+	unit, ref, tokens, lane string
+}
+
+// article is "an" before a vowel's sound, "a" otherwise ("a Solana signature", "an Ethereum transaction hash").
+func article(name string) string {
+	if name != "" && strings.ContainsRune("AEIOUaeiou", rune(name[0])) {
+		return "an"
+	}
+	return "a"
+}
+
+func kindWords(ch *ChainConfig) words {
+	if ch.Kind == "ethereum" {
+		return words{unit: "block", ref: "transaction hash", tokens: "token contracts", lane: "eth"}
+	}
+	return words{unit: "slot", ref: "signature", tokens: "token programs", lane: "sol"}
 }
 
 // meterJSON is a route's payout meters as the pay step's gauge draws them (§5.4): the bridge meter's level now,
@@ -65,19 +96,43 @@ type stepJSON struct {
 
 var errUnknownTransfer = errors.New("unknown transfer")
 
-// resolve finds a transfer by any reference.
+// txAnswer is the far side's answer about the very transaction a reference names — it holds the transaction, and it
+// burned nothing toward gno.land, or its block was taken back — so the tracker says so rather than trying the
+// reference as gno.land's. It reads as unknownTransfer (a 404) and its words are its own.
+type txAnswer struct{ msg string }
+
+func (e txAnswer) Error() string { return e.msg }
+func (e txAnswer) Unwrap() error { return errUnknownTransfer }
+
+// resolve finds a transfer by any reference. A Solana signature is never a hex id and is read as one at once; an
+// Ethereum transaction hash has a message id's form (0x and 64 hex digits, as a gno transaction hash in hex has),
+// so such a reference is tried as a message id first, then as the far side's transaction, then as gno.land's.
 func (s *server) resolve(ctx context.Context, ch *ChainConfig, other Other, ref string) (*transferJSON, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" || len(ref) > 128 {
 		return nil, errUnknownTransfer
 	}
-	if other.IsSignature(ref) {
+	sig := other.IsSignature(ref)
+	id, isID := messageID(ref)
+	if sig && !isID {
 		return s.bySignature(ctx, ch, other, ref)
 	}
-	if id, ok := messageID(ref); ok {
+	if isID {
 		t, err := s.byID(ctx, ch, other, hex.EncodeToString(id[:]), "message")
 		if err == nil || !errors.Is(err, errUnknownTransfer) {
 			return t, err
+		}
+		if sig {
+			var answer txAnswer
+			if t, err := s.bySignature(ctx, ch, other, ref); err == nil || !errors.Is(err, errUnknownTransfer) || errors.As(err, &answer) {
+				return t, err
+			}
+			if h, ok := gnoTxHash(ref); ok {
+				if t, err := s.byGnoTx(ctx, ch, other, h); err == nil || !errors.Is(err, errUnknownTransfer) {
+					return t, err
+				}
+			}
+			return nil, fmt.Errorf("%w: %s is no message id of the bridge, no transaction in a block on %s yet, and none on gno.land", errUnknownTransfer, ref, ch.Name)
 		}
 	}
 	if h, ok := gnoTxHash(ref); ok {
@@ -134,7 +189,7 @@ func (s *server) byID(ctx context.Context, ch *ChainConfig, other Other, id, kin
 			return s.inbound(ctx, ch, other, t, id, kind, c, nil)
 		}
 	}
-	return nil, fmt.Errorf("%w: %s is not a send and not a credited burn on gno.land; a burn is known by its %s signature until the signers confirm it", errUnknownTransfer, id, ch.Name)
+	return nil, fmt.Errorf("%w: %s is not a send and not a credited burn on gno.land; a burn is known by its %s %s until the signers confirm it", errUnknownTransfer, id, ch.Name, kindWords(ch).ref)
 }
 
 // bySignature reads the burn a far-side transaction made and follows its id to gno.land.
@@ -144,10 +199,10 @@ func (s *server) bySignature(ctx context.Context, ch *ChainConfig, other Other, 
 		if errors.Is(err, errNoSuchTx) {
 			return nil, fmt.Errorf("%w: no transaction %s on %s (finalized)", errUnknownTransfer, sig, ch.Name)
 		}
-		return nil, err
+		return nil, err // the far side's own answer (Ethereum's says why it knows no transaction), or a failed read
 	}
 	if len(burns) == 0 {
-		return nil, fmt.Errorf("%w: transaction %s made no burn toward gno.land on the bridge's token programs", errUnknownTransfer, sig)
+		return nil, txAnswer{fmt.Sprintf("%v: transaction %s made no burn toward gno.land on the bridge's %s", errUnknownTransfer, sig, kindWords(ch).tokens)}
 	}
 	b := burns[0]
 	t := ch.Token(b.Token)
@@ -206,6 +261,9 @@ func (s *server) inbound(ctx context.Context, ch *ChainConfig, other Other, t To
 	burned := stepJSON{Name: "burned on " + s.chainName(other), Done: true}
 	if b != nil {
 		tr.Ref, tr.To, tr.Amount = b.Sig, b.To, b.Amount
+		if b.Finalized > 0 {
+			tr.Finality = &finalityJSON{Block: b.Slot, Finalized: b.Finalized, Final: b.Slot <= b.Finalized}
+		}
 		burned.Link = other.TxLink(b.Sig)
 		burned.Text = fmt.Sprintf("%d base units of %s burned toward %s", b.Amount, t.Symbol, b.To)
 		if b.BadTo {
@@ -219,11 +277,14 @@ func (s *server) inbound(ctx context.Context, ch *ChainConfig, other Other, t To
 	paid := stepJSON{Name: "paid"}
 	if c == nil {
 		credited.Text = "waiting for 2 of the 3 signers to confirm the burn and the relayer's Process; minutes"
+		if f := tr.Finality; f != nil && !f.Final {
+			credited.Text = fmt.Sprintf("waiting for %s to finalize block %d (%d blocks to go, about %d minutes: the signers sign nothing before), then for 2 of the 3 signers and the relayer's Process", ch.Name, f.Block, f.Block-f.Finalized, (f.Block-f.Finalized)*12/60+1)
+		}
 		paid.Text = "after the credit, under the meters: the fee first, the rest in turns"
 	} else {
 		tr.To, tr.Amount, tr.Paid = c.To, c.Amount, c.Paid
 		credited.Done, credited.Link = true, fmt.Sprintf(s.cfg.Gno.RealmLink, t.Realm)
-		if h, err := deliveredAt(ctx, s.gno, s.cfg.Gno.Mailbox, id, 0); err == nil && h > 0 {
+		if h, err := deliveredAt(ctx, s.gno, ch.Realms().Mailbox, id, 0); err == nil && h > 0 {
 			credited.Text = fmt.Sprintf("a claim of %d base units for %s, credited at height %d", c.Amount, c.To, h)
 		} else {
 			credited.Text = fmt.Sprintf("a claim of %d base units for %s", c.Amount, c.To)
@@ -256,12 +317,15 @@ func (s *server) inbound(ctx context.Context, ch *ChainConfig, other Other, t To
 // the signers asked about its nonce until it is credited, the claim as the route renders it now, and the meters
 // while it waits to be paid.
 func (s *server) inWalkOf(ctx context.Context, ch *ChainConfig, other Other, t TokenConfig, id string, credited bool, b *Burn, tr *transferJSON) {
-	threshold := thresholdOf(s.lastRule())
+	threshold := thresholdOf(s.lastRule(ch))
 	st := s.activityNow(ctx, ch, other)
 	if b == nil {
 		if x, ok := st.other.Burns[id]; ok {
 			b = &x
 		}
+	}
+	if b != nil && b.Finalized > 0 && tr.Finality == nil {
+		tr.Finality = &finalityJSON{Block: b.Slot, Finalized: b.Finalized, Final: b.Slot <= b.Finalized}
 	}
 	var cr *claimRec
 	if credited {

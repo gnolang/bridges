@@ -16,7 +16,6 @@ import (
 	"github.com/gnolang/bridges/solana/bridge/agent"
 	"github.com/gnolang/bridges/solana/bridge/gnolight"
 	"github.com/gnolang/bridges/solana/bridge/hl"
-	"github.com/gnolang/bridges/solana/bridge/sol"
 )
 
 // What /api/<chain>/activity serves (bridge/SITE.md, M7): the bridge's recent events as the two chains record
@@ -124,6 +123,7 @@ func (a OtherActivity) clone() OtherActivity {
 			c.Burns[k] = v
 		}
 	}
+	c.eth = a.eth.clone()
 	return c
 }
 
@@ -208,7 +208,7 @@ func (s *server) refresh(ctx context.Context, ch *ChainConfig, other Other, a *c
 		return // another refresh just finished
 	}
 	st := cur.clone()
-	mb, err := s.freshMailbox(ctx)
+	mb, err := s.freshMailbox(ctx, ch)
 	if err != nil {
 		st.errors = append(st.errors, "gno.land: "+agent.Redact(err.Error()))
 	} else {
@@ -264,29 +264,31 @@ func withBudget(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, readBudget)
 }
 
-// freshMailbox is hlmailbox at the head: the status's reading when it is fresh, else read now.
-func (s *server) freshMailbox(ctx context.Context) (agent.MailboxView, error) {
+// freshMailbox is the chain's hlmailbox at the head: the status's reading when it is fresh, else read now.
+func (s *server) freshMailbox(ctx context.Context, ch *ChainConfig) (agent.MailboxView, error) {
 	s.mu.Lock()
-	mb, at := s.mailbox, s.mailboxAt
+	mb := s.mailboxes[ch.ID]
 	s.mu.Unlock()
-	if mb != nil && s.now().Sub(at) < s.activityTTL {
-		return *mb, nil
+	if mb != nil && s.now().Sub(mb.at) < s.activityTTL {
+		return mb.v, nil
 	}
 	c, cancel := withBudget(ctx)
 	defer cancel()
-	v, err := agent.ReadMailbox(c, s.gno, s.cfg.Gno.Mailbox, 0)
+	v, err := agent.ReadMailbox(c, s.gno, ch.Realms().Mailbox, 0)
 	if err == nil {
-		s.rememberMailbox(v)
+		s.rememberMailbox(ch, v)
 	}
 	return v, err
 }
 
-// msgJSON is one of hlmailbox's "msgs/<from>" entries.
+// msgJSON is one of hlmailbox's "msgs/<from>" entries, or — for a message whose page cannot be read — its header
+// (E3-RL1), with no message.
 type msgJSON struct {
 	Nonce   uint32 `json:"nonce"`
 	ID      string `json:"id"`
 	Height  int64  `json:"height"`
 	Message string `json:"message"`
+	header  *agent.MsgHeader
 }
 
 // readDispatches reads hlmailbox's newest messages (one "msgs/" page) and each new send's record.
@@ -295,7 +297,7 @@ func (s *server) readDispatches(ctx context.Context, ch *ChainConfig, other Othe
 	if count > activityList {
 		from = count - activityList
 	}
-	msgs, err := s.msgs(ctx, from)
+	msgs, err := s.msgs(ctx, ch, from, count, st.dispatch)
 	if err != nil {
 		return err
 	}
@@ -323,12 +325,26 @@ func (s *server) readDispatches(ctx context.Context, ch *ChainConfig, other Othe
 	return nil
 }
 
-func (s *server) msgs(ctx context.Context, from uint32) ([]msgJSON, error) {
+// msgs is one "msgs/" page of a chain's hlmailbox: up to 20 messages from a nonce on. A page the node cannot render —
+// one stranger's message too big to render puts every page holding it past the node's query gas (E3-RL1) — is read
+// message by message below count instead, each one the site does not know yet.
+func (s *server) msgs(ctx context.Context, ch *ChainConfig, from, count uint32, known map[uint32]*gnoDispatch) ([]msgJSON, error) {
 	c, cancel := withBudget(ctx)
 	defer cancel()
-	body, err := s.gno.RenderAt(c, s.cfg.Gno.Mailbox, "msgs/"+strconv.FormatUint(uint64(from), 10), 0)
+	body, err := s.gno.RenderAt(c, ch.Realms().Mailbox, "msgs/"+strconv.FormatUint(uint64(from), 10), 0)
 	if err != nil {
-		return nil, err
+		var msgs []msgJSON
+		for n := from; n < count && n-from < activityList; n++ {
+			if known[n] != nil {
+				continue
+			}
+			m, merr := s.msgOne(ctx, ch, n)
+			if merr != nil {
+				return nil, fmt.Errorf("msgs/%d: %v; message %d: %w", from, err, n, merr)
+			}
+			msgs = append(msgs, m)
+		}
+		return msgs, nil
 	}
 	var msgs []msgJSON
 	if err := json.Unmarshal([]byte(body), &msgs); err != nil {
@@ -337,10 +353,45 @@ func (s *server) msgs(ctx context.Context, from uint32) ([]msgJSON, error) {
 	return msgs, nil
 }
 
+// msgOne is one message: its page, or — when the page cannot be read — its header (agent.ReadMsgHeader: the
+// mailbox's record of it, its id from its block's Dispatch event when that reads), listed as "other" with no body.
+func (s *server) msgOne(ctx context.Context, ch *ChainConfig, n uint32) (msgJSON, error) {
+	c, cancel := withBudget(ctx)
+	defer cancel()
+	body, err := s.gno.RenderAt(c, ch.Realms().Mailbox, "msg/"+strconv.FormatUint(uint64(n), 10), 0)
+	if err == nil {
+		var m msgJSON
+		if err := json.Unmarshal([]byte(body), &m); err != nil {
+			return msgJSON{}, fmt.Errorf("msg/%d: %w", n, err)
+		}
+		return m, nil
+	}
+	hc, hcancel := withBudget(ctx)
+	defer hcancel()
+	h, herr := agent.ReadMsgHeader(hc, s.gno, ch.Realms().Mailbox, domainOf(s.cfg), n, err)
+	if herr != nil {
+		return msgJSON{}, fmt.Errorf("msg/%d: %v (nor its header: %w)", n, err, herr)
+	}
+	id := ""
+	if h.Event {
+		id = hex.EncodeToString(h.ID[:])
+	}
+	return msgJSON{Nonce: n, ID: id, Height: h.Height, header: h}, nil
+}
+
 // dispatchOf reads one dispatched message: a route's send (its token, amount and recipient from the message, its
 // sender and time from the route's record) or r/hlgov's decision (its kind and number, its block's time).
 func (s *server) dispatchOf(ctx context.Context, ch *ChainConfig, other Other, times map[int64]int64, m msgJSON) (*gnoDispatch, error) {
 	d := &gnoDispatch{Nonce: m.Nonce, ID: strings.ToLower(m.ID), Height: m.Height, Kind: "other"}
+	if m.header != nil {
+		// a message whose page cannot be read (E3-RL1): its header alone, no body to read; our realms' messages
+		// always render (agent/unreadable.go), so it is listed as "other"
+		if m.header.Event {
+			d.Hash = hex.EncodeToString(m.header.Hash[:])
+		}
+		d.At = s.blockTime(ctx, times, d.Height)
+		return d, nil
+	}
 	raw, err := hex.DecodeString(m.Message)
 	if err != nil {
 		return d, nil
@@ -368,11 +419,11 @@ func (s *server) dispatchOf(ctx context.Context, ch *ChainConfig, other Other, t
 			d.From, d.At = sd.From, sd.At
 		}
 	}
-	if s.cfg.Gno.Gov != "" {
-		if gov, err := hl.GnoAddressToBytes32(hl.GnoPackageAddress(s.cfg.Gno.Gov)); err == nil && gov == hm.Sender {
+	if g := ch.Realms().Gov; g != "" {
+		if gov, err := hl.GnoAddressToBytes32(hl.GnoPackageAddress(g)); err == nil && gov == hm.Sender {
 			d.Kind = "decision"
 			if kind, seq, ok := gnolight.DecisionPrefix(hm.Body); ok {
-				d.Decision = fmt.Sprintf("#%d %s", seq, sol.KindName(kind))
+				d.Decision = fmt.Sprintf("#%d %s", seq, other.KindName(kind))
 			}
 		}
 	}
@@ -627,7 +678,7 @@ func (s *server) realmOf(ch *ChainConfig, symbol string) string {
 	if t := ch.Token(symbol); t != nil {
 		return t.Realm
 	}
-	return s.cfg.Gno.Mailbox
+	return ch.Realms().Mailbox
 }
 
 // ------------------------------------------------------------------ the walks --
@@ -784,7 +835,7 @@ func (s *server) findDispatch(ctx context.Context, ch *ChainConfig, other Other,
 			end = from
 			continue
 		}
-		msgs, err := s.msgs(ctx, uint32(from))
+		msgs, err := s.msgs(ctx, ch, uint32(from), uint32(end), nil)
 		if err != nil {
 			return nil
 		}
@@ -896,7 +947,7 @@ func (s *server) handleActivity(w http.ResponseWriter, r *http.Request) {
 		out.Errors = append(out.Errors, failure)
 	}
 	st := s.activityNow(ctx, ch, other)
-	threshold := thresholdOf(s.lastRule())
+	threshold := thresholdOf(s.lastRule(ch))
 	lamps := s.lampsNow(ctx, ch, st.newestBurnNonce())
 	out.Signers, out.Threshold = lamps, threshold
 	out.Burns, out.Processed, out.Trusted = st.other.Dispatched, st.other.Processed, st.other.Trusted
@@ -907,14 +958,14 @@ func (s *server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, body)
 }
 
-// lastRule is the signer rule hlmailbox last rendered ("2 of 3 signers"), "" before the first read.
-func (s *server) lastRule() string {
+// lastRule is the signer rule the chain's hlmailbox last rendered ("2 of 3 signers"), "" before the first read.
+func (s *server) lastRule(ch *ChainConfig) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.mailbox == nil {
-		return ""
+	if mb := s.mailboxes[ch.ID]; mb != nil {
+		return mb.v.Rule
 	}
-	return s.mailbox.Rule
+	return ""
 }
 
 // thresholdOf reads a rule's threshold: "2 of 3 signers" is 2; 0 when the rule says no number.
