@@ -40,7 +40,7 @@ const (
 	hlgnotY    = namespace + "hlgnoty" // a would-be re-point after page 0, refused
 	hlgnot3    = namespace + "hlgnot3" // this realm's own successor, in its turn
 
-	smallSends = 46 // sends of hlgnot's minimum that fill the records past one page of 50 (pullPage, E5-RL1): two pages to adopt
+	smallSends = pullPage - 4 // sends of hlgnot's minimum that fill the records past one page (pullPage, E5-RL1, E6-RL3): two pages to adopt
 )
 
 var (
@@ -684,7 +684,7 @@ func TestMigration(cur realm, t *testing.T) {
 	}
 	samePair(t, want, "before page 0")
 
-	// --- page 0, by a stranger: the lock, the counters and 50 records — no more (E5-RL1) — move in one call; noted
+	// --- page 0, by a stranger: the lock, the counters and pullPage records — no more (E5-RL1, E6-RL3) — move in one call; noted
 	// pulled; no re-point
 	testing.SetRealm(testing.NewUserRealm(stranger1))
 	Adopt(cross(cur), 0)
@@ -692,7 +692,7 @@ func TestMigration(cur realm, t *testing.T) {
 		t.Fatalf("page 0: imported %d importing %v, lock %d balance %d, hlgnot %d/%d, pulled %v", Imported(), Importing(), Locked(), Balance(), hlgnot.Locked(), hlgnot.Balance(), hlmailbox.Pulled(pkgPath))
 	}
 	samePair(t, want, "page 0")
-	if c := st.ClaimOf(erinBurnID); c == nil || c.State != hlroute.Open || c.Remaining() != 27_500*gnot || st.ClaimOf(aliceBurnID).State != hlroute.Done || st.SweptOf(bobBurnID) != 3*gnot || st.Sends() != 47 || st.SendOf(bobSend) == nil || !st.SendOf(bobSend).Imported {
+	if c := st.ClaimOf(erinBurnID); c == nil || c.State != hlroute.Open || c.Remaining() != 27_500*gnot || st.ClaimOf(aliceBurnID).State != hlroute.Done || st.SweptOf(bobBurnID) != 3*gnot || st.Sends() != pullPage-3 || st.SendOf(bobSend) == nil || !st.SendOf(bobSend).Imported {
 		t.Fatalf("page 0's records: claims %v, sends %d", c, st.Sends())
 	}
 	if !strings.Contains(hlgnot.Render("json"), "\"sends\":2,") || !strings.Contains(Render("json"), "\"importing\":true,\"imported\":1,") || !strings.Contains(Render(""), "- succeeds `"+hlgnotPath+"`: 1 pages adopted, more to come (anyone may call Adopt(1)); nothing is sent or credited before the last page") {
@@ -728,11 +728,25 @@ func TestMigration(cur realm, t *testing.T) {
 	// --- the last page, by another stranger: the import ends; the predecessor holds nothing
 	testing.SetRealm(testing.NewUserRealm(stranger2))
 	Adopt(cross(cur), 1)
-	if Imported() != 2 || Importing() || st.Sends() != 49 || st.SendOf(aliceSend) == nil || st.SendOf(carolSend) == nil || !strings.Contains(hlgnot.Render("json"), "\"sends\":0,\"refunded\":0,") || !strings.Contains(Render("json"), "\"importing\":false,\"imported\":2,") {
+	if Imported() != 2 || Importing() || st.Sends() != pullPage-1 || st.SendOf(aliceSend) == nil || st.SendOf(carolSend) == nil || !strings.Contains(hlgnot.Render("json"), "\"sends\":0,\"refunded\":0,") || !strings.Contains(Render("json"), "\"importing\":false,\"imported\":2,") {
 		t.Fatalf("the last page: imported %d importing %v sends %d", Imported(), Importing(), st.Sends())
 	}
 	samePair(t, want, "the last page")
 	identity(t, supply, "the last page")
+	// the credit tally took each record the pages brought — the two claims and the sweep entry — at its own height,
+	// and nothing else came in (voids.gno, E6-RL1)
+	lo, hi := int64(1<<62), int64(0)
+	for _, h := range []int64{st.ClaimOf(erinBurnID).Height, st.ClaimOf(aliceBurnID).Height, st.SweepOf(bobBurnID).Height} {
+		if h < lo {
+			lo = h
+		}
+		if h > hi {
+			hi = h
+		}
+	}
+	if n := creditsIn(hlroute.Range{From: lo, To: hi}); n != 3 || creditsIn(hlroute.Range{From: 1, To: 1 << 50}) != 3 {
+		t.Fatalf("the tally over the imported records' heights %d-%d: %d (want 3)", lo, hi, n)
+	}
 	testing.SetRealm(testing.NewUserRealm(stranger2))
 	aborts(t, "the migration's last page is in already: nothing more to adopt", func() { Adopt(cross(cur), 2) })
 	// the waiting index followed the claims: every open one imported is in this realm's, none is left in hlgnot's
@@ -771,7 +785,7 @@ func TestMigration(cur realm, t *testing.T) {
 	aborts(t, "this route succeeds "+hlgnotPath+": nothing is sent before r/hlgov has dispatched the kind 6 enrolling this realm as the token's router on Solana (no enrolment note yet): a send before it would park there until a kind 6 lands, unrefundable as the route's own", func() {
 		TransferRemote(cross(cur), ethTest, ethWallet, Minimum())
 	})
-	if Locked() != want.lock || st.Sends() != 49 {
+	if Locked() != want.lock || st.Sends() != pullPage-1 {
 		t.Fatalf("a send before the kind 6 moved something: lock %d sends %d", Locked(), st.Sends())
 	}
 	asMember(cur)

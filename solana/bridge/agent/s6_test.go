@@ -620,13 +620,16 @@ func TestS6MonitorRefusesAProviderThatIgnoresMinContext(t *testing.T) {
 	}
 }
 
-// One provider that ignores it is refused the same (the alarm names it); two that honour it are never refused.
+// One provider that ignores it is alarmed by name; on a monitor the one that honours it suffices (lane s7, the round-6
+// audit's E6-SF2: refusing either refused both live monitors, which pair Alchemy) — a burn the honouring one lists and the
+// ignoring one has not is one-sided, no verdict, never short (TestS7MonitorOptionA… below); two that honour it are never
+// refused.
 func TestS6MonitorOneProviderIgnoresMinContext(t *testing.T) {
 	r := newS4Monitor(t, false)
 	r.n.ignoreMinList = [2]bool{false, true}
 	r.n.slots(100, 100)
 	r.poll()
-	if v := r.verdict(); v != "no verdict" || !r.alarmed("solana:min-context-ignored:2") || r.alarmed("solana:min-context-ignored:1") {
+	if v := r.verdict(); v != "holds" || !r.alarmed("solana:min-context-ignored:2") || r.alarmed("solana:min-context-ignored:1") {
 		t.Fatalf("provider 2 ignoring minContextSlot: %s, alarms %v", v, r.m.Alarm.StandingKeys())
 	}
 	honest := newS4Monitor(t, false)
@@ -660,30 +663,36 @@ func TestS6SignerRefusesAProviderThatIgnoresMinContext(t *testing.T) {
 	}
 }
 
-// hlwatch gives no identity over such a provider and says why.
+// hlwatch gives no identity when neither provider honours it, and says why; one that honours it suffices (lane s7,
+// E6-SF2, as on a monitor).
 func TestS6HlwatchRefusesAProviderThatIgnoresMinContext(t *testing.T) {
-	cfg, n, g := s4Config(false), newSolNet(t), newS4Gno()
-	g.set(s4Mailbox+":json", s4MailboxJSON(0, 0))
-	g.set(s4Route+":json", s4RouteJSON(1000, 0, 0, 0, ""))
-	n.supply(s4Token, 1, 1000)
-	n.ignoreMinList = [2]bool{false, true}
-	n.slots(102, 102)
-	providers := n.clients()
-	st := &WatchState{}
-	st.init()
-	ctx := context.Background()
-	snap, err := TakeSnapshot(ctx, providers, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	v, err := ReadSolanaAt(ctx, providers, g, cfg, st, snap, 200, s4ClockZero)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, judged := v.Identities["BUBBLE"]
-	t.Logf("judged %v; errors %q", judged, v.Err)
-	if judged || !strings.Contains(strings.Join(v.Err, "; "), "provider 2 ignores minContextSlot") {
-		t.Fatalf("hlwatch over a provider that ignores minContextSlot: judged %v, errors %q", judged, v.Err)
+	for _, c := range []struct {
+		ignore [2]bool
+		judged bool
+	}{{[2]bool{true, true}, false}, {[2]bool{false, true}, true}} {
+		cfg, n, g := s4Config(false), newSolNet(t), newS4Gno()
+		g.set(s4Mailbox+":json", s4MailboxJSON(0, 0))
+		g.set(s4Route+":json", s4RouteJSON(1000, 0, 0, 0, ""))
+		n.supply(s4Token, 1, 1000)
+		n.ignoreMinList = c.ignore
+		n.slots(102, 102)
+		providers := n.clients()
+		st := &WatchState{}
+		st.init()
+		ctx := context.Background()
+		snap, err := TakeSnapshot(ctx, providers, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		v, err := ReadSolanaAt(ctx, providers, g, cfg, st, snap, 200, s4ClockZero)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, judged := v.Identities["BUBBLE"]
+		t.Logf("ignoring %v: judged %v; errors %q", c.ignore, judged, v.Err)
+		if judged != c.judged || (!judged && !strings.Contains(strings.Join(v.Err, "; "), "provider 2 ignores minContextSlot")) {
+			t.Fatalf("hlwatch over providers ignoring minContextSlot %v: judged %v, errors %q", c.ignore, judged, v.Err)
+		}
 	}
 }
 
@@ -1616,39 +1625,43 @@ func TestS6MinContextProbeFailsClosed(t *testing.T) {
 	if r.verdict() == "holds" {
 		t.Fatalf("providers that refuse a far-off minContextSlot otherwise passed the probe: the forged mint holds")
 	}
-	// a provider honouring the bound but whose first probe failed (a timeout): refused that minute, judged after it
+	// providers honouring the bound but whose first probes failed (a timeout): refused that minute, judged after it (on a
+	// monitor one that honours suffices since lane s7, E6-SF2: so both probes fail here)
 	h := newS4Monitor(t, false)
 	h.n.slots(100, 100)
-	var once sync.Once
-	flaky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		body, _ := io.ReadAll(req.Body)
-		fail := false
-		if bytes.Contains(body, []byte(`"getSignaturesForAddress"`)) && bytes.Contains(body, []byte(`minContextSlot`)) {
-			once.Do(func() { fail = true })
-		}
-		if fail {
-			http.Error(w, "upstream timeout", http.StatusGatewayTimeout)
-			return
-		}
-		resp, err := http.Post(h.n.urls[1], "application/json", bytes.NewReader(body))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		out, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		_, _ = w.Write(out)
-	}))
-	defer flaky.Close()
-	h.m.sol = [2]*rpc.Client{rpc.New(h.n.urls[0]), rpc.New(flaky.URL)}
+	flaky := func(url string) string {
+		var once sync.Once
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			body, _ := io.ReadAll(req.Body)
+			fail := false
+			if bytes.Contains(body, []byte(`"getSignaturesForAddress"`)) && bytes.Contains(body, []byte(`minContextSlot`)) {
+				once.Do(func() { fail = true })
+			}
+			if fail {
+				http.Error(w, "upstream timeout", http.StatusGatewayTimeout)
+				return
+			}
+			resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			out, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			_, _ = w.Write(out)
+		}))
+		t.Cleanup(srv.Close)
+		return srv.URL
+	}
+	h.m.sol = [2]*rpc.Client{rpc.New(flaky(h.n.urls[0])), rpc.New(flaky(h.n.urls[1]))}
 	h.m.both = twoProviders(h.m.sol)
 	h.poll()
 	first := h.verdict()
 	h.step(61 * time.Second)
 	h.poll()
-	t.Logf("a provider whose first probe timed out: %s, then %s", first, h.verdict())
+	t.Logf("providers whose first probes timed out: %s, then %s", first, h.verdict())
 	if first != "no verdict" || h.verdict() != "holds" {
-		t.Fatalf("a provider whose first probe timed out: %s, then %s", first, h.verdict())
+		t.Fatalf("providers whose first probes timed out: %s, then %s", first, h.verdict())
 	}
 }
 

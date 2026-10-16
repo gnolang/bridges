@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -895,8 +896,8 @@ func TestNoBurnBelowTheLaunchLine(t *testing.T) {
 // E2-RT9's cut on a real node (the e2e found it): a gno node answers its latest state at any height — gno.land's realm
 // objects live in an unversioned store — so a send landing between the routes' read and hlmailbox's would be counted in
 // flight while missing from the lock read before it: a false halt of every signer. hlmailbox's count is read before
-// the routes and again after; a send between them leaves the round without a verdict (no halt), and the next round,
-// with nothing landing, holds with the send in flight and in the lock.
+// the routes and again after; a send between them moves the cut, which is taken again at once (round 6, E6-GT1: the
+// next commit is a block away) and holds with the send in flight and in the lock — no halt, in the same round.
 func TestSignerCutAroundALandingSend(t *testing.T) {
 	r := newSignerRig(t) // GNOT supply 1,000 on Ethereum, the lock 1,000, nothing dispatched
 	r.chain.view(m3bMailbox, "delivered", func(uint64, []any) []any { return []any{false} })
@@ -914,21 +915,22 @@ func TestSignerCutAroundALandingSend(t *testing.T) {
 	if r.alarmed("signer:halt") || r.alarmed("signer:no-verdict") {
 		t.Fatalf("a send landing mid-read halted the signer, or alarmed: %v", r.s.Alarm.Standing())
 	}
-	if st := r.status(); !strings.Contains(fmt.Sprint(st), "dispatched 1 message(s) while the routes were read") {
-		t.Fatalf("the round took a verdict over a moving cut: %v", st)
+	for round := 1; round <= 2; round++ { // the round the send landed in (its window taken again), and the next
+		st := r.status()
+		ident := st["identity"].(map[string]any)["GNOT"].(map[string]any)
+		if r.alarmed("signer:halt") || st["signing"] != true || ident["verdict"] != "holds" || ident["undelivered"].(int64) != 300 || ident["lock"].(int64) != 1300 {
+			t.Fatalf("round %d: %v", round, st)
+		}
+		r.step(time.Second)
+		r.round()
 	}
-	r.step(time.Second)
-	r.round()
-	st := r.status()
-	ident := st["identity"].(map[string]any)["GNOT"].(map[string]any)
-	if r.alarmed("signer:halt") || st["signing"] != true || ident["verdict"] != "holds" || ident["undelivered"].(int64) != 300 || ident["lock"].(int64) != 1300 {
-		t.Fatalf("the next round: %v", st)
-	}
-	// a cut that moves round after round (hlmailbox's count rising during every read) alarms at the fifth
+	// a cut that moves in every taking, round after round (hlmailbox's count rising during every read: a stranger's
+	// dispatch each time, rendered as hlmailbox renders it), alarms at the fifth
 	count := 1
 	r.gno.mu.Lock()
 	r.gno.afterRender = func(pkg, path string) {
 		if pkg == m3bNS+"hlgnot" && path == "json" {
+			r.gno.set(m3bMailPath, "msg/"+strconv.Itoa(count), strangerMsg(uint32(count), r.gno.height))
 			count++
 			r.gno.set(m3bMailPath, "json", fmt.Sprintf(`{"domain":1198419796,"live":true,"count":%d,"signers":{"keys":[],"threshold":2},"seats":[],"routes":{}}`, count))
 		}
@@ -945,7 +947,8 @@ func TestSignerCutAroundALandingSend(t *testing.T) {
 
 // The same cut in the monitor, which reads hlmailbox before the routes: a send landing between them is in the lock and
 // not yet counted in flight, so a forged mint of its amount would pass the poll unseen. The count read again after the
-// routes leaves that poll without a verdict; the next one sees the forged mint (broken: flags).
+// routes moves the cut, which is taken again at once (round 6, E6-GT1) and sees the forged mint in the same poll
+// (broken: flags).
 func TestMonitorCutAroundALandingSend(t *testing.T) {
 	r := newMonRig(t) // GNOT supply 1,000 on Ethereum, the lock 1,000, nothing dispatched
 	r.chain.view(m3bMailbox, "delivered", func(uint64, []any) []any { return []any{false} })
@@ -971,17 +974,16 @@ func TestMonitorCutAroundALandingSend(t *testing.T) {
 	if err := r.poll(); err != nil {
 		t.Fatal(err)
 	}
-	if v := fmt.Sprint(r.m.Status()); !strings.Contains(v, "dispatched 1 message(s) while the routes were read") {
-		t.Fatalf("the poll took a verdict over a moving cut: %v", v)
+	ident, _ := r.m.Status()["identity"].(map[string]any)["GNOT"].(map[string]any)
+	if !r.alarmed("identity:GNOT:flag") || ident["lock"] != float64(1300) || ident["inflightOut"] != float64(300) {
+		t.Fatalf("the forged mint of the landing send's amount passed, or the cut was not taken again over it: %v (%v)", r.m.Alarm.Standing(), ident)
 	}
-	if r.alarmed("identity:GNOT:flag") {
-		t.Fatal("flagged on the moving cut")
-	}
-	r.step(time.Second)
-	if err := r.poll(); err != nil {
-		t.Fatal(err)
-	}
-	if !r.alarmed("identity:GNOT:flag") {
-		t.Fatalf("the forged mint of the landing send's amount passed: %v", r.m.Alarm.Standing())
-	}
+}
+
+// strangerMsg is hlmailbox's msg/<nonce> render of a stranger's message (to no route's token: the walk passes it).
+func strangerMsg(nonce uint32, h int64) string {
+	m := hl.Message{Version: 3, Nonce: nonce, Origin: m3bGnoDom, Sender: gnoside.RealmKey("gno.land/r/stranger"), Destination: m3bEthDom, Recipient: ethx.AddressTo32(common.HexToAddress("0x000000000000000000000000000000000000beef")), Body: []byte("hi")}
+	raw := m.Bytes()
+	id := hl.ID(raw)
+	return fmt.Sprintf(`{"nonce":%d,"id":%q,"root":"%s","height":%d,"message":%q}`, nonce, hex.EncodeToString(id[:]), strings.Repeat("00", 32), h, hex.EncodeToString(raw))
 }

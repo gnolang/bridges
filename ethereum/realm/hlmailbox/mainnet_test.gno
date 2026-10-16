@@ -194,7 +194,7 @@ func TestMainnetPlaceholders(cur realm, t *testing.T) {
 	for _, ns := range []string{namespace, liveSolana[:len(liveSolana)-1], liveSolana[:len(liveSolana)-2] + "x/", devSolana[:len(devSolana)-2] + "x/", ""} {
 		v := staged()
 		v.solana = ns
-		if why := devPlaceholder("gnoland-1", v); why != "hlmailbox: solanaNamespace is "+ns+", not the Solana deployment's on gnoland-1 (the namespace hashing to e0f650b7da312675…): a burn naming one of its six realms would be paid there, never swept"+mainnetRefusal {
+		if why := devPlaceholder("gnoland-1", v); why != "hlmailbox: solanaNamespace is "+ns+", not the Solana deployment's on gnoland-1 (the namespace hashing to e0f650b7da312675...): a burn naming one of its six realms would be paid there, never swept"+mainnetRefusal {
 			t.Fatalf("solanaNamespace %q: %q", ns, why)
 		}
 	}

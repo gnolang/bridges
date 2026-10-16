@@ -25,7 +25,8 @@ type Alarmer struct {
 	mu       sync.Mutex
 	standing map[string]time.Time // key → last posted
 	text     map[string]string
-	flags    map[string]bool // the standing keys raised as flags (Flag): what hlwatch's green never stands over
+	flags    map[string]bool      // the standing keys raised as flags (Flag): what hlwatch's green never stands over
+	flagged  map[string]time.Time // key → last posted at flag level (an escalation is posted once a repeat: E6-GT4)
 }
 
 // Alarm raises an alarm under a key ("client:lag", "runway:relayer-eth", …).
@@ -50,6 +51,7 @@ func (a *Alarmer) Clear(key string) {
 	delete(a.standing, key)
 	delete(a.text, key)
 	delete(a.flags, key)
+	delete(a.flagged, key)
 	a.mu.Unlock()
 	if was {
 		log.Printf("%s: cleared %s", a.Source, key)
@@ -117,11 +119,17 @@ func (a *Alarmer) raise(level, key, text string, every time.Duration) {
 	if a.flags == nil {
 		a.flags = map[string]bool{}
 	}
+	if a.flagged == nil {
+		a.flagged = map[string]time.Time{}
+	}
 	last, was := a.standing[key]
 	a.text[key] = text
 	// a standing alarm raised again at flag level is posted at once, not at its next repeat: the escalation is the news
-	// (a finality stall past the hour, a pending reading unjudged for one)
-	rising := was && level == "flag" && !a.flags[key]
+	// (a finality stall past the hour, a pending reading unjudged for one) — once a repeat: a key raised at alarm and at
+	// flag level by turns (the sources rule over a flaky third source: own node odd, then unresolved) posted every other
+	// poll (the Go trust audit's E6-GT4, item 2)
+	posted, flaggedBefore := a.flagged[key]
+	rising := was && level == "flag" && !a.flags[key] && (!flaggedBefore || time.Since(posted) >= repeat)
 	if level == "flag" {
 		a.flags[key] = true
 	} else {
@@ -130,6 +138,9 @@ func (a *Alarmer) raise(level, key, text string, every time.Duration) {
 	due := !was || rising || time.Since(last) >= repeat
 	if due {
 		a.standing[key] = time.Now()
+		if level == "flag" {
+			a.flagged[key] = time.Now()
+		}
 	}
 	a.mu.Unlock()
 	if due {

@@ -25,7 +25,9 @@ import (
 // twelve are not zero (Hyperlane's bytes32ToAddress would revert the delivery for good, eth §5.2). The zero address
 // parses — kind 3 names it on purpose — so each caller refuses it where the plan does. Surrounding spaces are
 // trimmed. A refusal quotes what it was given (echo: ASCII, at most 64 bytes of it), never its bytes as they came
-// (E4-GS1: every route's TransferRemote and every builder that reads an address hands its refusal on).
+// (E4-GS1: every route's TransferRemote and every builder that reads an address hands its refusal on), and its own
+// words are ASCII too, so a refusal handed on is ASCII at any length (the round-6 realms audit's E6-RL2: two em dashes
+// here were the one operand outside ASCII that rule 4 took for ASCII).
 func ParseEthAddress(s string) ([32]byte, error) {
 	var out [32]byte
 	s = strings.TrimSpace(s)
@@ -54,7 +56,7 @@ func ParseEthAddress(s string) ([32]byte, error) {
 		copy(out[:], b)
 		return out, nil
 	}
-	return out, errors.New("not an Ethereum address: " + echo(s) + " (want 0x and 40 hex digits — mixed case only as its EIP-55 checksum — or 64 hex digits whose first 24 are zero)")
+	return out, errors.New("not an Ethereum address: " + echo(s) + " (want 0x and 40 hex digits, mixed case only as its EIP-55 checksum, or 64 hex digits whose first 24 are zero)")
 }
 
 // EthAddress writes 32 bytes the way every page of this deployment shows an Ethereum address: "0x" and the low

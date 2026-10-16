@@ -166,7 +166,7 @@ func Govern(cur realm, r Request) {
 	}
 	mustBeGovernor(cur)
 	if err := r.decide(cur); err != nil {
-		// echo-ok(err): p/decisions' refusal: words and numbers
+		// echo-ok(err): p/decisions' refusal: ASCII words and numbers
 		panic("hlmailbox: " + err.Error())
 	}
 }
@@ -415,14 +415,14 @@ func parseSeatChanges(changes string) ([]int, []address) {
 			panic("hlmailbox: seat " + strconv.Itoa(n) + " is empty already")
 		}
 		if a != "" && seats[n] == a {
-			panic("hlmailbox: seat " + strconv.Itoa(n) + " holds " + string(a) + " already") // echo-ok(a): canonical (CanonicalAddress above)
+			panic("hlmailbox: seat " + strconv.Itoa(n) + " holds " + string(a) + " already") // echo-ok(a): canonical bech32 (CanonicalAddress above), ASCII
 		}
 		if a != "" && SeatOf(a) != 0 {
-			panic("hlmailbox: " + string(a) + " holds seat " + strconv.Itoa(SeatOf(a)) + " already") // echo-ok(a): canonical (CanonicalAddress above)
+			panic("hlmailbox: " + string(a) + " holds seat " + strconv.Itoa(SeatOf(a)) + " already") // echo-ok(a): canonical bech32 (CanonicalAddress above), ASCII
 		}
 		for j, x := range as {
 			if x != "" && x == a {
-				panic("hlmailbox: " + string(a) + " named for seats " + strconv.Itoa(ns[j]) + " and " + strconv.Itoa(n)) // echo-ok(a): canonical (CanonicalAddress above)
+				panic("hlmailbox: " + string(a) + " named for seats " + strconv.Itoa(ns[j]) + " and " + strconv.Itoa(n)) // echo-ok(a): canonical bech32 (CanonicalAddress above), ASCII
 			}
 		}
 		if IsGuardianSeat(n) {
@@ -507,14 +507,14 @@ func applySeats(p rotateSeatsParams, t int64) (vacated, skipped []int) {
 			continue
 		}
 		if SeatOf(a) != 0 && SeatOf(a) != n {
-			// echo-ok(a): a seat's holder in its canonical spelling (parseSeatChanges)
+			// echo-ok(a): a seat's holder in its canonical bech32 spelling (parseSeatChanges), ASCII
 			panic("hlmailbox: " + string(a) + " holds seat " + strconv.Itoa(SeatOf(a)) + " now")
 		}
 		if seats[n] != "" {
 			clearSeat(n, t)
 		}
 		seats[n] = a
-		// echo-ok(a): a seat's holder in its canonical spelling (parseSeatChanges)
+		// echo-ok(a): a seat's holder in its canonical bech32 spelling (parseSeatChanges), ASCII
 		chain.Emit("SeatSet", "seat", strconv.Itoa(n), "address", string(a))
 	}
 	return vacated, skipped
@@ -551,7 +551,7 @@ func parseFns(fns string) []string {
 		}
 		for _, x := range out {
 			if x == fn {
-				panic("hlmailbox: " + fn + " named twice") // echo-ok(fn): one of the three (isFn above)
+				panic("hlmailbox: " + fn + " named twice") // echo-ok(fn): one of the three (isFn above): ASCII
 			}
 		}
 		out = append(out, fn)
@@ -588,7 +588,7 @@ func NewUnpauseRequest(cur realm, routePath, fns string, removeSeat int) Request
 		}
 	}
 	if !clears {
-		panic("hlmailbox: no flag stands on " + echo(fns) + " of " + routePath + ": nothing to clear") // echo-ok(routePath): a registered route's path (checked above)
+		panic("hlmailbox: no flag stands on " + echo(fns) + " of " + routePath + ": nothing to clear") // echo-ok(routePath): a registered route's path (checked above), ASCII by tm2's path rules
 	}
 	text := "unpause " + strings.Join(list, ",") + " on " + routePath
 	if removeSeat != 0 {
@@ -640,7 +640,7 @@ func NewCancelRequest(cur realm, id int64) Request {
 	text := "cancel decision " + strconv.FormatInt(id, 10) + " (" + d.Text + ")"
 	return propose(cur, "cancel", text, func(made, t int64) {
 		if _, err := ledger.Cancel(id, t); err != nil {
-			// echo-ok(err): p/decisions' refusal: words and numbers
+			// echo-ok(err): p/decisions' refusal: ASCII words and numbers
 			panic("hlmailbox: " + err.Error())
 		}
 		atOnce("cancel", text, cancelParams{id}, made, t, "cancelled")
@@ -657,7 +657,7 @@ func Execute(cur realm, id int64) {
 	t := now()
 	d, err := ledger.Due(id, t)
 	if err != nil {
-		// echo-ok(err): p/decisions' refusal: words and numbers
+		// echo-ok(err): p/decisions' refusal: ASCII words and numbers
 		panic("hlmailbox: " + err.Error())
 	}
 	note := "applied after the delay"

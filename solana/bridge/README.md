@@ -77,8 +77,41 @@ router) are swapped into the staged source, as BUBBLE's premine is.
 Every signer, monitor and `hlwatch` holds its dispatch index's listings to the supplies' slot with `minContextSlot` on
 `getSignaturesForAddress`, which a listing's answer cannot show was honoured: each provider is asked at start and hourly
 for a listing past its view, and one that answers it (Alchemy, measured 2026-10-15; api.mainnet-beta, publicnode and
-Helius refuse it as they must) is alarmed `solana:min-context-ignored:<i>` and refused — no identity, signer verdict or
-forged-credit judgement rests on the index while the config names it (E5-SF2). Pick providers that honour it.
+Helius refuse it as they must) is alarmed `solana:min-context-ignored:<i>` (E5-SF2). A signer's verdict needs both its
+providers to honour it; a monitor's and `hlwatch`'s identities need one (E6-SF2: a burn the honouring provider lists and
+the other has not yet is one-sided, no verdict, never short — but a lying honouring provider could hide a burn for the
+readings its partner lags, which on a signer would sign a forged burn), and their forged-credit rule both (a hidden burn
+would leave its honest credit in no index). Pick providers that honour it.
+
+Each listing also keeps the slot its route was read through, so a provider with a short history — publicnode keeps about
+a day and refuses an older `until` with −32020 — is listed back from its newest signature to that slot, and one whose
+history does not reach it (a machine stopped longer than its provider's history, or a state from before this rule) is
+alarmed `solana:history:<i>` and refused for that route: no verdict, never a reading on the other provider's word
+(E6-SF1). Pick providers whose `getSignaturesForAddress` answers an `until` a week old (api.mainnet-beta, Helius and
+Alchemy do; publicnode does not) where a machine may be stopped for long.
+
+## Deploying the machines
+
+A new build of the signers, relayers and monitors over the live state files. Each step names the finding of the round-6
+live-fixes audit it answers.
+
+1. Providers (E6-SF1, E6-SF2): every machine's two Solana providers must know its cursors — a state written before the
+   cursor kept its slot has only the signature, so a provider whose history no longer reaches it (publicnode: a day) is
+   refused for that route, `solana:history:<i>`, until the config names one that keeps the history. A signer's two
+   providers must both honour `minContextSlot` on the listing; a monitor needs one. `hlbridge providers` checks §5.6's
+   pairing across the signers' configs.
+2. Just before the new signers start (E6-SF3): `hlbridge zeros -config <a relayer's bridge.json>` reads every signer's
+   public signatures, nonce by nonce, until 50 in a row no signer serves, and names each burn of nothing a signer signed
+   (exit status 1 when there is one). The new signers never index such a burn, so a credit of one brought after the
+   deploy is a window of no verdict on every new signer, and, at a route's fee of 0, an open claim of 0 the monitors
+   flag: settle any it names before the deploy (deliver it while the old signers run, or hold the deploy).
+3. The relayers' gno key holds the planned float, or each monitor's config sets `runway.relayer-gno` (E6-SF7).
+
+Rolling back to a build before 1aea555f (E6-SF5): an older relayer has no fee rule, so over a state the new one wrote it
+would Process every burn the new one kept pending as dust (up to a thousand, ≈0.83 GNOT of the relayers' gno key each).
+With the relayers stopped, run the NEW build's `hlbridge relayer -state <relayer-state.json> -drop-dust` on each relayer's
+state file before the old binary starts; it says how many it dropped (the honest burns pending stay). The other machines'
+state files load in the older builds as they are.
 
 ## Before mainnet
 

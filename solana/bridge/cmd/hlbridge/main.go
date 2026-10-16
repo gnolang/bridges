@@ -5,6 +5,8 @@
 //	hlbridge monitor   -config bridge.json -state monitor.json -listen 127.0.0.1:9102
 //	hlbridge updater   -config bridge.json -key updater.json -state updater.json -listen 127.0.0.1:9103 [-interval 10m]
 //	hlbridge providers bridge-signer-1.json bridge-signer-2.json ...   check §5.6's provider rule across machines
+//	hlbridge relayer   -state relayer.json -drop-dust                   the rollback step: drop the dust kept pending (E6-SF5)
+//	hlbridge zeros     -config bridge.json [-from 0] [-gap 50]          the deploy step: the signers' burns of nothing (E6-SF3)
 //
 // Each machine reads gno.land through its own node and Solana through the two providers its config names; the
 // signer and the monitor need both to agree. Keys come from hlkey's files (the signer) and gnokey's keybase (the
@@ -34,7 +36,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal("usage: hlbridge signer|relayer|monitor|providers [flags]")
+		log.Fatal("usage: hlbridge signer|relayer|monitor|updater|providers|zeros [flags]")
 	}
 	cmd, args := os.Args[1], os.Args[2:]
 	if cmd == "providers" {
@@ -56,7 +58,21 @@ func main() {
 	solUnits := fs.Uint("sol-units", 400_000, "relayer: compute units for a Solana delivery")
 	interval := fs.Duration("interval", agent.UpdateInterval, "updater: a header at least this often")
 	recordFrom := fs.String("record-from", "", "monitor: where an empty record starts — \"client\" takes the client's own counter and running hash as the base (an install on a provider without the full history, G29); by default the record is built from the deploy")
+	dropDust := fs.Bool("drop-dust", false, "relayer: drop from -state the burns it keeps pending as dust left under the fee, and exit — the rollback step before an older relayer starts over the state (E6-SF5: it has no fee rule and would Process each)")
+	from := fs.Uint("from", 0, "zeros: the first nonce to read")
+	gap := fs.Int("gap", 50, "zeros: stop after this many nonces in a row that no signer serves")
 	_ = fs.Parse(args)
+	if cmd == "relayer" && *dropDust {
+		if *state == "" {
+			log.Fatal("relayer -drop-dust: -state is needed")
+		}
+		n, err := agent.DropDust(*state)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("%s: %d dust burn(s) left under the fee dropped from the pending list\n", *state, n)
+		return
+	}
 
 	log.SetOutput(agent.RedactWriter{W: os.Stderr}) // no provider URL's key in any log line (G16)
 	cfg, err := agent.LoadConfig(*config)
@@ -79,6 +95,18 @@ func main() {
 	}
 	serve := func(h http.Handler) func() { return serveAt(*listen, h, true) }
 	switch cmd {
+	case "zeros":
+		zs, read, err := agent.ZeroBurns(ctx, cfg, &http.Client{Timeout: 15 * time.Second}, uint32(*from), *gap)
+		for _, z := range zs {
+			fmt.Println(z)
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("%d nonce(s) read from %d on, %d burn(s) of nothing signed\n", read, *from, len(zs))
+		if len(zs) > 0 {
+			os.Exit(1)
+		}
 	case "signer":
 		k, err := hl.LoadValidatorKey(*key)
 		if err != nil {

@@ -170,11 +170,11 @@ func guardLaunch() uint32 {
 	}
 	d := hlmailbox.LocalDomain()
 	if why := devPlaceholder(d, ethSeats, recipient); why != "" {
-		// echo-ok(why): the guard's own refusal: words, contract names, EIP-55 and bech32 addresses, a few hundred bytes at most: far under the cut
+		// echo-ok(why): the guard's own refusal: ASCII words, contract names, EIP-55 and bech32 addresses and pkgpaths, a few hundred bytes at most: far under the cut
 		panic(why)
 	}
 	if why := seatsFault(ethSeats); why != "" {
-		// echo-ok(why): the guard's own refusal: words, contract names, EIP-55 and bech32 addresses, a few hundred bytes at most: far under the cut
+		// echo-ok(why): the guard's own refusal: ASCII words, contract names, EIP-55 and bech32 addresses and pkgpaths, a few hundred bytes at most: far under the cut
 		panic(why)
 	}
 	return d
@@ -212,7 +212,7 @@ func ethContract(i int) [32]byte {
 func mustAddr(s string) [32]byte {
 	k, err := hlmailbox.ParseEthAddress(s)
 	if err != nil {
-		// echo-ok(err): ParseEthAddress's refusal, which echoes what it read (echo, E4-GS1)
+		// echo-ok(err): ParseEthAddress's refusal: its ASCII words and its echo of what it read (echo, E4-GS1)
 		panic("hlgov: " + err.Error())
 	}
 	return k
@@ -226,14 +226,14 @@ func mustHash(s, what string) [32]byte {
 	var h [32]byte
 	b, err := hex.DecodeString(strings.TrimPrefix(strings.TrimSpace(s), "0x"))
 	if err != nil || len(b) != 32 {
-		panic("hlgov: the " + what + " is 32 bytes in hex (64 digits, with or without 0x), not " + echo(s)) // echo-ok(what): every caller names the field with a constant
+		panic("hlgov: the " + what + " is 32 bytes in hex (64 digits, with or without 0x), not " + echo(s)) // echo-ok(what): every caller names the field with a constant: ASCII words
 	}
 	copy(h[:], b)
 	if h == ([32]byte{}) {
-		panic("hlgov: the " + what + " is all zeros, " + neverExecutes) // echo-ok(what): every caller names the field with a constant
+		panic("hlgov: the " + what + " is all zeros, " + neverExecutes) // echo-ok(what): every caller names the field with a constant: ASCII words
 	}
 	if h == keccak256.Sum256(nil) {
-		panic("hlgov: the " + what + " is the empty code's hash (keccak256 of nothing), " + neverExecutes) // echo-ok(what): every caller names the field with a constant
+		panic("hlgov: the " + what + " is the empty code's hash (keccak256 of nothing), " + neverExecutes) // echo-ok(what): every caller names the field with a constant: ASCII words
 	}
 	return h
 }
@@ -333,7 +333,7 @@ func Govern(cur realm, r Request) {
 	}
 	mustBeGovernor(cur)
 	if err := r.decide(cur); err != nil {
-		// echo-ok(err): p/decisions' refusal: words and numbers
+		// echo-ok(err): p/decisions' refusal: ASCII words and numbers
 		panic("hlgov: " + err.Error())
 	}
 }
@@ -738,7 +738,7 @@ func parseSeatChanges(changes string) ([]int, [][32]byte) {
 			panic("hlgov: the zero address for seat " + strconv.Itoa(n))
 		}
 		if name := hlmailbox.EthContractName(k); name != "" {
-			// echo-ok(name): hlmailbox.EthContractName's: a contract's name, a constant
+			// echo-ok(name): hlmailbox.EthContractName's: a contract's name, an ASCII constant
 			panic("hlgov: seat " + strconv.Itoa(n) + "'s key " + ea(k) + " is " + name + " of this deployment, a contract of the bridge that flags and holds nothing: the seat would be held by nobody")
 		}
 		for _, x := range ks {
@@ -964,7 +964,7 @@ func NewSetProtocolFeeRequest(cur realm, wei uint64, beneficiary string) Request
 		panic("hlgov: the beneficiary is the zero address")
 	}
 	if name := hlmailbox.EthContractName(k); name != "" {
-		// echo-ok(name): hlmailbox.EthContractName's: a contract's name, a constant
+		// echo-ok(name): hlmailbox.EthContractName's: a contract's name, an ASCII constant
 		panic("hlgov: the beneficiary " + ea(k) + " is " + name + " of this deployment, which takes no ETH: collectProtocolFees would revert, the fees held in the hook until another kind 7")
 	}
 	params := append(be64(wei), k[:]...)
@@ -1019,7 +1019,7 @@ func NewUpgradeRequest(cur realm, proxy, implementation, codehash, call string) 
 	// one exception (Q-F6c): a rollback to the audited launch code, which stays deployed
 	rollback := impl == launchImplementation(p)
 	if name := hlmailbox.EthContractName(impl); name != "" && !rollback {
-		// echo-ok(name): hlmailbox.EthContractName's: a contract's name, a constant
+		// echo-ok(name): hlmailbox.EthContractName's: a contract's name, an ASCII constant
 		panic("hlgov: the implementation " + ea(impl) + " is " + name + " of this deployment: an upgrade names code deployed for it, or the proxy's own launch implementation (a rollback), never another of the deployment's sixteen contracts")
 	}
 	data := mustCall(call)
@@ -1102,7 +1102,7 @@ func NewTransferToSuccessorRequest(cur realm, successor, codehash string) Reques
 		// no other contract of the deployment answers predecessor() with HlAdmin (M1-NOTES' F-7, E2-RL7): HlAdmin
 		// would never execute the decision, pending for good or spent
 		if name := hlmailbox.EthContractName(p); name != "" {
-			// echo-ok(name): hlmailbox.EthContractName's: a contract's name, a constant
+			// echo-ok(name): hlmailbox.EthContractName's: a contract's name, an ASCII constant
 			panic("hlgov: the successor " + ea(p) + " is " + name + " of this deployment, which can never succeed HlAdmin (its predecessor() is not HlAdmin): HlAdmin would never execute the decision")
 		}
 	}
@@ -1218,7 +1218,7 @@ func NewSetDecisionRecipientRequest(cur realm, from, contract string) Request {
 		// HlAdmin's line only (E2-RL7): the launch HlAdmin, which a swap back restores (E2-RL2), or a successor of
 		// it; every other contract of the deployment records no decision, and a swap to one would cut HlAdmin off
 		if name := hlmailbox.EthContractName(p); name != "" && p != ethContract(hlmailbox.EthHlAdmin) {
-			// echo-ok(name): hlmailbox.EthContractName's: a contract's name, a constant
+			// echo-ok(name): hlmailbox.EthContractName's: a contract's name, an ASCII constant
 			panic("hlgov: " + ea(p) + " is " + name + " of this deployment, which records no decision: the recipient is HlAdmin or a successor of it")
 		}
 		// nor a guardian's or watch key's address (F9's second review, finding 3: the converse of HlAdmin's line)
@@ -1246,7 +1246,7 @@ func NewCancelQueuedRequest(cur realm, id int64) Request {
 	text := "cancel queued change " + itoa(id) + " (" + d.Text + ")"
 	return propose(cur, "cancel queued", text, func(cur realm, made, t int64) {
 		if _, err := ledger.Cancel(id, t); err != nil {
-			// echo-ok(err): p/decisions' refusal: words and numbers
+			// echo-ok(err): p/decisions' refusal: ASCII words and numbers
 			panic("hlgov: " + err.Error())
 		}
 		c := ledger.Record("cancel queued", text, cancelParams{id}, made, t, t)
@@ -1266,7 +1266,7 @@ func Execute(cur realm, id int64) {
 	t := now()
 	d, err := ledger.Due(id, t)
 	if err != nil {
-		// echo-ok(err): p/decisions' refusal: words and numbers
+		// echo-ok(err): p/decisions' refusal: ASCII words and numbers
 		panic("hlgov: " + err.Error())
 	}
 	p, ok := d.Params.(recipientParams)

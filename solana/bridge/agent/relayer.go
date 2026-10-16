@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 
 	"github.com/gnolang/bridges/solana/bridge/gno"
 	"github.com/gnolang/bridges/solana/bridge/hl"
@@ -84,6 +85,34 @@ type Relayer struct {
 	// this step (G46: a send from anyone but the configured realm is held for the step, never "other").
 	lines    map[string]*migration
 	lineErrs map[string]error
+	// listBound is the slot the listings are held to (minContextSlot: the provider's finalized slot less a margin, read
+	// once a minute), so a quiet route is read through it and its listing reaches back inside a provider's day of
+	// history (E6-SF1); gaps the routes its provider cannot list back to where they were read.
+	listBound   uint64
+	listBoundAt time.Time
+	gaps        historyGaps
+}
+
+const (
+	listBoundEvery  = time.Minute
+	listBoundMargin = 150 // slots under the finalized one (≈30 s): a listing backend a little behind still answers
+)
+
+// boundNow is the slot the listings are held to this tick (0 before the provider first answered).
+func (r *Relayer) boundNow(ctx context.Context) uint64 {
+	if r.sol == nil || r.sol.RPC == nil || r.now().Sub(r.listBoundAt) < listBoundEvery {
+		return r.listBound
+	}
+	slot, err := r.sol.RPC.GetSlot(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		log.Printf("relayer: the provider's finalized slot (the listings' bound): %v", err)
+		return r.listBound
+	}
+	r.listBoundAt = r.now()
+	if slot > listBoundMargin {
+		r.listBound = max(r.listBound, slot-listBoundMargin)
+	}
+	return r.listBound
 }
 
 // resetStep empties the per-step caches: a step reads each route and the mailbox once.
@@ -175,6 +204,16 @@ type relayerState struct {
 	// Left are the pending burns left as dust (E5-GS5), by message id: the route's fee they were left under, alarmed
 	// once; each is judged against the fee again every tick (a fee lowered past it makes it a delivery).
 	Left map[string]int64 `json:"left,omitempty"`
+	// SolThrough is the slot each route's listing was read through, by symbol (E6-SF1): a provider that no longer knows
+	// the cursor (publicnode keeps about a day) is listed back to it.
+	SolThrough map[string]uint64 `json:"solThrough,omitempty"`
+	// SolThroughHost is the provider SolThrough was read through (scheme://host): another in its place drops it (the
+	// review of lane s7, R3).
+	SolThroughHost string `json:"solThroughHost,omitempty"`
+	// LeftAt is hlmailbox's delivered count when the left burns' marks were last read (-1: read them next tick): dust
+	// someone else Processes at his own cost is dropped once a credit moves the count (a mark is set only with its rise;
+	// the round-6 audit's E6-SF4, the integration lane I3's fix on bridge-eth).
+	LeftAt int `json:"leftAt,omitempty"`
 }
 
 // maxLeft is how many dust burns the relayer keeps pending to judge again (E5-GS5): past it the oldest is forgotten, so
@@ -194,6 +233,9 @@ func (r *Relayer) load() error {
 	s := &r.state
 	if s.SolCursor == nil {
 		s.SolCursor = map[string]string{}
+	}
+	if s.SolThrough == nil {
+		s.SolThrough = map[string]uint64{}
 	}
 	if s.SolSkipped == nil {
 		s.SolSkipped = map[string][]scanSkip{}
@@ -299,6 +341,12 @@ func (r *Relayer) Run(ctx context.Context) error {
 		return err
 	}
 	r.sol = sol.NewClient(r.Cfg.Solana.RPCs[0], payer)
+	if host := providerHost(r.Cfg.Solana.RPCs[0]); r.state.SolThroughHost != host {
+		if r.state.SolThroughHost != "" {
+			r.state.SolThrough = map[string]uint64{} // another provider: the slots it gave stand no more
+		}
+		r.state.SolThroughHost = host
+	}
 	if r.solSend == nil {
 		r.solSend = func(ctx context.Context, ixs []solana.Instruction) (solana.Signature, error) {
 			return r.sol.Send(ctx, ixs)
@@ -475,15 +523,25 @@ func (r *Relayer) solToGno(ctx context.Context) error {
 	}
 	mailbox := sol.Mailbox{Program: r.Cfg.SolMailbox()}
 	var scanErr error
+	bound := r.boundNow(ctx)
 	for _, rt := range r.Cfg.Routes {
 		if rt.Token == "" {
 			continue
 		}
-		ds, next, skipped, err := solScan(ctx, r.sol.RPC, mailbox, rt.TokenKey(), r.Cfg.Solana.Domain, m.Domain, r.state.SolCursor[rt.Symbol], 0)
+		// the listing held to the bound and read through it (E6-SF1): the relayer's provider honours minContextSlot (the
+		// two in its role do, measured); one that ignored it would only list a route back less far, a burn of the gap left
+		// to the other relayer
+		key := rt.Symbol + "#0"
+		ds, next, skipped, err := solScan(ctx, r.sol.RPC, mailbox, rt.TokenKey(), r.Cfg.Solana.Domain, m.Domain, scanCursor{Sig: r.state.SolCursor[rt.Symbol], Through: r.state.SolThrough[rt.Symbol]}, bound, bound > 0)
+		if g, ok := asHistoryGap(err); ok {
+			r.gaps.set(key, g.why, r.now()) // the cursor kept: no new burn of the route taken up until a provider lists it back
+			continue
+		}
 		if err != nil {
 			scanErr = err
 			continue
 		}
+		r.gaps.end(key)
 		more, keep := retrySkipped(ctx, r.sol.RPC, mailbox, rt.TokenKey(), r.Cfg.Solana.Domain, m.Domain, r.state.SolSkipped[rt.Symbol], r.now())
 		keep = append(keep, skipped...)
 		r.state.SolSkipped[rt.Symbol] = keep
@@ -501,7 +559,29 @@ func (r *Relayer) solToGno(ctx context.Context) error {
 				r.state.Pending = append(r.state.Pending, d)
 			}
 		}
-		r.state.SolCursor[rt.Symbol] = next
+		if next.Sig == "" {
+			delete(r.state.SolCursor, rt.Symbol)
+		} else {
+			r.state.SolCursor[rt.Symbol] = next.Sig
+		}
+		if next.Through > 0 {
+			r.state.SolThrough[rt.Symbol] = next.Through
+		}
+	}
+	r.gaps.alarm(r.Alarm, r.now())
+	// the left dust someone else delivered (E6-SF4): its marks read only once hlmailbox's delivered count moved since they
+	// were last read — a pile as the done tree, a hundred ids a read — so a pile costs nothing a tick; one delivered is
+	// dropped below
+	gone := map[string]bool{}
+	if len(r.state.Left) > 0 && m.Delivered != r.state.LeftAt {
+		if marks, err := deliveredMarks(ctx, r.gno, r.Cfg.Gno.Mailbox, sortedKeys(r.state.Left), m.Delivered, 0); err != nil {
+			log.Printf("relayer: the marks of the dust left under the fee (read again next tick): %v", err)
+		} else {
+			for id := range marks {
+				gone[id] = true
+			}
+			r.state.LeftAt = m.Delivered
+		}
 	}
 	var keep []solDispatch
 	for _, d := range r.state.Pending {
@@ -515,30 +595,37 @@ func (r *Relayer) solToGno(ctx context.Context) error {
 		if rt == nil {
 			continue // not for a route of ours: nobody here takes it
 		}
-		// a burn below the fee of the route that would credit it is dust (E5-GS5): p/hlroute sweeps it with no fee, and its
+		// a burn below the fee of the realm that would credit it is dust (E5-GS5): p/hlroute sweeps it with no fee, and its
 		// credit locks the relayer's gno key's storage deposit for good (≈0.76 GNOT a sweep entry, measured) — left to
 		// whoever pays for it (its signatures are served as any burn's), alarmed once; kept pending and judged against the
 		// fee every tick before any read (a pile of it costs no read; a fee lowered past it makes it a delivery — the
-		// review of lane s6, F5)
-		if wait == "" {
-			tj, err := r.routeState(ctx, target)
-			if err != nil {
-				keep = append(keep, d)
-				r.note(key, "the route's fee could not be read: "+err.Error())
-				continue
-			}
-			if _, amount, _, ok := d.token(); ok && amount < tj.Fee {
-				keep = append(keep, d)
-				if _, told := r.state.Left[d.IDHex()]; !told {
-					r.state.Left[d.IDHex()] = tj.Fee
-					r.forget(key)
-					delete(r.state.Sigs, d.IDHex())
-					alarmOnce(r.Alarm, "dust:"+d.IDHex(), fmt.Sprintf("solana #%d %x (%s) burns %d, below the route's fee of %d: left unprocessed while the fee stands — p/hlroute would sweep it with no fee, and its credit would lock ≈0.76 GNOT of the relayer's gno key in storage for good; anyone may Process it at their own cost, its signatures served as any burn's (E5-GS5)", d.Nonce, d.ID[:6], rt.Symbol, amount, tj.Fee))
-				}
-				continue
-			}
-			delete(r.state.Left, d.IDHex()) // a fee's worth now
+		// review of lane s6, F5) — the line's successor's fee while it imports, for a burn that waits for it (E6-SF4: dust
+		// was not judged then, and every tick read each one's mark); one someone else delivered is dropped
+		if gone[d.IDHex()] {
+			r.forget(key)
+			delete(r.state.Sigs, d.IDHex())
+			delete(r.state.Left, d.IDHex())
+			log.Printf("relayer: solana #%d %x, dust left under the fee, was delivered by someone else", d.Nonce, d.ID[:6])
+			continue
 		}
+		tj, err := r.routeState(ctx, target)
+		if err != nil {
+			keep = append(keep, d)
+			r.note(key, "the route's fee could not be read: "+err.Error())
+			continue
+		}
+		if _, amount, _, ok := d.token(); ok && amount < tj.Fee {
+			keep = append(keep, d)
+			if _, told := r.state.Left[d.IDHex()]; !told {
+				r.state.Left[d.IDHex()] = tj.Fee
+				r.state.LeftAt = -1 // its mark is read next tick: someone may have delivered it before it was left
+				r.forget(key)
+				delete(r.state.Sigs, d.IDHex())
+				alarmOnce(r.Alarm, "dust:"+d.IDHex(), fmt.Sprintf("solana #%d %x (%s) burns %d, below the fee of %d of %s, which would credit it: left unprocessed while the fee stands — p/hlroute would sweep it with no fee, and its credit would lock ≈0.76 GNOT of the relayer's gno key in storage for good; anyone may Process it at their own cost, its signatures served as any burn's (E5-GS5)", d.Nonce, d.ID[:6], rt.Symbol, amount, tj.Fee, target))
+			}
+			continue
+		}
+		delete(r.state.Left, d.IDHex()) // a fee's worth now
 		at, err := deliveredAt(ctx, r.gno, r.Cfg.Gno.Mailbox, d.IDHex(), 0)
 		if err != nil {
 			keep = append(keep, d)

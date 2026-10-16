@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -131,6 +132,14 @@ type Relayer struct {
 	backstop *Updater
 	// proposalsBad is when GovDAO's list was first not read whole, since the last whole reading (zero: read whole)
 	proposalsBad time.Time
+	// the step's judging of decision numbers past HlAdmin's counter (pastDecision, E6-GS1): each number's verdict once
+	// a step, HlAdmin's state at the finalized block once a step for each address and block, and the copies' delivered
+	// marks read this step (at most copyReadsPerStep)
+	verdicts  map[string]numberVerdict
+	finAdmins map[string]*ethx.AdminState
+	copyReads int
+	fin       *ethx.Block // the finalized block the step's verdicts read at, read once (finRead)
+	finRead   bool
 }
 
 type relayerState struct {
@@ -138,8 +147,8 @@ type relayerState struct {
 	Attempts       map[string]*attempt        `json:"attempts"`
 	Ready          map[string]time.Time       `json:"ready"`
 	Taken          map[string]bool            `json:"taken"`          // decision numbers reported taken
-	TakenSeen      map[string]int64           `json:"takenSeen"`      // first look of a number past HlAdmin's last with no copy processed
-	DecisionCopies map[string][]decisionCopy  `json:"decisionCopies"` // decision number → every copy r/hlgov dispatched
+	TakenSeen      map[string]int64           `json:"takenSeen"`      // a number's first pass past HlAdmin's last at the finalized block with no copy of ours delivered there
+	DecisionCopies map[string][]decisionCopy  `json:"decisionCopies"` // decision number → the copies of it kept, by nonce (keptCopies, E6-GS1)
 	LastBatch      time.Time                  `json:"lastBatch"`
 	Reemits        map[string]time.Time       `json:"reemits,omitempty"` // nonce → this relayer's last re-emit of it (the poisoned re-emits' back-off)
 	Batches        int                        `json:"batches"`
@@ -155,12 +164,29 @@ type relayerState struct {
 	// ProposalsFloor is where the reading of GovDAO's list may stop: every proposal below its Below was final when the
 	// list was last read whole (gnoside.ProposalFloor; the integration lane I3)
 	ProposalsFloor *gnoside.ProposalFloor `json:"proposalsFloor,omitempty"`
+	// CopiesToJudge is, by decision number, the copies a state file from before the bound kept (every copy, none marked
+	// delivered; CopiesV 0): judged at the finalized block, copyReadsPerStep a step, oldest first, before they are
+	// dropped — the one delivered there kept as the number's verdict, and no verdict of "taken" while some wait — and
+	// no copy the walk reads later joins them (pruneCopies; E6-GS1)
+	CopiesToJudge map[string][]decisionCopy `json:"copiesToJudge,omitempty"`
+	CopiesV       int                       `json:"copiesV,omitempty"` // 1: DecisionCopies is bounded (keptCopies)
+	// RetiredOpen is, by decision number, the decision:retired alarm of a number whose copy went to a retired HlAdmin
+	// and which needs one to the live HlAdmin: raised again every pass (so a restart keeps it) until the live
+	// HlAdmin's counter covers the number, a copy of it goes to the live HlAdmin, or its verdict is known
+	RetiredOpen map[string]string `json:"retiredOpen,omitempty"`
 }
 
 // decisionCopy is one hlmailbox message carrying a decision number.
 type decisionCopy struct {
 	Nonce uint32 `json:"nonce"`
 	ID    string `json:"id"`
+	// Delivered says the copy is delivered at the finalized block (the walk ended it so, or a verdict's read found it):
+	// its number went through our mailbox — the number's verdict, "recorded", kept for good and read with no call
+	Delivered bool `json:"delivered,omitempty"`
+	// Seen says the copy was seen delivered at latest (the walk's settling, or this relayer's delivery): one of a
+	// number's first two so seen is kept while its verdict is open, and every verdict reads its mark at the finalized
+	// block — whatever a later latest read (a lagging node behind a balancer) says
+	Seen bool `json:"seen,omitempty"`
 }
 
 func (r *Relayer) load() error {
@@ -186,6 +212,16 @@ func (r *Relayer) load() error {
 	if s.DecisionCopies == nil {
 		s.DecisionCopies = map[string][]decisionCopy{}
 	}
+	if s.CopiesToJudge == nil {
+		s.CopiesToJudge = map[string][]decisionCopy{}
+	}
+	if s.RetiredOpen == nil {
+		s.RetiredOpen = map[string]string{}
+	}
+	for _, cs := range s.DecisionCopies {
+		sort.Slice(cs, func(i, j int) bool { return cs[i].Nonce < cs[j].Nonce }) // by nonce (an older file's in walk order)
+	}
+	r.queueOldCopies()
 	if s.AdminLow == nil {
 		s.AdminLow = map[string]uint64{}
 	}
@@ -313,6 +349,8 @@ func (r *Relayer) tick(ctx context.Context) {
 	if len(r.leafs) > 4096 {
 		r.leafs = map[string]leafInfo{} // a block's results never change; the cache only bounds its size
 	}
+	r.verdicts, r.finAdmins, r.copyReads = map[string]numberVerdict{}, map[string]*ethx.AdminState{}, 0
+	r.fin, r.finRead = nil, false
 	r.sent = 0
 	r.quiet = r.Role == "primary"
 	if r.Role == "backup" {
@@ -354,6 +392,8 @@ func (r *Relayer) tick(ctx context.Context) {
 			delete(r.state.Reemits, nk)
 		}
 	}
+	r.pruneCopies(ctx)
+	r.pruneNotes()
 	if err := r.save(); err != nil {
 		log.Printf("relayer: state: %v", err)
 	}
@@ -425,6 +465,24 @@ func (r *Relayer) note(key, what string) {
 	r.mu.Lock()
 	r.last[key] = r.now().UTC().Format(time.RFC3339) + " " + ethx.Redact(what)
 	r.mu.Unlock()
+}
+
+// pruneNotes drops the status lines of the messages the walk has passed (a nonce below Next: ended for good, as
+// outState.prune drops their Done). Every message's line stood for the process's life, so anyone's copies of a
+// decision (Redispatch, a MsgCall's fee apiece) grew every status snapshot by a line apiece (E6-GS1's sibling).
+func (r *Relayer) pruneNotes() {
+	next := r.state.Out.Next
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for k := range r.last {
+		for _, p := range []string{"deliver:", "backstop:"} {
+			if nk, ok := strings.CutPrefix(k, p); ok {
+				if n, err := strconv.ParseUint(nk, 10, 32); err == nil && uint32(n) < next {
+					delete(r.last, k)
+				}
+			}
+		}
+	}
 }
 
 func (r *Relayer) noted(key string) bool {
@@ -500,6 +558,10 @@ func (r *Relayer) tryCall(ctx context.Context, key, pkg, fn string, gas int64, r
 		res, err = r.gno.Call(ctx, pkg, fn, gas, args...)
 	}
 	if err != nil {
+		if rule == gasUpToTheBlock && gnoside.OutOfGas(err) && atTheBlock(err) {
+			r.tooBigFailed(key, err)
+			return nil, err
+		}
 		r.gnoFailed(key, err)
 		return nil, err
 	}
@@ -507,11 +569,92 @@ func (r *Relayer) tryCall(ctx context.Context, key, pkg, fn string, gas int64, r
 	return res, nil
 }
 
+// tooBigRetry is how long a call too big for any block waits before its next try (tooBigFailed).
+const tooBigRetry = time.Hour
+
+// tooBigFailed records a call sized as far as the block's gas that ran out of gas there — CallUpToTheBlock answers an
+// out-of-gas only once its ceiling reached the block's — so no block takes it while the realm's state stands
+// (realms.md, audit round 6: a queued range void of 1,000 credits Executes at ≈3.58B, past gnoland-1's 3B, and was
+// simulated up to the block every minute for good, said by nothing but the log): never parked, tried again hourly
+// (the realm's state may shrink it), its gas kept for the caller's alarm (tooBigAlarm).
+func (r *Relayer) tooBigFailed(key string, err error) {
+	a := r.state.Attempts[key]
+	if a == nil {
+		a = &attempt{}
+		r.state.Attempts[key] = a
+	}
+	a.fail(r.now(), err, false)
+	a.Next = r.now().Add(tooBigRetry)
+	a.TooBig = max(gasUsedOf(err), 1)
+	r.note(key, fmt.Sprintf("too big for a block: its simulation ran out of gas at the block's %d gas (used %d): tried again at %s: %v", gno.MaxBlockGas, a.TooBig, a.Next.UTC().Format(time.RFC3339), err))
+}
+
+// tooBigAlarm stands an alarm while a call's attempt says it is too big for any block (tooBigFailed), the hour between
+// two tries included, and clears it otherwise. what names the call's subject, cure what a member does.
+func (r *Relayer) tooBigAlarm(key, alarm, what, cure string) {
+	a := r.state.Attempts[key]
+	if a == nil || a.TooBig == 0 {
+		r.Alarm.Clear(alarm)
+		return
+	}
+	used := ""
+	if a.TooBig > 1 {
+		used = fmt.Sprintf("; its simulation used %d", a.TooBig)
+	}
+	r.Alarm.AlarmEvery(alarm, fmt.Sprintf("%s can never land: it runs out of gas at the block's %d gas, the most one transaction may use on gnoland-1%s — tried again hourly, no retry lands it while the realm's state stands: %s", what, gno.MaxBlockGas, used, cure), 6*time.Hour)
+}
+
+// gasWantedRE reads the gas a failed gno call carried from gnokey's output (its "GAS WANTED:" line).
+var gasWantedRE = regexp.MustCompile(`GAS WANTED:\s*(\d+)`)
+
+// atTheBlock says whether a failed call ran out with the block's gas wanted — gnokey's GAS WANTED line at
+// gno.MaxBlockGas: the simulation at the block's ceiling, or a broadcast the client sized to the block's — and not a
+// broadcast sized below it that ran out once the state moved under it (transient: the next try measures again, E6-GS1's
+// review); an output with no GAS WANTED line is CallUpToTheBlock's word (it answers an out-of-gas only at the block's).
+func atTheBlock(err error) bool {
+	var ce *gno.CallError
+	if !errors.As(err, &ce) {
+		return true
+	}
+	ms := gasWantedRE.FindAllStringSubmatch(ce.Output, -1)
+	if len(ms) == 0 {
+		return true
+	}
+	for _, m := range ms {
+		if n, e := strconv.ParseInt(m[1], 10, 64); e == nil && n >= gno.MaxBlockGas {
+			return true
+		}
+	}
+	return false
+}
+
+// gasUsedRE reads the gas a failed simulation used from gnokey's output: its "GAS USED:" line, or the "gas used (N)" of
+// the chain's out-of-gas log.
+var gasUsedRE = regexp.MustCompile(`(?i)gas used(?::\s*|\s*\()(\d+)`)
+
+// gasUsedOf is the most gas a failed gno call's output says its simulation used (0 when it says none).
+func gasUsedOf(err error) int64 {
+	var ce *gno.CallError
+	if !errors.As(err, &ce) {
+		return 0
+	}
+	var most int64
+	for _, m := range gasUsedRE.FindAllStringSubmatch(ce.Output, -1) {
+		if n, e := strconv.ParseInt(m[1], 10, 64); e == nil && n > most {
+			most = n
+		}
+	}
+	return most
+}
+
 func (r *Relayer) gnoFailed(key string, err error) {
 	a := r.state.Attempts[key]
 	if a == nil {
 		a = &attempt{}
 		r.state.Attempts[key] = a
+	}
+	if gno.Deterministic(err) {
+		a.TooBig = 0 // refused for another reason: no longer known too big
 	}
 	if parkedNow := a.fail(r.now(), err, gno.Deterministic(err)); parkedNow || a.parked() {
 		r.Alarm.Alarm("parked:"+key, fmt.Sprintf("%s parked after %d failures (retried hourly): %v", key, a.Failures, err))

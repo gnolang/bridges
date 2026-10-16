@@ -602,6 +602,7 @@ func TestYield(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewCodeRealm(announced))
 	hlmailbox.AnnounceSuccessor(cross(cur), hlmailbox.SymbolBUBBLE)
 	fresh, entry := strings.Repeat("9b", 32), idOf(backAlice500Msg)
+	testing.SkipHeights(1) // a range void covers the credits before its own block (voids.gno): the verifier's are at this one
 	for _, r := range []struct {
 		what string
 		mk   func() Request

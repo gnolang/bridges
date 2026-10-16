@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -182,7 +183,9 @@ func (r *Relayer) endDelivered(ts []*outMsg) []*outMsg {
 	var keep []*outMsg
 	for _, t := range ts {
 		if t.kind == kindDecision {
-			r.rememberCopy(t.seq, t.n, t.msg.ID)
+			// one delivered at the finalized block: its number went through our mailbox, the verdict kept; one delivered
+			// at latest: seen, read by every verdict at the finalized block until then (E6-GS1)
+			r.rememberCopy(t, t.proofH < 0, t.settling)
 		}
 		if t.proofH < 0 {
 			r.state.Out.end(t.n, "delivered")
@@ -200,6 +203,20 @@ func (r *Relayer) endDelivered(ts []*outMsg) []*outMsg {
 // counter read at latest — a premature one would only revert in the simulation), under the emergency cap.
 func (r *Relayer) deliverDecisions(ctx context.Context, cs *ethx.ClientState, ds []*outMsg) error {
 	admins := map[common.Address]*ethx.AdminState{}
+	// by number: its copies delivered at latest (settling, or delivered in this pass), which a verdict reads beside the
+	// copies kept — the finalized block may show one by the time it reads — and whether a copy of it goes to the live
+	// HlAdmin (its retired alarm then closes, and a copy to a retired one is no news)
+	settling := map[uint64][]*outMsg{}
+	live := map[uint64]bool{}
+	for _, t := range ds {
+		if t.settling {
+			settling[t.seq] = append(settling[t.seq], t)
+		}
+		if rcpt, _ := ethx.AddressFrom32(t.msg.Msg.Recipient); r.env.adminLine().IsLive(rcpt) {
+			live[t.seq] = true
+		}
+	}
+	r.retiredPass(ctx, admins, live)
 	var firstErr error
 	for _, t := range ds {
 		key := "deliver:" + t.nk()
@@ -210,7 +227,7 @@ func (r *Relayer) deliverDecisions(ctx context.Context, cs *ethx.ClientState, ds
 		rcpt, _ := ethx.AddressFrom32(t.msg.Msg.Recipient)
 		if r.env.adminLine().IsRetired(rcpt) {
 			t.past = true
-			r.retireCopy(t, rcpt)
+			r.retireCopy(ctx, t, rcpt, admins, live[t.seq])
 			continue
 		}
 		st := admins[rcpt]
@@ -224,7 +241,7 @@ func (r *Relayer) deliverDecisions(ctx context.Context, cs *ethx.ClientState, ds
 		switch decisionGate(t.seq, st.LastSeq) {
 		case "past":
 			t.past = true
-			r.pastDecision(ctx, t, rcpt)
+			r.pastDecision(ctx, t, rcpt, settling[t.seq])
 			continue
 		case "wait":
 			delete(r.state.Ready, key)
@@ -242,94 +259,454 @@ func (r *Relayer) deliverDecisions(ctx context.Context, cs *ethx.ClientState, ds
 		if err := r.deliverTodo(ctx, cs, t, true); err != nil && firstErr == nil {
 			firstErr = err
 		}
+		if t.settling {
+			settling[t.seq] = append(settling[t.seq], t)
+			r.rememberCopy(t, false, true)
+		}
 		delete(admins, rcpt) // the next number is expected now
 	}
 	return firstErr
 }
 
-// rememberCopy records a message as a copy of a decision number (kept across passes).
-func (r *Relayer) rememberCopy(seq uint64, n uint32, id [32]byte) {
-	sk := strconv.FormatUint(seq, 10)
-	for _, c := range r.state.DecisionCopies[sk] {
-		if c.Nonce == n {
+// ------------------------------------------------------------- decision copies --
+
+// A decision number's copies (E6-GS1): anyone may re-send any number r/hlgov ever dispatched — hlgov.Redispatch, a
+// MsgCall's fee apiece — each a new hlmailbox message. The walk reads the delivered mark of every copy not ended, every
+// step, and ends one delivered at the finalized block (kept as its number's verdict: it went through our mailbox); a
+// copy ended once its number was recorded can never record it (HlAdmin ignores a number at or below its last). So a
+// number keeps a few copies — while its verdict is open its first, the first seenKept seen delivered at latest and its
+// newest copiesNewest, the ones a verdict reads beside the copies delivered at latest this step; once it went through
+// the one that did; once reported taken none — and a copy of a number gone through or reported taken ends at once,
+// with no read. A number whose verdict is open is judged once a step: at the step's finalized block, HlAdmin's state
+// there (once for each address) and the marks of its copies kept and delivered at latest, at most copyReadsPerStep
+// marks a step for every number. A state file from before the bound (CopiesV 0) holds every copy, none marked: its
+// lists are judged whole first (CopiesToJudge).
+const (
+	copiesNewest     = 4
+	seenKept         = 2
+	copiesBound      = 1 + seenKept + copiesNewest
+	copyReadsPerStep = 64
+)
+
+// numberVerdict is a decision number's verdict past HlAdmin's counter: "recorded" (a copy of it went through our
+// mailbox), "taken" (HlAdmin's counter at the finalized block covers it and no copy of ours is delivered there, on two
+// passes), or none yet — why says what it waits for.
+type numberVerdict struct {
+	how, why string
+}
+
+// went says whether a number's copies hold the one that went through our mailbox.
+func went(cs []decisionCopy) bool {
+	for _, c := range cs {
+		if c.Delivered {
+			return true
+		}
+	}
+	return false
+}
+
+// seenCount is how many of a number's copies were seen delivered at latest.
+func seenCount(cs []decisionCopy) int {
+	n := 0
+	for _, c := range cs {
+		if c.Seen {
+			n++
+		}
+	}
+	return n
+}
+
+// keptCopies are the copies a number keeps (E6-GS1), by nonce: none once it is reported taken, the one that went
+// through once one did, else its first, the ones seen delivered at latest and its newest copiesNewest.
+func (r *Relayer) keptCopies(sk string, cs []decisionCopy) []decisionCopy {
+	if r.state.Taken[sk] {
+		return nil
+	}
+	for _, c := range cs {
+		if c.Delivered {
+			return []decisionCopy{c}
+		}
+	}
+	var out []decisionCopy
+	for i, c := range cs {
+		if i == 0 || c.Seen || i >= len(cs)-copiesNewest {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// setCopies stores a number's copies (none: the number's entry goes).
+func (r *Relayer) setCopies(sk string, cs []decisionCopy) {
+	if len(cs) == 0 {
+		delete(r.state.DecisionCopies, sk)
+		return
+	}
+	r.state.DecisionCopies[sk] = cs
+}
+
+// rememberCopy keeps a decision copy the walk read — delivered when the walk ended it so at the finalized block, seen
+// when it is delivered at latest (settling, or delivered by this relayer) — as far as its number's bound keeps it.
+func (r *Relayer) rememberCopy(t *outMsg, delivered, seen bool) {
+	sk := strconv.FormatUint(t.seq, 10)
+	cs := r.state.DecisionCopies[sk]
+	i := sort.Search(len(cs), func(i int) bool { return cs[i].Nonce >= t.n })
+	have := i < len(cs) && cs[i].Nonce == t.n
+	c := decisionCopy{Nonce: t.n, ID: hex.EncodeToString(t.msg.ID[:])}
+	if have {
+		c = cs[i]
+	}
+	if delivered {
+		r.keepWent(sk, c)
+		return
+	}
+	switch {
+	case seen && !c.Seen && seenCount(cs) < seenKept:
+		c.Seen = true
+	case have:
+		return
+	}
+	if have {
+		cs = append(append([]decisionCopy{}, cs[:i]...), append([]decisionCopy{c}, cs[i+1:]...)...)
+	} else {
+		cs = append(append([]decisionCopy{}, cs[:i]...), append([]decisionCopy{c}, cs[i:]...)...)
+	}
+	r.setCopies(sk, r.keptCopies(sk, cs))
+}
+
+// keepWent keeps a copy that went through our mailbox as its number's verdict (its one copy kept from now on): the
+// number's first-look mark, its older copies still to judge and its retired alarm go.
+func (r *Relayer) keepWent(sk string, c decisionCopy) {
+	if r.state.Taken[sk] {
+		return // reported taken: a copy delivered after is HlAdmin's to ignore, and the report stands
+	}
+	c.Delivered, c.Seen = true, false
+	r.state.DecisionCopies[sk] = []decisionCopy{c}
+	delete(r.state.TakenSeen, sk)
+	delete(r.state.CopiesToJudge, sk)
+	r.closeRetired(sk)
+}
+
+// queueOldCopies moves, once (CopiesV 0 → 1), every list a state file from before the bound kept into CopiesToJudge,
+// whole and whatever its length — every copy kept, none marked delivered, so the one that went through may be any of
+// them, an ended one included (n0 to a retired HlAdmin, n1 to its successor delivered) — except a number reported
+// taken, which keeps none. A number's queue is judged before its verdict can be "taken", and no copy the walk reads
+// later joins it (E6-GS1's review, findings 1 and 2: a list cut unread could drop the copy that went through, and one
+// refilled by the walk was judged for good).
+func (r *Relayer) queueOldCopies() {
+	s := &r.state
+	if s.CopiesV >= 1 {
+		return
+	}
+	for sk, cs := range s.DecisionCopies {
+		switch {
+		case s.Taken[sk]:
+			delete(s.DecisionCopies, sk)
+		case went(cs):
+			r.setCopies(sk, r.keptCopies(sk, cs))
+		default:
+			s.CopiesToJudge[sk] = append(s.CopiesToJudge[sk], cs...)
+			delete(s.DecisionCopies, sk)
+		}
+	}
+	s.CopiesV = 1
+}
+
+// pruneCopies keeps every number's copies to what its verdict needs (E6-GS1), and judges the copies an older state file
+// kept (CopiesToJudge) at the step's finalized block, within the step's copyReadsPerStep marks: the numbers a verdict
+// waited on this step first, each queue oldest first (the original dispatch is the copy that most often went
+// through); one delivered there is kept as the number's verdict, the others are dropped.
+func (r *Relayer) pruneCopies(ctx context.Context) {
+	for sk, cs := range r.state.DecisionCopies {
+		r.setCopies(sk, r.keptCopies(sk, cs))
+	}
+	var seqs []string
+	for sk := range r.state.CopiesToJudge {
+		if r.state.Taken[sk] || went(r.state.DecisionCopies[sk]) || len(r.state.CopiesToJudge[sk]) == 0 {
+			delete(r.state.CopiesToJudge, sk)
+			continue
+		}
+		seqs = append(seqs, sk)
+	}
+	if len(seqs) == 0 || !r.Cfg.HasContracts() {
+		return
+	}
+	sort.Slice(seqs, func(i, j int) bool {
+		_, ai := r.verdicts[seqs[i]]
+		_, aj := r.verdicts[seqs[j]]
+		if ai != aj {
+			return ai
+		}
+		ni, _ := strconv.ParseUint(seqs[i], 10, 64)
+		nj, _ := strconv.ParseUint(seqs[j], 10, 64)
+		return ni < nj
+	})
+	fin := r.verdictFinalized(ctx)
+	if fin == nil {
+		return
+	}
+	at := ethx.AtHash(fin.Hash)
+	for _, sk := range seqs {
+		left := copyReadsPerStep - r.copyReads
+		if left <= 0 {
 			return
 		}
-	}
-	for _, c := range r.state.DecisionCopies[sk] {
-		if r.state.Out.Done[strconv.FormatUint(uint64(c.Nonce), 10)] == "retired" {
-			r.Alarm.Clear("decision:retired:" + strconv.FormatUint(uint64(c.Nonce), 10))
+		q := r.state.CopiesToJudge[sk]
+		sort.Slice(q, func(i, j int) bool { return q[i].Nonce < q[j].Nonce })
+		n := min(left, len(q))
+		ids, judged := copyIDs(q[:n])
+		r.copyReads += n
+		marks, err := ethx.DeliveredMany(ctx, r.Eth, Address(r.Cfg.Eth.Mailbox), ids, at)
+		if err != nil {
+			return
+		}
+		if i := slices.Index(marks, true); i >= 0 {
+			r.keepWent(sk, judged[i])
+			continue
+		}
+		if rest := q[n:]; len(rest) > 0 {
+			r.state.CopiesToJudge[sk] = rest
+		} else {
+			delete(r.state.CopiesToJudge, sk)
 		}
 	}
-	r.state.DecisionCopies[sk] = append(r.state.DecisionCopies[sk], decisionCopy{Nonce: n, ID: hex.EncodeToString(id[:])})
 }
 
-// retireCopy ends a decision copy addressed to a retired HlAdmin of the line (G39, AP3): it records nothing more.
-func (r *Relayer) retireCopy(t *outMsg, rcpt common.Address) {
+// retireCopy ends a decision copy addressed to a retired HlAdmin of the line (G39, AP3): it records nothing more. Its
+// alarm is the number's, decision:retired:<number> (E6-GS1's sibling: anyone's Redispatch mints copies of any number
+// to r/hlgov's recipient, and an alarm by the copy's nonce stood one apiece, old numbers included), opened unless the
+// number needs nothing — a copy of it goes to the live HlAdmin this pass, its verdict is known, or the live HlAdmin's
+// counter covers it (a successor inherits its predecessor's) — and judged again every pass (retiredPass: one opened
+// while the counter could not be read is closed once it reads).
+func (r *Relayer) retireCopy(ctx context.Context, t *outMsg, rcpt common.Address, admins map[common.Address]*ethx.AdminState, live bool) {
+	key := "deliver:" + t.nk()
+	sk := strconv.FormatUint(t.seq, 10)
 	r.state.Out.end(t.n, "retired")
-	r.forget("deliver:" + t.nk())
-	r.note("deliver:"+t.nk(), "retired: "+rcpt.Hex()+" handed every authority to its successor (kind 9) and takes no decision")
-	r.Alarm.Alarm("decision:retired:"+t.nk(), fmt.Sprintf("gno #%d is r/hlgov's decision %d to %s, which handed every authority to its successor (kind 9): dead there; r/hlgov's set decision recipient to the live HlAdmin %s, then a re-dispatch, delivers it (§6.5)", t.n, t.seq, rcpt.Hex(), r.env.adminLine().Live.Hex()))
+	r.forget(key)
+	why := "retired: " + rcpt.Hex() + " handed every authority to its successor (kind 9) and takes no decision"
+	switch {
+	case live:
+		r.note(key, why+"; a copy of its number goes to the live HlAdmin")
+		return
+	case r.state.Taken[sk] || went(r.state.DecisionCopies[sk]):
+		r.note(key, why+"; its number's verdict is known")
+		return
+	}
+	lv := r.env.adminLine().Live
+	if st := r.liveAdmin(ctx, admins); st != nil && t.seq <= st.LastSeq {
+		r.note(key, fmt.Sprintf("%s; the live HlAdmin %s's counter covers its number (%d of %d): recorded on the line", why, lv.Hex(), t.seq, st.LastSeq))
+		return
+	}
+	r.note(key, why)
+	r.openRetired(sk, fmt.Sprintf("gno #%d is r/hlgov's decision %d to %s, which handed every authority to its successor (kind 9): dead there; r/hlgov's set decision recipient to the live HlAdmin %s, then a re-dispatch, delivers it (§6.5)", t.n, t.seq, rcpt.Hex(), r.env.adminLine().Live.Hex()))
 }
 
-// pastDecision ends a copy whose number HlAdmin has recorded: "recorded" when a copy of the number went through
-// our mailbox — one this relayer delivered or recorded, or one delivered at the finalized block — and "taken" only
-// when HlAdmin's counter at finalized covers the number and no copy is delivered there, on a second pass too (the
-// admin state and the delivered marks read at one block, pinned by its hash, G4). A taken number is reported once
-// (§5.7: for r/hlgov's sync sequence). A provider without the finalized block's state is no verdict.
-func (r *Relayer) pastDecision(ctx context.Context, t *outMsg, rcpt common.Address) {
+// openRetired opens a number's decision:retired alarm (RetiredOpen: judged again every pass, kept across a restart).
+func (r *Relayer) openRetired(sk, text string) {
+	if r.state.RetiredOpen == nil {
+		r.state.RetiredOpen = map[string]string{}
+	}
+	r.state.RetiredOpen[sk] = text
+	r.Alarm.AlarmEvery("decision:retired:"+sk, text, 6*time.Hour)
+}
+
+// closeRetired ends a number's decision:retired alarm.
+func (r *Relayer) closeRetired(sk string) {
+	delete(r.state.RetiredOpen, sk)
+	r.Alarm.Clear("decision:retired:" + sk)
+}
+
+// retiredPass judges every open decision:retired alarm again: closed once a copy of its number goes to the live
+// HlAdmin, its verdict is known or the live HlAdmin's counter covers it (recorded on the line: a successor inherits its
+// predecessor's counter), raised again otherwise — so one opened while the live counter could not be read is not left
+// standing, and a restart keeps the rest.
+func (r *Relayer) retiredPass(ctx context.Context, admins map[common.Address]*ethx.AdminState, live map[uint64]bool) {
+	if len(r.state.RetiredOpen) == 0 {
+		return
+	}
+	st := r.liveAdmin(ctx, admins)
+	for sk, text := range r.state.RetiredOpen {
+		seq, err := strconv.ParseUint(sk, 10, 64)
+		if err != nil || live[seq] || r.state.Taken[sk] || went(r.state.DecisionCopies[sk]) || (st != nil && seq <= st.LastSeq) {
+			r.closeRetired(sk)
+			continue
+		}
+		r.Alarm.AlarmEvery("decision:retired:"+sk, text, 6*time.Hour)
+	}
+}
+
+// liveAdmin is the live HlAdmin's state at latest: the pass's own read, else the step's reading of the line (its live
+// one's state), else read now (nil when it cannot be read).
+func (r *Relayer) liveAdmin(ctx context.Context, admins map[common.Address]*ethx.AdminState) *ethx.AdminState {
+	line := r.env.adminLine()
+	if st := admins[line.Live]; st != nil {
+		return st
+	}
+	if line.State != nil {
+		return line.State
+	}
+	lv := line.Live
+	st, err := ethx.ReadAdmin(ctx, r.Eth, lv, ethx.Latest)
+	if err != nil {
+		return nil
+	}
+	admins[lv] = st
+	return st
+}
+
+// pastDecision ends a copy whose number HlAdmin has recorded (§5.7: "taken" is reported once, for r/hlgov's sync
+// sequence), by its number's verdict (verdictOf); a number with none yet leaves its copy to the next pass.
+func (r *Relayer) pastDecision(ctx context.Context, t *outMsg, rcpt common.Address, settling []*outMsg) {
 	sk := strconv.FormatUint(t.seq, 10)
 	key := "deliver:" + t.nk()
-	processed := false
-	var ids [][32]byte
-	for _, c := range r.state.DecisionCopies[sk] {
-		if d := r.state.Out.Done[strconv.FormatUint(uint64(c.Nonce), 10)]; d == "delivered" || d == "recorded" {
-			processed = true
-		}
-		if id, err := hl.ParseKey32(c.ID); err == nil {
-			ids = append(ids, id)
-		}
-	}
-	if !processed {
-		fin, err := r.Eth.BlockAt(ctx, ethx.Finalized)
-		if err != nil {
-			r.note(key, "decision "+sk+" is past HlAdmin's counter; the finalized block could not be read: no verdict: "+err.Error())
-			return
-		}
-		at := ethx.AtHash(fin.Hash)
-		st, err := ethx.ReadAdmin(ctx, r.Eth, rcpt, at)
-		if err == nil && st.LastSeq < t.seq {
-			r.note(key, fmt.Sprintf("decision %d is recorded at latest, not yet at the finalized block %d: looked at again", t.seq, fin.Number))
-			return
-		}
-		var marks []bool
-		if err == nil {
-			marks, err = ethx.DeliveredMany(ctx, r.Eth, Address(r.Cfg.Eth.Mailbox), ids, at)
-		}
-		if err != nil {
-			r.note(key, fmt.Sprintf("decision %d: no verdict at the finalized block %d (%v)", t.seq, fin.Number, err))
-			return
-		}
-		for _, m := range marks {
-			processed = processed || m
-		}
-	}
-	if processed {
+	v := r.verdictOf(ctx, t, rcpt, settling)
+	switch v.how {
+	case "recorded":
 		r.state.Out.end(t.n, "recorded")
-		delete(r.state.TakenSeen, sk)
 		r.forget(key)
-		return
+		r.note(key, v.why)
+	case "taken":
+		r.state.Out.end(t.n, "taken")
+		r.forget(key)
+		r.note(key, v.why)
+		if !r.state.Taken[sk] {
+			r.state.Taken[sk] = true
+			delete(r.state.TakenSeen, sk)
+			delete(r.state.DecisionCopies, sk)
+			delete(r.state.CopiesToJudge, sk)
+			r.closeRetired(sk)
+			r.Alarm.Alarm("decision:taken:"+sk, fmt.Sprintf("decision %d (kind %d) cannot be delivered: another decision has already taken its number on HlAdmin (no copy of r/hlgov's is delivered at the finalized block, on two passes); r/hlgov's sync sequence moves the counter past it and the proposal is re-made (§6.5)", t.seq, t.dk))
+		}
+	default:
+		r.note(key, v.why)
+	}
+}
+
+// verdictOf is a number's verdict past HlAdmin's counter: at once, with no read, for a number reported taken or gone
+// through our mailbox; else judged once a step (judgeNumber).
+func (r *Relayer) verdictOf(ctx context.Context, t *outMsg, rcpt common.Address, settling []*outMsg) numberVerdict {
+	sk := strconv.FormatUint(t.seq, 10)
+	switch {
+	case r.state.Taken[sk]:
+		return numberVerdict{"taken", fmt.Sprintf("taken: decision %d was reported taken (another decision has its number on HlAdmin)", t.seq)}
+	case went(r.state.DecisionCopies[sk]):
+		return numberVerdict{"recorded", fmt.Sprintf("recorded: a copy of decision %d went through our mailbox", t.seq)}
+	}
+	if r.verdicts == nil {
+		r.verdicts = map[string]numberVerdict{}
+	}
+	if v, ok := r.verdicts[sk]; ok {
+		return v
+	}
+	v := r.judgeNumber(ctx, t, sk, rcpt, settling)
+	if v.how == "" {
+		r.verdicts[sk] = v // the pass's other copies of the number wait as this one does; a verdict is kept by itself
+	}
+	return v
+}
+
+// judgeNumber judges a number past HlAdmin's counter whose verdict is open: "recorded" when a copy of it went through
+// our mailbox — one this relayer's walk still has in Done (an older state file's), or one of its copies kept or
+// delivered at latest marked at the finalized block — and "taken" only when HlAdmin's counter at the finalized block
+// covers the number, no copy is delivered there, none of an older state file's copies of it waits to be judged, on a
+// second pass (the admin state and the marks read at one block, pinned by its hash, G4). A provider without the
+// finalized block's state is no verdict.
+func (r *Relayer) judgeNumber(ctx context.Context, t *outMsg, sk string, rcpt common.Address, settling []*outMsg) numberVerdict {
+	cs := r.state.DecisionCopies[sk]
+	old := r.state.CopiesToJudge[sk]
+	for _, c := range append(append([]decisionCopy{}, cs...), old...) {
+		switch r.state.Out.Done[strconv.FormatUint(uint64(c.Nonce), 10)] {
+		case "delivered":
+			r.keepWent(sk, c)
+			return numberVerdict{"recorded", fmt.Sprintf("recorded: a copy of decision %d went through our mailbox", t.seq)}
+		case "recorded":
+			return numberVerdict{"recorded", fmt.Sprintf("recorded: decision %d was found recorded through our mailbox", t.seq)}
+		}
+	}
+	fin := r.verdictFinalized(ctx)
+	if fin == nil {
+		return numberVerdict{"", "decision " + sk + " is past HlAdmin's counter; the finalized block could not be read: no verdict"}
+	}
+	at := ethx.AtHash(fin.Hash)
+	st, err := r.finAdmin(ctx, rcpt, at)
+	if err != nil {
+		return numberVerdict{"", fmt.Sprintf("decision %d: no verdict at the finalized block %d (%v)", t.seq, fin.Number, err)}
+	}
+	if st.LastSeq < t.seq {
+		return numberVerdict{"", fmt.Sprintf("decision %d is recorded at latest, not yet at the finalized block %d: looked at again", t.seq, fin.Number)}
+	}
+	// the marks of its copies kept and of its copies delivered at latest, within the step's reads
+	cands := append([]decisionCopy{}, cs...)
+	for _, s := range settling {
+		if i := sort.Search(len(cs), func(i int) bool { return cs[i].Nonce >= s.n }); i == len(cs) || cs[i].Nonce != s.n {
+			cands = append(cands, decisionCopy{Nonce: s.n, ID: hex.EncodeToString(s.msg.ID[:])})
+		}
+	}
+	n := min(max(copyReadsPerStep-r.copyReads, 0), len(cands))
+	if n > 0 {
+		ids, read := copyIDs(cands[:n])
+		r.copyReads += n
+		marks, err := ethx.DeliveredMany(ctx, r.Eth, Address(r.Cfg.Eth.Mailbox), ids, at)
+		if err != nil {
+			return numberVerdict{"", fmt.Sprintf("decision %d: no verdict at the finalized block %d (%v)", t.seq, fin.Number, err)}
+		}
+		if i := slices.Index(marks, true); i >= 0 {
+			r.keepWent(sk, read[i])
+			return numberVerdict{"recorded", fmt.Sprintf("recorded: a copy of decision %d (gno #%d) is delivered at the finalized block %d", t.seq, read[i].Nonce, fin.Number)}
+		}
+	}
+	switch {
+	case n < len(cands):
+		return numberVerdict{"", fmt.Sprintf("decision %d is recorded on HlAdmin; %d of its copies' marks are unread, the step's %d reads spent: looked at again", t.seq, len(cands)-n, copyReadsPerStep)}
+	case len(old) > 0:
+		return numberVerdict{"", fmt.Sprintf("decision %d is recorded on HlAdmin; %d of its copies an older state file kept wait to be judged at the finalized block (%d marks a step) before it can be found taken: looked at again", t.seq, len(old), copyReadsPerStep)}
 	}
 	if _, seen := r.state.TakenSeen[sk]; !seen {
 		r.state.TakenSeen[sk] = r.now().Unix()
-		r.note(key, fmt.Sprintf("decision %d is recorded on HlAdmin and no copy of ours is delivered at the finalized block: looked at again next pass", t.seq))
-		return
+		return numberVerdict{"", fmt.Sprintf("decision %d is recorded on HlAdmin and no copy of ours is delivered at the finalized block: looked at again next pass", t.seq)}
 	}
-	r.state.Out.end(t.n, "taken")
-	r.forget(key)
-	if !r.state.Taken[sk] {
-		r.state.Taken[sk] = true
-		r.Alarm.Alarm("decision:taken:"+sk, fmt.Sprintf("decision %d (kind %d) cannot be delivered: another decision has already taken its number on HlAdmin (no copy of r/hlgov's is delivered at the finalized block, on two passes); r/hlgov's sync sequence moves the counter past it and the proposal is re-made (§6.5)", t.seq, t.dk))
+	return numberVerdict{"taken", fmt.Sprintf("taken: decision %d is recorded on HlAdmin and no copy of ours is delivered at the finalized block, on two passes", t.seq)}
+}
+
+// copyIDs are the ids of copies, and the copies whose id parses, alike in order.
+func copyIDs(cs []decisionCopy) ([][32]byte, []decisionCopy) {
+	ids := make([][32]byte, 0, len(cs))
+	ok := make([]decisionCopy, 0, len(cs))
+	for _, c := range cs {
+		if id, err := hl.ParseKey32(c.ID); err == nil {
+			ids, ok = append(ids, id), append(ok, c)
+		}
 	}
+	return ids, ok
+}
+
+// verdictFinalized is the finalized block the step's verdicts and judging read at, read once a step (nil when the
+// provider answers none): every number judged this step is judged at one block.
+func (r *Relayer) verdictFinalized(ctx context.Context) *ethx.Block {
+	if !r.finRead {
+		r.finRead = true
+		if b, err := r.Eth.BlockAt(ctx, ethx.Finalized); err == nil {
+			r.fin = b
+		}
+	}
+	return r.fin
+}
+
+// finAdmin is an HlAdmin's state at a finalized block, read once a step for each address and block.
+func (r *Relayer) finAdmin(ctx context.Context, rcpt common.Address, at ethx.At) (*ethx.AdminState, error) {
+	k := rcpt.Hex() + "@" + at.Hash.Hex()
+	if st, ok := r.finAdmins[k]; ok {
+		return st, nil
+	}
+	st, err := ethx.ReadAdmin(ctx, r.Eth, rcpt, at)
+	if err != nil {
+		return nil, err
+	}
+	if r.finAdmins == nil {
+		r.finAdmins = map[string]*ethx.AdminState{}
+	}
+	r.finAdmins[k] = st
+	return st, nil
 }
 
 // --------------------------------------------------------------------- routes --
@@ -626,7 +1003,13 @@ func (r *Relayer) deliverTodo(ctx context.Context, cs *ethx.ClientState, t *outM
 	case ethx.RevertIs(err, "RetiredAdmin"), ethx.RevertIs(err, "Retired"):
 		r.state.Out.end(t.n, "retired")
 		r.forget(key)
-		r.Alarm.Alarm("decision:retired:"+t.nk(), fmt.Sprintf("gno #%d answers Retired: HlAdmin handed every authority to its successor (kind 9) — dead there, never parked; r/hlgov's set decision recipient to the successor, then a re-dispatch, delivers it (§6.5): %v", t.n, err))
+		// a decision's alarm is its number's, as retireCopy's (E6-GS1's sibling): once a number, whatever its copies
+		text := fmt.Sprintf("gno #%d answers Retired: HlAdmin handed every authority to its successor (kind 9) — dead there, never parked; r/hlgov's set decision recipient to the successor, then a re-dispatch, delivers it (§6.5): %v", t.n, err)
+		if t.kind == kindDecision {
+			r.openRetired(strconv.FormatUint(t.seq, 10), text)
+		} else {
+			r.Alarm.Alarm("decision:retired:gno#"+t.nk(), text)
+		}
 		return nil
 	}
 	r.ethFailed(key, err)

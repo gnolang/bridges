@@ -1,8 +1,9 @@
 # GNOT and BUBBLE between gno.land and Ethereum — the Solana bridge's design, carried to Ethereum
 
-Status: plan e10, 2026-10-15 — e9 with audit round 5 folded (six audits; folds F17a–F17d, the Solana bridge's S6 and
-the integration lane I3; §12): every rule below is the merged code's, and what that code does not do is said where the
-rule is; e9 was e8 with audit round 4 folded (ten audits; folds F15a–F15e, the Solana bridge's S5 and the integration
+Status: plan e11, 2026-10-16 — e10 with audit round 6 folded (five audits; folds F18a–F18c, the Solana bridge's S7 and
+the integration lane I4; §12): every rule below is the merged code's, and what that code does not do is said where the
+rule is; e10 was e9 with audit round 5 folded (six audits; folds F17a–F17d, the Solana bridge's S6 and the integration
+lane I3); e9 was e8 with audit round 4 folded (ten audits; folds F15a–F15e, the Solana bridge's S5 and the integration
 lane I2); e8 was e7 with audit round 3 folded (nine audits; folds F10–F14, the fixes shared with the Solana bridge and
 the integration lane I1); e7 was e6 with fold F5's readings (the decision record bounded by the start and the last number,
 the launch line `launchNonce`, the successor's bindings, the pinned `HlAdminExec`); e6 had the rest of audit round 2 folded (the plan red team's E2-RT1–RT10, the realms'
@@ -92,9 +93,11 @@ credits wait 7 days, so that an Ethereum fork the verifier has not followed slow
   never had — so a reorganisation is no path to a forged credit. Each reads gno.land through the node its
   configuration names, which must be its own — a requirement for every signer and monitor, since the cut reads its
   state and its head from one node, and a load-balanced public endpoint can answer them from different backends and
-  so flag an honest credit (E5-RT6): the Solana deployment's machines read public endpoints (rpc.gno.land, Onbloc),
-  whose operators are then trusted for the signers' circuit breaker and whose per-IP limit has banned a machine
-  (E3-AS5; §11.10).
+  so flag an honest credit, or let a halted signer sign a forged burn (E5-RT6, E6-GT2); the machines refuse every
+  verdict once two of its answers cannot come from one node (`gno:backends`, §5.6), which finds such an endpoint but
+  cannot undo the readings it fooled before it was found. The Solana deployment's machines read public endpoints
+  (rpc.gno.land, Onbloc), whose operators are then trusted for the signers' circuit breaker and whose per-IP limit has
+  banned a machine (E3-AS5; §11.10).
 - The guardians and the watch keys: as the Solana plan §1, on Ethereum's two objects (`PausableGate` and
   `HlAdmin`). One flag pauses gno.land → Ethereum deliveries or `HlAdmin`'s decisions; two guardians' flags hold;
   a hold keeps every decision of the 7-day group waiting, a replacement of guardians included until the hold's 21st
@@ -171,8 +174,8 @@ naming Go 1.25.9 throughout; a live header's sixteen leaves, its precommits, its
 the client's encodings; and a failed transaction's results leaf carries one of a closed set of 43 error types, the
 same at every version (§13). The realms' suites and the local run still use v1.2.0's tools (the realms' suite passes
 under v1.5.1 too, 165 tests at fold F17c; fold F10's page gas was measured alike on gnodev v1.2.0 and v1.5.1, and the
-render-gas gate's and the migration gate's node factors on a v1.5.1 node, §5.1, §5.3). An upgrade that changed one of
-those encodings is §9's.
+render-gas gate's, the migration gate's and the void gate's node factors on a v1.5.1 node, §5.1, §5.3). An upgrade
+that changed one of those encodings is §9's.
 
 Ethereum (live reads at block 26,189,683, 2026-10-14 08:56 UTC, on ethereum-rpc.publicnode.com and eth.drpc.org):
 - The block gas limit is 60,000,000 (EIP-7935's default; 59,941,408 at block 26,189,683). The base fee was 0.0716 gwei; over the last 1,024 blocks its median was 0.065
@@ -367,20 +370,48 @@ fee-sized burns to fresh addresses, can make; E4-RL1). The index costs a credit 
 before fold F17c made an entry three writes where it was four) and ≈0.42 GNOT of storage more — a credit's whole
 deposit ≈1.70 GNOT with it (§5.5) — and `Claim`, the payouts' path, nothing.
 
-5.3 Governance: as the Solana plan §5.3, every builder, every timing rule, the governor and the yield, with two of
-its figures changed in the Ethereum routes. A migration hands every claim, the sweep entries and the ids of
-undelivered sends to the successor in pages of 50 records the successor pulls (`pullPage`, in the file the three
-routes keep the same, `waiting.gno`), never p/hlroute's 500: a page of 500 open claims, each leaving one waiting index
-and entering the other, was 5.28B gas on a v1.5.1 node, past gnoland-1's block, and a migration stalled at a page
-freezes the route for good — the predecessor refusing everything but a re-point or a cancel, the successor crediting
-nothing before its last page (E5-RL1). A page adopted whole is ≈0.54B there at a route of 100 open claims and ≈1.04B
-at its costliest in a backlog of 3,000 — a page's cost grows with the route, and past ≈20,000 open claims a page of 50
-would near half the block by the measured growth (not measured there) — and the realms' migration gate (`gnotest.sh`)
-holds the predecessor's `Pull` and the successor's `Adopt` of a page under a third of the block at their node figures.
-And a void's, a sweep's, a refund's and a write-off's lists name 256 ids at most, as p/hlroute's do (a credit names
-one), but a restore's here 128 (`maxRestoreIDs`): its claims enter the waiting index in the same transaction, and a
-256-id restore at once through the governor's `Govern` was 3.69B on a v1.5.1 node where 128 is 1.93B, so a 256-id
-void is restored by two decisions (E5-RL2). On gnoland-1, every realm's `init` refuses a launch value still equal to
+5.3 Governance: as the Solana plan §5.3, every builder, every timing rule, the governor and the yield, with its
+migration page, its void and its restore sized to gnoland-1's block in the Ethereum routes. A migration hands every
+claim, the sweep entries and the ids of undelivered sends to the successor in pages of 25 records the successor pulls
+(`pullPage`, in the file the three routes keep the same, `waiting.gno`), never p/hlroute's 500: a page of 500 open
+claims, each leaving one waiting index and entering the other, was 5.28B gas on a v1.5.1 node, past gnoland-1's block,
+and a migration stalled at a page freezes the route for good — the predecessor refusing everything but a re-point or a
+cancel, the successor crediting nothing before its last page (E5-RL1). A page's cost grows with the route: in a
+migration of 10,000 open claims there — each claim to its own recipient beside a send of its own, every page adopted
+whole by a stranger — a page of 50 was 1.25B at its costliest and 190 of the 200 claims pages were past a third of the
+block, which the gate, measuring a page of a route of 100 (≈0.54B), could not see (E6-RL3); a page of 25 is ≈0.70B at
+its costliest there and the predecessor's half ≈0.32B, none past 1B (800 pages, 13% more gas in all than 400 of 50),
+and the realms' migration gate (`gnotest.sh`) holds the predecessor's `Pull` and the successor's `Adopt` of a page
+under a third of the block at the node's figures for that migration, its factors calibrated there and not at the
+probes' own small state; past 10,000 open claims a page is not measured. No machine of ours drives the pages — `Adopt`
+is anyone's, the relayers never call it and the local run makes no migration — and a route of 10,000 claims and 10,000
+sends is 800 `Adopt` calls in order, the route frozen until the last.
+A void names 64 ids at most (`maxVoidIDs`) and a range void 100 credits at most (`maxVoidCredits`) by a tally of the
+credits by height each route keeps (`voids.gno`, the same in the three routes: counted at `Process`, at a credit by
+vote's `Execute` and for every claim and sweep entry `Adopt` imports; it only counts up, so it never reads less than a
+range's walk visits), read before p/hlroute walks the range — where p/hlroute's own 256 ids and 1,000 credits
+(`MaxIDs`, `MaxRangeClaims`, which the Solana routes keep) outgrew gnoland-1's block: on a v1.5.1 node a 256-id void
+at once through the governor's `Govern` was 3.02B at 5,000 open claims and 3.20B at 10,000 (3.45B with four guardians'
+lists standing), and a 1,000-credit range at 2,512 open claims 4.44B at once and 3.58B queued and Executed, before the
+yield or after it (E6-RL1). A range closes at the block before the one its proposal is made in (the Solana routes
+close it at the proposal's height), so what it covers never grows after its builder counted it — every credit made
+after the builder ran lands at the proposal's block or later, and no migration page arrives while a range void can be
+made — and a credit of the block a void is made in waits for the next decision. At 64 ids and 100 credits every void
+transaction is at most ≈0.96B there at 10,000 open claims with the guardians' flags standing (the list at once 0.96B,
+four lists of 256 standing and its ids in the fourth; the range at once 0.93B and its `Execute` 0.79B, three lists and
+a fourth guardian's range standing): a list costs ≈13–14M gas an id at once and a range ≈8M a credit at once and ≈7M
+Executed, not the Solana plan's ≈0.4M a credit by the chain's table, and the realms' void gate (`gnotest.sh`) holds
+the three under a third of the block at the node's figures there — so a guardian's flag of 256 ids is voided by four
+decisions, and a flood by ranges of 100 credits by height. hlmailbox keeps a payouts flag's ids sorted and without
+repeats — its pages list them so, not in the order given — and finds an id in each guardian's list by binary search
+(`Flagged`). The tally costs a credit at a new height ≈0.7M gas and ≈0.2 GNOT of storage deposit (5% more gas and 10%
+more deposit than a credit's own), paid by the relayers' key (§5.5). A sweep's, a refund's and a write-off's lists
+name 256 ids at most, as p/hlroute's do (a credit names one), and a restore's 40 (`maxRestoreIDs`, held by the void gate beside the voids: the integration lane I4
+measured 64 ids at 1.27B at once and 0.93B for a queued restore's `Execute` at 10,000 open claims, 40 at 0.83B and
+0.62B — a restore costs ≈18M gas an id against a void's ≈14M, each claim going back into its recipient's queue and
+the waiting index — so a 64-id void takes two restores and a 100-credit range void three): its claims enter the waiting index in the same transaction, and a
+256-id restore at once through `Govern` was 3.69B on a v1.5.1 node and a 128-id one 1.93–1.95B, past a third of the
+block (E5-RL2, E6-RL1). On gnoland-1, every realm's `init` refuses a launch value still equal to
 the dev tree's placeholder — the signers' keys, the seats and watch keys, every Ethereum address, the routers,
 `HlAdmin`, the Solana deployment's namespace, the governor — so no stage step that misses one can put public test keys
 in charge (E2-RL1); and on every chain the realms refuse at deploy a launch set no launch can run — a signer rule its
@@ -437,9 +468,13 @@ that outran it was paid a sliver at every call, and the relayers called every ti
 (`installments.gno`, the same in the three routes) runs p/hlroute's in turns of one claim and pays a later installment
 only when the bridge meter and the recipient's meter both hold at least min(what the claim still owes, the fee) —
 one bounded by the lock alone excepted, once — passing a recipient whose meters hold less over, its meter refilling for
-a later turn; a `Claim` that only passes slivers over pays nothing and succeeds, and one that pays costs ≈1.5% more gas
+a later turn; a `Claim` that only passes slivers over pays nothing and succeeds, and one that pays costs ≈1.8% more gas
 than p/hlroute's alone. A recipient its last installment emptied is payable again after min(owed, fee) ÷ (cap/4) of a
-day: ≈11.5 minutes for the 20 GNOT fee at the launch cap; the relayers pace their `Claim`s to it (§5.7).
+day: ≈11.5 minutes for the 20 GNOT fee at the launch cap; the relayers pace their `Claim`s to it (§5.7). The rule's
+bridge-meter half and the reset of a turn's fee mark at every turn are each held by a test run alone on a freshly
+launched route (`TestAloneBridgeMeter`, `TestAloneFeeEachTurn`, `gnotest.sh`'s fourth pass): a `Claim` that reads the
+recipient's meter alone, or carries a first installment's paid fee into the next turn, pays slivers again and fails
+them, where the routes' suites had passed both (E6-RL4).
 
 5.5 Fees, minimums, who pays. As the Solana plan §5.5 on gno.land, with Ethereum's costs:
 - gno.land → Ethereum costs the sender the route's fee and ≈0.32 GNOT of gno.land storage deposit for the send's
@@ -531,29 +566,39 @@ day: ≈11.5 minutes for the 20 GNOT fee at the launch cap; the relayers pace th
 - Ethereum → gno.land costs the burner Ethereum gas for `transferRemote` (186,022 gas measured, cold — cents at the
   median) and costs the operator gno.land gas for `Process` and `Claim` and the storage deposit a credit's `Process`
   locks from the relayers' gno key at gnoland-1's 100 ugnot a byte: ≈0.9–1.7 GNOT, measured on gno v1.5.1 nodes (0.87
-  for one claim to a fresh recipient; 1.28 a credit in batches of 200 before the waiting index, 1.70 with it) — the
-  Solana plan's ≈0.01–0.03 GNOT was an unmeasured guess — none of it coming back to the key (a paid claim keeps its
-  record, and a release refunds the storage fee collector while ugnot is restricted, its caller only once it is not):
-  ≈1.8 GNOT a credit with its gas (E5-GS5, E5-RT5). The route's one fee is taken as the claim's first installment and
-  goes to r/hlfees, never to the key. A burn of amount 0 is skipped by the signers and the relayers, as the Solana
-  relayer skips one, and a burn below the fee of the realm that would credit it is not processed by the relayers: the
-  route would sweep it — owed, paying nobody, no fee taken — while its deposit would be the relayers' (≈300–400 burns of
-  one base unit, ≈$0.06 of Ethereum gas each, would have emptied the key's 500 GNOT and stopped every credit until a
-  top-up); it stays pending in the relayers' state, re-checked against the route's fee each tick without a read and
-  delivered if a decision lowers the fee to it, alarmed `inbound:dust:<symbol>` until a day after the last, and anyone
-  may `Process` it at their own cost, the signers signing it as any burn (E5-GS5; the signers and the monitors keep it as
-  known dust, §5.6).
+  for one claim to a fresh recipient; 1.28 a credit in batches of 200 before the waiting index, 1.70 with it), and
+  ≈0.2 GNOT more for a credit at a height the void tally has not counted yet (§5.3) — the Solana plan's ≈0.01–0.03
+  GNOT was an unmeasured guess. gnoland-1's ugnot is unrestricted (`bank:p:restricted_denoms` reads `[]`, 2026-10-15;
+  GovDAO's Prop #4 unlocked its transfer), so gno refunds a storage deposit to whoever frees the storage, as the
+  Solana plan says: the waiting index's tidy in each `Process` — the next two entries, taken out when their claims
+  have left the queue — gives their deposit back to whoever calls it, the relayers' key in their own, and the `Claim`
+  that pays a claim in full frees its queue entry, ≈0.31 GNOT, to whoever calls that `Claim` — a stranger may race the
+  relayers for it — while a paid claim keeps its record: ≈1.8 GNOT a credit with its gas, the floats' figure, less
+  what comes back (E5-GS5, E5-RT5, E6-PC1). The route's one fee is taken as the claim's first installment and goes to
+  r/hlfees, never to the key. A burn of amount 0 is skipped by the signers and the relayers, as the Solana relayer
+  skips one, and a burn below the fee of the realm that would credit it is not processed by the relayers: the route
+  would sweep it — owed, paying nobody, no fee taken — while its deposit would be the relayers' (≈300–400 burns of one
+  base unit, ≈$0.06 of Ethereum gas each, would have emptied the key's 500 GNOT and stopped every credit until a
+  top-up); it stays pending in the relayers' state — a thousand at most, the oldest forgotten — re-checked against the
+  route's fee each tick without a read and delivered if a decision lowers the fee to it, alarmed
+  `inbound:dust:<symbol>` until a day after the last, and anyone may `Process` it at their own cost, the signers
+  signing it as any burn (E5-GS5; the signers and the monitors keep it as known dust, §5.6). A burn forgotten past the
+  thousand is never brought by the relayers when the fee falls (their inbound scan has passed it), and the monitors,
+  which judge dust against the fee every poll, then count it waiting from that poll — `age` two hours on, `stall`
+  after each quiet half hour — until someone `Process`es it by hand (E6-PC5).
 - The mailbox's protocol fee (kind 7) starts at 0 under `ProtocolFee`'s immutable maximum of 0.001 ETH (§1), its
   beneficiary the treasurer's Ethereum address.
-- Floats: the relayers' ETH key (primary and backup share it), the updater's ETH key, the relayers' gno key
-  (≈2,000 GNOT: ≈90 GNOT a day at the planned 50 credits, so ≈22 days, where the 500 GNOT once planned lasts ≈5.6 and
-  alarms from launch day; refilled by the treasurer from r/hlfees, each credit's 20 GNOT fee covering ≈11 credits'
-  deposit; E5-RT5), the guardians' and watch keys' ETH (0.05 each for flag transactions); the first three, and the
-  monitor's own watch key, monitored at 7 days of the trailing rate (the planned rate on launch day, by the model at
-  0.2 gwei: the relayers' 50 deliveries a day; the updater's 30 headers a day, ≈0.0087 ETH, so the ≈0.2 ETH above its
-  floor lasts ≈23 days, E3-CF8, E4-FC5; the gno key's 50 credits a day at ≈1.8 GNOT, E5-RT5), and the six keys of
-  the gate's seats and slots held to the 0.05 ETH a flag key keeps (`float:key<n>`), never a runway (E4-FC8). The
-  relayers' key is a second payer
+- Floats: the relayers' ETH key (primary and backup share it), the updater's ETH key, the relayers' gno key (≈2,000
+  GNOT: ≈90 GNOT a day at the planned 50 credits, so ≈22 days, where the 500 GNOT once planned lasts ≈5.6 and alarms
+  from launch day; refilled by the treasurer from r/hlfees, each GNOT credit's 20 GNOT fee covering ≈11 credits'
+  deposit, while a BUBBLE credit locks as much and pays its 400 BUBBLE into r/hlfees as BUBBLE, which refills the key
+  only once the treasurer swaps it; E5-RT5, E6-PC5), the guardians' and watch keys' ETH (0.05 each for flag
+  transactions), each guardian's gno key 3 GNOT, the fee of a flag's simulation at the block's gas (a 256-id payouts
+  flag is simulated at 720M, 0.72 GNOT; §5.8, E6-PC4); the first three, and the monitor's own watch key, monitored at
+  7 days of the trailing rate (the planned rate on launch day, by the model at 0.2 gwei: the relayers' 50 deliveries a
+  day; the updater's 30 headers a day, ≈0.0087 ETH, so the ≈0.2 ETH above its floor lasts ≈23 days, E3-CF8, E4-FC5;
+  the gno key's 50 credits a day at ≈1.8 GNOT, E5-RT5), and the six keys of the gate's seats and slots held to the
+  0.05 ETH a flag key keeps (`float:key<n>`), never a runway (E4-FC8). The relayers' key is a second payer
   of decisions' headers: its backstop buys a waiting decision's header — a header proof below the trusted height —
   five minutes after the decision's dispatch when the updater's key cannot pay for it, and thirty minutes after it
   whatever the updater's float (E2-RT8; timed from the dispatch, which no stranger's `Reemit` resets, E3-RT7), so its
@@ -616,11 +661,17 @@ of it would otherwise be room for an unflagged forged mint. A burn above 2^61 ba
 is neither counted nor signed. A burn below its route's fee, which the relayers leave unprocessed (§5.5), stays in
 flight and is signed as any burn, but the signers and the monitors keep it as known dust: its delivered mark is not
 read again every round — a mark is re-read when hlmailbox's delivered count moves, every ten minutes, after any round
-in doubt, and within the round whenever a token reads BROKEN with a delivery unplaced, a large batch read as
-hlmailbox's delivered ids a hundred at a time — it raises no age alarm, a dust burn someone else delivers is noticed, and it is judged again when the route's fee changes (each dust burn
-had cost every signer and monitor one render a round for good, and held the monitors' age alarm up: fold F17a's
-review, the integration lane I3). The cut's order — F at or above the block of every burn credited in the gno state read
-— is checked against the burn index, scanned only to the pair's finalized block, so hlmailbox's delivered count less
+in doubt, and within the round whenever a token reads BROKEN, a large batch read as hlmailbox's delivered ids a
+hundred at a time — it raises no age alarm, a dust burn someone else delivers is noticed, and it is judged again when
+the route's fee changes (each dust burn had cost every signer and monitor one render a round for good, and held the
+monitors' age alarm up: fold F17a's review, the integration lane I3). A burn that has been dust for an hour — signed
+already, on a signer — is folded out of the state written every round into an append-only file beside it: each token's
+folded sum counts in flight, a folded burn's mark is read every ten minutes, after a round in doubt and before a token
+holding folded dust is judged BROKEN with a delivery unplaced (never because the count moved), and one found
+delivered, or above its realm's fee again, is unfolded and judged as any burn (fifty thousand dust burns, ≈$1,500 of a
+stranger's Ethereum gas, had been a 35 MB state rewritten every round, 610 ms a quiet round, for good; folded, 339
+bytes and ≈4 ms: E6-GT3). The cut's order — F at or above the block of every burn credited in the gno state read — is
+checked against the burn index, scanned only to the pair's finalized block, so hlmailbox's delivered count less
 the index's credited burns is the deliveries the index cannot place: an honest burn above the index while one of the
 machine's providers trails the signers' (a lagging backend, or a liar answering an older finalized block), a forged
 credit, a credit by vote. While any is unplaced and the lag is not ruled out, a BROKEN reading is no verdict: it is
@@ -631,19 +682,22 @@ fifth round in a row) and a monitor alarms `identity:<token>:pending` after two 
 hour, flagging nothing on one provider's word (E4-GT1). That wait is bounded by what both providers show above the
 index, each to its own head while the head is fresh (no older than two minutes, at most 600 blocks above the index):
 the token's burns the index holds above the reading's F that the cut's state credits, and every burn of the token
-either provider shows above the index that the state credits (or whose mark did not read; 200 marks at most a cut),
+either provider shows above the index that the state credits (or whose mark did not read; 200 marks at most a cut,
+the largest amounts first, so what stays unread — counted as credited — is the smallest: read by id, a forger's own
+dust above the index had filled the reads and left its large burns unread, widening the bound past its forgery, E6-GT4),
 sum to the most an honest lag can carry, a burn's token and amount read from its message, which its id binds, never
 from a log's topics — so a liar can only add burns, which widens the bound, and hides none the honest provider shows;
 an excess past it is a break at once, the signer halting and the monitor flagging without waiting the finality lag (a
 forged credit paid out in its own block, `Claim` being anyone's, sits in no waiting claim for the dispatch check
-below to see: E5-GT1). The reading's height is the own node's head read after the cut, raised to the highest credit
-the cut read, so a head answered from a backend a block behind the one that served the state never leaves an honest
-credit out of the lag (E5-RT6) — sound on one node only, which is why the own node is a requirement (§1, §11.10). A
-monitor rules the lag out at once when every unplaced delivery was made by a height whose time the index's finalized
-block has passed (it keeps samples of hlmailbox's count), and judges a waiting claim forged at once when neither
-provider, each current to its head, shows a dispatch of its id above the index (§5.9); a forged mint on Ethereum
-beside an unplaced delivery waits the finality lag (13–19 minutes) only within that bound, or while what the providers
-show above the index is not known. The ahead-stop (the Solana plan §5.6's client ahead of its chain) is kept in the
+below to see: E5-GT1). The reading's height is the own node's head read inside the cut's window (below), by which
+every mark is placed: round 5 raised it to the highest credit the cut read, for a head answered from a backend a block
+behind the one that served the state (E5-RT6), but a mark read after the window may be a credit after it, so such an
+endpoint is refused instead (below; E6-GT2). A monitor rules the lag out at once when every unplaced delivery was made
+by a height whose time the index's finalized block has passed (it keeps samples of hlmailbox's count), and judges a
+waiting claim forged at once when neither provider, each current to its head, shows a dispatch of its id above the
+index (§5.9); a forged mint on Ethereum beside an unplaced delivery waits the finality lag (13–19 minutes) only within
+that bound, or while what the providers show above the index is not known. The ahead-stop (the Solana plan §5.6's
+client ahead of its chain) is kept in the
 signer's state, so a
 restart never lifts it (E3-GT6). A finality stall alarms `eth:finality-stall`. On a signer it is the finalized block
 standing still for an hour, by a clock kept in its state, so a restart never restarts it; the signer signs nothing
@@ -671,13 +725,53 @@ through a stand-in ISM), a `SetupDone` from `HlAdmin`'s creation transaction —
 anyone may send a token's `transferRemote` of 0, or have the mailbox deliver to a recipient of their own through an
 ISM of their own, and a stranger may call `finishSetup` first through a contract; failing on those would hand anyone a
 veto of the audit, the class E2-RT6 found. The audit re-runs `finishSetup` against `SetupDone`'s block's state (an
-archive read) rather than trusting the stored flag. gno.land's realm reads are not height-pinned (realm objects live
-in an unversioned store: a render "at height H" answers from the latest state), so the signers and monitors read
-hlmailbox again once every mark is read — its count across the read of the routes and their lines of migrations, its
-delivered count from before the routes to after the credited and refund marks, and, for a token whose sends can be
-refunded or whose line of migrations is open, the token's counters too, summed over its line (E4-CF6) — and a move is
-no verdict, quiet, alarmed at the fifth round in a row (a monitor's after two minutes): a credit landing between the reads had left the rule loose by its amount (E3-RT3,
-E3-GT2). The machines refuse to start without the contracts each rule reads: a signer without our mailbox, the
+archive read) rather than trusting the stored flag.
+
+gno.land's realm reads are not height-pinned (realm objects live in an unversioned store: a render "at height H"
+answers from the latest state), so the signers and monitors hold the cut's gno reads to one state by a window:
+hlmailbox, then the routes and their lines of migrations, then the own node's head, then hlmailbox again — its count
+across the routes and their lines, its delivered count across the routes and the head, and, for a token whose sends
+can be refunded or whose line of migrations is open, the token's counters too, summed over its line, the sends and
+their refund marks then read inside the window (E4-CF6). Nothing else is read inside it (E6-GT1): the burn index, the
+sends' walk and their Ethereum marks, the burns above the index and every delivered mark are read after it, each mark
+placed in the window's state by its height — set at or below the window's head, a credit of that state; above it, one
+made after — since a synced node's head is the last block it applied; and a window that moves is taken again at once,
+three takings at most (a delivery lands at a block's commit, so the window taken after it has the rest of a block).
+Round 5's window held every uncredited mark (a pile of dust anyone can make, read again each time the count moved),
+the doubt's second read of them and the burns above the index with their marks — with a hundred dust burns and two
+hundred burns above the index, 404 node reads and six provider calls, ≈4.57B of node gas, two gnoland-1 blocks — so
+one forged credit a block, from the two signer keys the monitors exist for, kept every monitor's cut moving (720
+polls, 722 forged credits, no verdict, nothing flagged), and a stranger's dust delivered a block halted the signers
+after an hour; the window is now five node reads at the two routes and no provider call, in every state. A cut that
+moved anyway is no verdict, quiet, alarmed at the fifth round in a row (a monitor's after two minutes) — a credit
+landing between the reads had left the rule loose by its amount (E3-RT3, E3-GT2) — but a reading BROKEN across it with
+no delivery unplaced by hlmailbox's last count, or past the bound above, is a break whatever landed, the signer
+halting and the monitor flagging, since a delivery or a dispatch landing inside the window only takes from the right
+side; a move of a token's counters (a refund, a migration's page, which can add) is judged no further. The pending
+readings are judged over a cut that moved as over one that held, and on the monitors and in `hlwatch` the credit rules
+(§5.9) run over a moved cut or an order that failed, and every Ethereum-side rule — the record, the stages, the
+decisions, the proxies' slots, and the stalls and ages once the routes and every token's line read — at every poll
+past the snapshot, the own node's head and the floor, whatever the gno side read; `cut` is raised to flag level once a
+monitor has had no verdict for an hour, the hour kept in its state (a one-shot `hlwatch status` sees it only with
+`-state`). A standing alarm raised to flag level is posted on the webhook at once, but once a repeat (an hour) at
+most: a key raised by turns at alarm and at flag level — the sources rule over a flaky third source — had posted it
+every other poll (E6-GT4).
+
+The cut's rules hold on one node only (§1, §11.10). A head or an hlmailbox count read lower than one read before it
+(within a round or across rounds: the highest are kept in the state), a mark set above a head read after it, or more
+of the index's burns credited at or below a cut's head than hlmailbox's delivered count read after that head is an
+endpoint answering from more than one backend: every verdict is refused from then on — a signer signs nothing past its
+last verdict, and halts after an hour — and `gno:backends` stands at flag level, kept in the state until the machine
+is given a node of its own (another `gno.rpc` starts the record afresh; for the same address, once fixed, the operator
+deletes the finding from the state). On one node none of these happens, and one stale read never flags; on an endpoint
+whose backends sit a block apart the audit's rig flagged an honest credit in one poll of eight read while it
+propagated — a stale delivered count, which the doubt's second read of the marks never ran for — and let a halted
+signer sign a forged burn in one round of seven (E6-GT2). The rule finds such an endpoint; it cannot stop the readings
+it fools before any answer shows a second backend (in that rig, every request sent to either backend at random: 20
+false flags in 400 polls where there had been 61, and a forged burn signed in 3 of 64 rounds where there had been 9),
+so the own node stays the requirement.
+
+The machines refuse to start without the contracts each rule reads: a signer without our mailbox, the
 client, `HlAdmin`, Ethereum's domain, every route's token and the `MerkleTreeHook`; a monitor and `hlwatch` without
 the same less the hook, and with the gate and r/hlgov (E3-GT8). Every server of the machines bounds a request's
 reading and its answer's writing and holds at most 1,024 connections, and the loopback status listeners close an idle
@@ -756,20 +850,41 @@ most 16 in flight, the next answered 429, the relayers exempt — while the rela
   buys a header only for the copy `HlAdmin` takes next — the number after the last it recorded at the finalized
   block — and once a number, so the copies anyone may re-dispatch buy nothing (E3-GS6: a decision right after
   another waits ≈13–19 minutes for its header, and while Ethereum's finality stalls every decision after the next
-  waits for it, §9; E4-FC6), and a stranger's update landing first is no failure of the
-  updater's, decisions' headers counting their own failures apart (E3-GS3). The executor reads each realm's ledger
-  by page (§5.3) from the lowest number that may still pend, and `HlAdmin`'s numbers from a cursor below which every
-  number was read at the finalized block — started past `HlAdmin`'s stored start (its first storage word), never at 1,
-  since no number at or below it ever held a decision (E4-TL8) — keeping a decision pending for good (a kind 8
-  waiting for code, one under a lasting hold) on a list of its own, so it never hides the numbers after it (E3-GS9). A
-  realm whose ledger does not read is logged and skipped that tick, with no alarm of the executor's own (E4-TL4). Its
-  gno calls whose gas only a simulation knows — a realm decision's `Execute`, GovDAO's `ExecuteOrRejectProposal` —
-  are simulated from its `-gno-gas` (45M) up, the ceiling raised fourfold on an out-of-gas as far as the block's 3B and
-  the broadcast sized from the simulation that fit, the key holding the fee of the gas a simulation asks (3 GNOT at the
-  block's gas): a 128-id forged restore's `Execute` is ≈1.26B on a v1.5.1 node, past the 180M the client's retry had
-  stopped at, which left such a call to a member's own hand (the realms audit's note, round 5; F17d). It finishes the
-  GovDAO proposals made with the builders once they have the votes and are past their deadline, and alarms a GovDAO
-  list it cannot parse whole, which it had read as empty, finishing nothing, silently (F17b; the integration lane I3).
+  waits for it, §9; E4-FC6), and a stranger's update landing first is no failure of the updater's, decisions' headers
+  counting their own failures apart (E3-GS3). Anyone may re-send any number r/hlgov ever dispatched (`Redispatch`, a
+  `MsgCall`'s fee, ≈0.008 GNOT a copy), each copy a new hlmailbox message, and the relayer had kept every copy for
+  good and read every copy's delivered mark each time a fresh one was walked — 419 `eth_call`s a step at a pile of
+  200, 2,219 at 2,000, and 97,393 in one step for 300 copies of a number another decision took (E6-GS1). A number now
+  keeps a few of its copies: while its verdict is open its first, the first two seen delivered at latest and its
+  newest four; once one went through our mailbox (delivered at the finalized block) that one, its verdict "recorded"
+  read with no call; once it is reported taken — `HlAdmin`'s counter at the finalized block covering it and no copy of
+  ours delivered there, on two passes — none. A copy of a number gone through or reported taken ends at once; a number
+  whose verdict is open is judged once a step, at one finalized block, from `HlAdmin`'s state there (read once an
+  address) and the marks of its copies kept and of those delivered at latest, 64 marks a step at most for every
+  number; a state file from before this rule has its copies judged at the finalized block, 64 a step, oldest first,
+  before any number of it reads taken. A copy to a retired `HlAdmin` ends retired, and `decision:retired:<number>`
+  stands once a number (it had stood once a copy, old numbers included), only while the live `HlAdmin`'s counter does
+  not cover the number and no copy of it goes to the live one, judged again every pass and kept across a restart. The
+  executor reads each realm's ledger by page (§5.3) from the lowest number that may still pend, and `HlAdmin`'s
+  numbers from a cursor below which every number was read at the finalized block — started past `HlAdmin`'s stored
+  start (its first storage word), never at 1, since no number at or below it ever held a decision (E4-TL8) — keeping a
+  decision pending for good (a kind 8 waiting for code, one under a lasting hold) on a list of its own, so it never
+  hides the numbers after it (E3-GS9). A realm whose ledger does not read is logged and skipped that tick, with no
+  alarm of the executor's own (E4-TL4). Its gno calls whose gas only a simulation knows — a realm decision's
+  `Execute`, GovDAO's `ExecuteOrRejectProposal` — are simulated from its `-gno-gas` (45M) up, the ceiling raised
+  fourfold on an out-of-gas as far as the block's 3B and the broadcast sized from the simulation that fit, the key
+  holding the fee of the gas a simulation asks (3 GNOT at the block's gas; a simulation spends none of it): a 128-id
+  forged restore's `Execute` was ≈1.26B on a v1.5.1 node, past the 180M the client's retry had stopped at, which left
+  such a call to a member's own hand (the realms audit's note, round 5; F17d). One that runs out of gas with the
+  block's 3B — no block takes it while the realm's state stands: a queued range void of 1,000 credits needed ≈3.58B to
+  `Execute` before the routes bounded voids (§5.3; E6-RL1) — had been simulated to the block every minute for good,
+  said by the log alone; it is alarmed `decision:too-big:<realm>#<id>` (`proposal:too-big:<id>` for GovDAO's
+  `ExecuteOrRejectProposal`) with the gas its simulation used, never parked, tried again hourly — the alarm standing
+  between the tries and across a restart — until it lands, is no longer due, or a member cancels it and decides it
+  again in parts (a range as several ranges by height, a list as shorter lists); a broadcast sized below the block
+  that runs out once the state moved stays an ordinary retry (F18c). It finishes the GovDAO proposals made with the
+  builders once they have the votes and are past their deadline, and alarms a GovDAO list it cannot parse whole, which
+  it had read as empty, finishing nothing, silently (F17b; the integration lane I3).
 - Ethereum → gno.land: the Solana plan's `Process`, `Claim`, `Execute(id)` and `Reemit` loops, `Claim` in batches
   sized from its gas: twenty claims at most, the batch aimed at three quarters of the gas the gno client carries
   (180M: 45M, then four times that), shrunk when the last `Claim` passed it, grown by one or more while a full batch
@@ -920,12 +1035,23 @@ hidden an older pending kind 8; E4-CF4), the client's trusted header gno.land's 
 pending kind 8 or 9 NOT SHOWN IMMUTABLE (E3-GT3, E3-GT10). `hlwatch` keeps GovDAO's next proposal number and
 the set of proposals still open at its last whole read, and each reading reads only the pages of proposals made since
 and each open proposal's own page — not a floor at the lowest open id, which a proposal nobody finishes would pin
-(gnoland-1's #6 is still open behind #7–#13, all accepted); read whole, a list past the reader's fifty pages — 250
-proposals at impl v0's five a page — had kept the page from green for good (F17b's review; the integration lane I3).
-It reads only the lines GovDAO writes on a proposal's page, never the proposer's description, which renders first and
-could carry a forged "Executor created in" line. Its own gno calls — a
-guardian's `SetFlag` naming ids, a `ClearFlag` — are sized from their simulation as the executor's are (§5.7): a
-payouts flag naming 256 ids costs ≈0.5B on a v1.5.1 node, past the 180M the client's retry had stopped at (F17d).
+(gnoland-1's #6 and #10 are still open, #7–#9 and #11–#13 accepted, read 2026-10-15); read whole, a list past the
+reader's fifty pages — 250 proposals at impl v0's five a page — had kept the page from green for good (F17b's review;
+the integration lane I3). It reads a proposal's page by the lines GovDAO writes — the last "### Stats" with its status
+and votes, and the last "Executor created in" line before it — never the proposer's description, which renders first
+and could carry a forged "Executor created in" line; GovDAO writes its own executor line only when the realm the
+executor states survives its inline-code sanitizing, so for an executor whose stated realm strips to nothing the line
+read is the description's or the executor's metadata — the reach a third party's executor has already (E3-GT7, §9;
+E6-PC5). Its own gno calls — a guardian's `SetFlag` naming ids, a `ClearFlag` — are sized up to the block from their
+simulation, as the executor's are (§5.7; the integration lane I4): a payouts flag naming 256 ids costs ≈475M on a
+v1.5.1 node (≈499M before hlmailbox kept a flag's ids sorted, §5.3), past the 180M the client's retry had stopped at
+(F17d), and is simulated at 720M, so the guardian's gno key must hold 0.72 GNOT for it and up to 3 GNOT for a call
+near the block's gas — the ante holds a simulation's fee to the balance (§5.5's floats). `hlwatch flag` sets the flag
+on gno.land first and sends the gate's and `HlAdmin`'s strokes only once it is set: a gno.land leg that fails — the
+holder's node down or behind, gnoland-1 halted, a key short of a simulation's fee — flags neither Ethereum object by
+that command, so a guardian names a flood by a range (`heights:<from>-<to>` or `since:<from>`, costing what a one-id
+flag does) when a list costs too much, and calls `setFlag` on the gate and on `HlAdmin` by another tool when gno.land's
+leg cannot go (E6-PC4).
 
 5.9 Acceptance before mainnet — as the Solana plan §5.9's list, read for Ethereum (Sepolia for devnet, the drills
 on a factor-8 build: 7 days in 21 hours), plus:
@@ -962,7 +1088,9 @@ on a factor-8 build: 7 days in 21 hours), plus:
   judged once the index's finalized block's time has passed the credit's — an honest burn credited by then lies at or
   below that block — or at once when neither provider, each current to its head, shows a dispatch of its id above the
   index; until then it waits, named (§5.6; E4-GT1); and its alarm ends only when its burn is indexed or every route
-  answered and none holds it waiting — one route's failed read beside another's "no such claim" cures nothing (E5-GT4);
+  answered and none holds it waiting — one route's failed read beside another's "no such claim" cures nothing (E5-GT4).
+  This rule and the diverted-credit rule below run over a cut that moved or an order that did not hold as over one
+  that held: each judges single claims, never the cut's sum (§5.6; E6-GT1);
 - a diverted credit and a foreign decision are kept in the monitor's and `hlwatch`'s state and judged again every poll
   until cured — a diverted claim gone, credited afresh by vote, or naming the burn's recipient and amount now (a voided
   one kept quiet, and flagged again if a restore brings it back); a foreign decision no longer pending on the live
@@ -1251,11 +1379,14 @@ each value a decision moved held to that decision, r/hlgov's decisions in flight
 E3-CF2, E3-CF9, E4-TL1, E4-TL6). Before voting a kind 8 or
 9 a member reads, as `hlwatch check` prints them, the target's code against a reproducible build, its storage layout
 against the running one (append-only by the layouts' types, §0; without both layouts LAYOUT NOT CHECKED, and no
-"immutable"; E4-GT3), and that it is not an EIP-7702 account — the decision read from r/hlgov's own record of it once
-dispatched (`-decision N`), or before from the proposal's description (`-proposal ID`), which is advisory: on gno
-v1.5 GovDAO shows the realm an executor was created in as the executor itself states it, so a stranger's proposal can name r/hlgov's builder and describe any
-target — it can never make r/hlgov dispatch, but its voters would read the wrong code — until r/hlgov records each
-request its builders make (not built; E3-GT7, §9). For a kind 8 with a call, the member simulates the call as it will
+"immutable"; E4-GT3), and that it is not an EIP-7702 account, all read at the pair's finalized block, whose age by its
+own time `hlwatch check` prints beside the verdict — past half an hour it says that finality stalled or a provider
+answers an old block, so a target created since reads as not yet created (E6-GT4) — the decision read from r/hlgov's
+own record of it once dispatched (`-decision N`), or before from the proposal's description (`-proposal ID`), which is
+advisory: on gno v1.5 GovDAO shows the realm an executor was created in as the executor itself states it, so a
+stranger's proposal can name r/hlgov's builder and describe any target — it can never make r/hlgov dispatch, but its
+voters would read the wrong code — until r/hlgov records each request its builders make (not built; E3-GT7, §9). For a
+kind 8 with a call, the member simulates the call as it will
 run — an anvil fork of the chain, `HlAdmin.execute`, the call on its 2,000,000 gas — since no tool of ours does
 (`hlwatch check` decodes the call against the implementation's ABI and runs nothing; not built, §12; E4-FC7); no
 initializer may branch on `gasleft()` or swallow a failed call (a `try`/`catch`, a low-level call whose failure it
@@ -1289,14 +1420,16 @@ As the Solana plan §9, with these rows changed or added:
 | A kind 8 or 9 names a mutable target (an EIP-7702 account, a proxy of its own, code built to pass the checks) | `HlAdmin` spends a delegation designator; the code hash pins bytes; kind 8's after-checks catch an honest mistake, never code written to answer them falsely, and kind 9 binds the successor's `HlAdminExec` and start only through its code hash: both are the members' review, `hlwatch` calling code immutable only against a reproducible build; the 7 days and a hold are the brake (§6.5, §8; E3-RT8, E3-AS7, E3-CT1). |
 | A stranger's `dispatch` poses as a burn, or as a send in flight | Only dispatches by a token router to its route, beside the token's own transfer event, are burns, and only messages a route realm of the token's line sent are sends (§5.6; E3-RT1). |
 | A stranger's huge `Dispatch`, or a long queue of waiting claims, stops the walks that read every nonce or every claim | `Dispatch` refuses a body above 2,048 bytes, and every page the machines read stays under a third of the 3B query budget at its node figure, held by the realms' render-gas gate (§5.1; E3-RL1, E4-RL2); the waiting claims are read from each route's own index, whose page costs the same at any depth, never from p/hlroute's walk (§5.2, §5.9; E4-RL1). |
-| A migration page outgrows gnoland-1's block, and the migrated route freezes | A successor pulls pages of 50 records, never p/hlroute's 500 (5.28B gas on a v1.5.1 node for 500 open claims, past the 3B block, while from the migrate on the predecessor refuses everything but a re-point or a cancel): a page adopted whole is ≈0.54B at a route of 100 open claims and ≈1.04B at its costliest in a backlog of 3,000, and the realms' migration gate holds a page's `Pull` and `Adopt` under a third of the block at their node figures; a restore names 128 ids at most, so one at once fits the governor's `Govern` before the yield (§5.3; E5-RL1, E5-RL2). |
+| A migration page outgrows gnoland-1's block, and the migrated route freezes | A successor pulls pages of 25 records, never p/hlroute's 500 (5.28B gas on a v1.5.1 node for 500 open claims, past the 3B block, while from the migrate on the predecessor refuses everything but a re-point or a cancel), nor the 50 of e10, whose costliest page in a migration of 10,000 open claims was 1.25B there: a page of 25 is ≈0.70B at its costliest in that migration, and the realms' migration gate holds a page's `Pull` and `Adopt` under a third of the block at the node's figures for it; no machine drives the pages, `Adopt` being anyone's (§5.3; E5-RL1, E6-RL3). |
+| A flood's void, or its restore, outgrows gnoland-1's block | A void names 64 ids at most and a range void 100 credits by the route's own tally, closed at the block before its proposal's, where p/hlroute's 256 ids were 3.02–3.45B at once at 5,000–10,000 open claims and its 1,000 credits, at 2,512, 4.44B at once and 3.58B Executed; every void transaction is at most ≈0.96B at 10,000 open claims, held by the realms' void gate, and a restore names 40 ids, held there too (the integration lane I4); a bigger flood is more decisions — four for a 256-id flag, a range a hundred credits — and a decision no block can take is alarmed `decision:too-big`, tried hourly, until a member cancels it and decides it again in parts (§5.3, §5.7; E5-RL2, E6-RL1). |
 | A stranger's sends ride a header the budget did not book them under | A decision's or a validator change's header books no route send, and a decision's header proof, the backstop's, or a stranger's update or header proof books nothing — the updater's own header proofs for route sends book them by their trailer, as its updates do (E5-CF2): sends beside a decision, a pause or a front-run header proof are held to their own fee; a stranger's `Reemit` after each six-hour header buys no second header, the send being delivered from the header its trailer names, one booking a send (§5.5; E4-GS2, E4-GS4, E4-CF2). |
 | A stranger re-emits a waiting message every block | Each re-emit is one more event of it; the walk reads each step only its dispatch, its newest four events, those whose header the machine saw recorded and its newest at or below the trusted height, in batches of at most the provider's `batchSize`, and judges the rest at the finalized block, dropping the unrecorded — two reads apiece, an hour apart — so the decisions and every send still go (≈8 GNOT an hour of re-emits had failed every walk past geth's batch cap of 1,000 and stopped gno.land → Ethereum for good); `outbox:walk` alarms a walk failing two minutes (§5.7; E5-GS4). An old re-emit whose header the stranger proves later is not seen: the message waits for its newest event's header. |
-| A stranger's transaction beside a dispatch spoils its block's results | A failed transaction's leaf is rebuilt with its error from §13's closed set, so failures spoil nothing; a type outside the set alarms (`results:schema:<type>`) and the block's messages are re-emitted (§5.7; E3-RT2, E3-GS1). One door stays open: a string that is not valid UTF-8 in any event attribute or panic message in the block — `chain.Emit` takes any bytes, a panic message is cut at 1,024 bytes mid-rune, and a realm that repeats a caller's string in its panic passes the caller's bytes on (a failed `MsgCall` needs no coins and no `MsgRun`, E4-GS1) — reaches `/block_results`' JSON as U+FFFD while the hashed leaf keeps the bytes, so the block stays unprovable from public RPC JSON; the relayers re-emit with a backoff (a minute, doubling, an hour) and alarm (`results:mismatch`, `reemit:poisoned`), and whoever keeps one such cheap transaction beside each dispatch and re-emit keeps gno.land → Ethereum waiting, decisions included — a decision is never parked or ended by it, and is delivered within a backoff once the stranger stops — the guardians' hold the brake meanwhile. This deployment's realms no longer open that door themselves: every caller's string a panic or an error of theirs repeats is quoted in ASCII and cut at 64 bytes, an event of theirs carries only values they validated, a string handed to p/hlroute (which repeats it whole) is refused unless it is ASCII, and no message of theirs reaches the cut — held by `eth/scripts/check-echoes.go` in the realms' suite (F15d; E4-GS1, E4-RL6), default-deny since fold F17c: every operand of a panic, an error, an event value or a page is a literal, a constant, a sanitizer's call (ASCII by construction, each with a bound: the quoting echo, numbers, hex, addresses — `strconv.Quote`, which keeps printable runes outside ASCII, no longer one) or named by a reason on its line, and a message whose own text is not ASCII is bounded under the cut — thirteen constructs that passed the old checker's taint rules now fail it (E5-RL3); and a verifier GovDAO activates must refuse by a returned error, never a panic, which no realm can catch or quote (§5.1; E5-RL4). Any other realm of gnoland-1 can still open it (r/sys/params repeats a path), and anyone's long panic is still cut mid-rune. Closing it needs a lossless results source — our own gnoland-1 node serving the raw results, or an upstream RPC change — Jae's decision (§11.11). |
+| A stranger re-dispatches decision numbers every block (`Redispatch`, ≈0.008 GNOT a copy) | A number keeps its first copy, the first two seen delivered at latest and its newest four — the one that went through once one did, none once it is reported taken — and an open verdict is judged once a step within 64 marks, so a copy of a number gone through or reported taken costs a machine one read of the message and one delivered mark, once, and ends, and nothing a relayer keeps grows with the pile; a copy of a number still waiting — for its header, or for the finalized block after its delivery (≈13–19 minutes) — is read every step until then (§5.7; E6-GS1: the relayer had kept every copy and read every copy's mark at each fresh one, 2,219 `eth_call`s a step at a pile of 2,000). |
+| A stranger's transaction beside a dispatch spoils its block's results | A failed transaction's leaf is rebuilt with its error from §13's closed set, so failures spoil nothing; a type outside the set alarms (`results:schema:<type>`) and the block's messages are re-emitted (§5.7; E3-RT2, E3-GS1). One door stays open: a string that is not valid UTF-8 in any event attribute or panic message in the block — `chain.Emit` takes any bytes, a panic message is cut at 1,024 bytes mid-rune, and a realm that repeats a caller's string in its panic passes the caller's bytes on (a failed `MsgCall` needs no coins and no `MsgRun`, E4-GS1) — reaches `/block_results`' JSON as U+FFFD while the hashed leaf keeps the bytes, so the block stays unprovable from public RPC JSON; the relayers re-emit with a backoff (a minute, doubling, an hour) and alarm (`results:mismatch`, `reemit:poisoned`), and whoever keeps one such cheap transaction beside each dispatch and re-emit keeps gno.land → Ethereum waiting, decisions included — a decision is never parked or ended by it, and is delivered within a backoff once the stranger stops — the guardians' hold the brake meanwhile. This deployment's realms no longer open that door themselves: every caller's string a panic or an error of theirs repeats is quoted in ASCII and cut at 64 bytes, an event of theirs carries only values they validated, a string handed to p/hlroute (which repeats it whole) is refused unless it is ASCII, and no message of theirs reaches the cut — held by `eth/scripts/check-echoes.go` in the realms' suite (F15d; E4-GS1, E4-RL6), default-deny since fold F17c: every operand of a panic, an error, an event value or a page is a literal, a constant, a sanitizer's call (ASCII by construction, each with a bound: the quoting echo, numbers, hex, addresses — `strconv.Quote`, which keeps printable runes outside ASCII, no longer one) or named by a reason on its line, and a message whose own text is not ASCII is bounded under the cut — thirteen constructs that passed the old checker's taint rules now fail it (E5-RL3), and twelve more since fold F18b: names resolved by import path (an aliased `chain` is `chain`, a foreign package imported as `strconv` no sanitizer, a dot import refused), every `chain.Emit` argument checked, the event's type too, package-level declarations walked as functions, the sanitizers trusted only where their source is the pinned one, an identifier a constant only where it is declared one, `T{}` a constant only for a type with no method (gno prints a panic's value through its `Error`), a page builder used other than by its methods a finding, rule 3's guard counted only before the hand-off, a fixed byte array and the tree's named string types a caller's bytes, and an operand ASCII only where the tree's source or its reason says so, so a message that can carry text outside ASCII is bounded under the cut — the one the realms had, ParseEthAddress's refusal with its two em dashes repeated in the routes' panics, now written in ASCII (E6-RL2); and a verifier GovDAO activates must refuse by a returned error, never a panic, which no realm can catch or quote (§5.1; E5-RL4). Any other realm of gnoland-1 can still open it (r/sys/params repeats a path), and anyone's long panic is still cut mid-rune. Closing it needs a lossless results source — our own gnoland-1 node serving the raw results, or an upstream RPC change — Jae's decision (§11.11). |
 | A stranger's updates run the client past waiting sends and decisions | A message left below the trusted height after one re-emit, and a decision at once, is proven by a header proof no later update pre-empts, and the six-hour rule holds there too (§5.5, §5.7; E3-RT4); a stranger who front-runs the updater with the identical header makes the sends under it not the updater's, so they are held above ≈1.9 gwei (a send alone in its leaf; ≈0.97 for one in a leaf of four, both moving with the configured rates, E4-FC8) and re-emitted, each cycle costing the stranger a full update. |
 | A gno.land upgrade changes an encoding the client verifies (the header hash, the sign bytes, a validator or results leaf, the event, Go's ed25519 rules) | gnoland-1 upgrades often (three halting upgrades in its first week; v1.5.1 since 2026-10-13), and every input of the client is v1.2.0's byte for byte today (§2). The monitors and `hlwatch` rebuild from their own node what the client verifies — every header they read hashed as the client hashes it, and once a minute the block below the head whole: its set's leaves, every precommit under Go's ed25519 over the client's sign bytes and the tally, its results leaves against the next header's `LastResultsHash` — and alarm `gno:encoding` on a difference, `gno:version` for a day when the node's reported version changes (gnoland-1 reports tm2's constant there, so the rebuild is the guard that does not depend on it); the updater, the relayers' backstop and `proveOld` hash every header they would submit as the client does and, on a difference, submit nothing and alarm `gno:encoding` too (the integration lane I1; E4-CF6, E4-FC4). A results root that differs in a block whose JSON carries U+FFFD is the non-UTF-8 door above, not an upgrade — `results:lossy`, an alarm `hlwatch` can be green beside, the probe taking the nearest of the five blocks below the head that the JSON carries whole, and saying it did not read when none is — and `gno:encoding` stands for a mismatch in a block the JSON carries whole, or a leaf of a type outside §13's closed set, which no stranger's transaction can make (E4-AS1, E4-CF1, E4-GT4). A client that accepts both encodings must be voted, delivered and executed by kind 8 before the upgrade's height (7 days at least); an upgrade with less notice stops gno.land → Ethereum and `HlAdmin`'s decisions with it (§6.4), burns back still exiting through the signers (E3-AS3). |
 | A flood of covered sends drains the keys decisions ride | The budget books every header and delivery against the sends' own fees, but the fees are GNOT with the treasurer and the ETH is the updater's and the relayers' keys' (§5.5): such a flood spends them at the rate the updater buys, one update in two minutes; the two keys' floors (`float:updater`, `float:relayer`: a decision's header at the emergency cap, E4-FC5, E4-RT1) and the 7-day runway alarms warn, and the operator refills; no daily cap on a key's route spending and no decision float route traffic cannot spend exist (E3-RT6; §11.4). |
-| Strangers' dust burns, or a large transfer's installments, drain the relayers' gno key | A credit locks ≈0.9–1.7 GNOT of storage deposit from the key, never returned to it while ugnot is restricted, so a burn below its route's fee is not processed by the relayers (alarmed `inbound:dust:<symbol>`; anyone may process it at their own cost), and the signers and monitors keep it as known dust (§5.5, §5.6); a `Claim` counts as paying only at a unit a claim, else waiting the meters' refill, and the routes pay a later installment only once min(what the claim owes, the fee) has refilled: a 1,000 GNOT transfer to a fresh recipient is ≈50 `Claim`s and ≈1.8 GNOT of the key's gas, where it was ≈5,300 and ≈185 GNOT (§5.4, §5.7); the key's float is sized on the measured deposit, ≈2,000 GNOT, its runway alarmed (§5.5, §11.4; E5-GS1, E5-GS5, E5-RT5). |
+| Strangers' dust burns, or a large transfer's installments, drain the relayers' gno key | A credit locks ≈0.9–1.7 GNOT of storage deposit from the key, of which only what a later call frees comes back, to whoever makes that call (gnoland-1's ugnot is unrestricted): the waiting index's tidy in the relayers' own `Process`, and a paid claim's queue entry, ≈0.31 GNOT, to whoever calls the `Claim` that pays it in full, a stranger's as well — so a burn below its route's fee is not processed by the relayers (alarmed `inbound:dust:<symbol>`; anyone may process it at their own cost; a thousand kept pending at most), and the signers and monitors keep it as known dust, folded out of their state after an hour (§5.5, §5.6; E6-PC1, E6-GT3); a burn at the fee pays the fee — 20 GNOT, ≈11 credits' deposit, for a GNOT credit, but 400 BUBBLE for a BUBBLE one, which refills nothing of the key until the treasurer swaps it, so burns at BUBBLE's fee draw the key at a price in BUBBLE, a price this plan does not state (E6-PC5); a `Claim` counts as paying only at a unit a claim, else waiting the meters' refill, and the routes pay a later installment only once min(what the claim owes, the fee) has refilled: a 1,000 GNOT transfer to a fresh recipient is ≈50 `Claim`s and ≈1.8 GNOT of the key's gas, where it was ≈5,300 and ≈185 GNOT (§5.4, §5.7); the key's float is sized on the measured deposit, ≈2,000 GNOT, its runway alarmed (§5.5, §11.4; E5-GS1, E5-GS5, E5-RT5). |
 | The exit's fresh deployment and what it leaves the launch's | §6.4: a fresh r/hlgov compiled with the new contracts; the routes' refusals, realm lists, kind 12's floor and hlmailbox's contract list stay the launch's, and no route migration completes after the exit, since only the launch r/hlgov writes the enrolment note — a hlmailbox decision naming the r/hlgov whose notes count would lift it, a new power not built (E3-CF5; §11.12); the launch r/hlgov keeps that power after the exit, retired by the members' rule alone, which nothing enforces and no tool alarms (E4-RT3). |
 | A stranger's GovDAO proposal claims r/hlgov's builder | On gno v1.5 GovDAO's page shows the realm an executor was created in as the executor states it, so a proposal can name r/hlgov and describe any target; it can never make r/hlgov dispatch, but voters reading it would read the wrong code. `hlwatch check -proposal` says so, and members read a kind 8 or 9 again from r/hlgov's own record (`-decision`) once dispatched, before it matures; the proposal reading stays advisory until r/hlgov records each request its builders make (§8; E3-GT7). |
 | A leaked set pre-stages forgeries before its rotation | Stages are keyed by the epoch and the expected set and re-checked live at the finish; the watch alarms on stages for unknown headers, and at once on a stage more than an hour of blocks above both heads it reads (§6.3; E4-GT5). |
@@ -1304,14 +1437,16 @@ As the Solana plan §9, with these rows changed or added:
 | Ethereum's finality stalls, or a provider's finalized answer stands still | Signers sign nothing newer (for them, liveness only), and a monitor's pending reading waits with them (§5.6); route sends to Ethereum continue (the client depends on inclusion, not on Ethereum's finality), but `HlAdmin`'s decisions past the next one wait for finality, since the updater buys a header only for the number after the last recorded at the finalized block (§5.7; E3-GS6, E4-FC6). For the watch it is not liveness alone: every Ethereum-side rule of the monitors and `hlwatch` reads at the stalled block while deliveries mint, so a forged mint or decision above it is unseen until finality resumes — a reading whose finalized block is more than half an hour old by its own time is blind, said and never green, alarmed `eth:finality-stall` and at flag level past the hour (the signers' alarm after an hour standing still), a guardian's flag and hold the brake meanwhile; and two providers' finalized answers more than two epochs apart are a disagreement, so one provider standing still cannot blind the pair (§5.6; E5-RT1). Whether the monitors then flag the gate, or read at `latest`, is Jae's (§11.13). |
 | A deep Ethereum reorg | The signers read only finalized blocks; the relayer re-sends a delivery or update a reorg dropped (each is idempotent: the mailbox's delivered mark, the client's height rule, `HlAdmin`'s sequence). |
 | An RPC provider lies | As on Solana: two per signer and monitor must agree — on the finalized block's hash, time and parent too, and within two epochs of each other, so one standing still at an old real block is a disagreement (E5-RT1); the identity and the refusal rule catch a forged burn's credit at the meter; a provider stepping back to an older real finalized block reads below the floor, no verdict (§5.6; E3-GT9); one trailing the signers' finalized block, or lying about it, holds a BROKEN reading unjudged rather than breaking it, but only within what both providers show above the index — an excess past that is a break at once — alarmed after two minutes and at flag level after an hour, never flagged on one provider's word (§5.6; E4-GT1, E5-GT1); both providers omitting an honest burn's log above the index (two faults) makes its lag a break at once, as it makes a waiting claim forged (E5-GT4). The updater and the relayers read through one provider, which decides their spending and never a credit: a header's booking rests on its recording transaction's signature, calldata and receipt, so a lying one can withhold a booking (the send waits) and make one only from a transaction `eth.updater`'s key signed that carries the header, with a receipt it forges too (§5.5; E5-RT3). Independence is by operator, which no configuration shows (E3-AS4). |
+| A delivery lands in every cut's window — a forger's credit a gno block (two signer keys), or a stranger's dust a block — so no cut holds | The window holds only hlmailbox (read twice), the routes, their lines and the own node's head — five node reads at the two routes and no provider call — every other read after it, each mark placed by the window's head; a window that moves is taken again at once, three takings at most; a reading BROKEN across a cut that moved anyway is a break whatever landed when nothing is unplaced or the excess passes E5-GT1's bound; the pending readings and the credit rules run over a moved cut, and every Ethereum-side rule whatever the gno side read; and `cut` is at flag level after an hour without a verdict (§5.6, §5.9; E6-GT1: round 5's window, 404 node reads and six provider calls with a hundred dust burns, two gnoland-1 blocks, had kept every monitor at no verdict over 722 forged credits in 720 polls, nothing flagged, and a stranger's dust a block had halted the signers after an hour). |
+| A machine's gno endpoint answers from more than one backend (a load balancer) | The own node is a requirement (§1, §11.10): on an endpoint whose backends sit a block apart the audit's rig flagged an honest credit in one poll of eight read while it propagated, and a halted signer signed a forged burn in one round of seven. The machines refuse every verdict once two answers cannot come from one node — a head or an hlmailbox count lower than one read before, a mark above a head read after it, more deliveries placed at a head than counted after it — `gno:backends` at flag level, kept in the state until the machine has a node of its own; that finds such an endpoint and cannot stop what it fools before an answer shows it (in the audit's rig 20 false flags in 400 polls, a forged burn signed in 3 of 64 rounds; §5.6; E6-GT2). |
 
 ## 10. Costs and timeline
 
 E-M1 (realms), E-M2 (contracts) and E-M3 (machines and tools) are built on 2026-10-14 (`BUILD.md`), then the audit
 loop; the Sepolia deployment and its two weeks, then mainnet on Jae's word. Ethereum's costs at deploy and per
 transfer are E-M2's measurements (§2); the deploy's gas and the floats are §11.4's ask. The local end-to-end run
-(`eth/bridge/local/e2e.sh`: anvil pinned to Osaka beside gnodev v1.2.0) passed on each round-5 fold (F17a–F17d, each
-on its own tree, in 450–484 seconds). Its header lists what it exercises: five decisions end to end through r/hlgov
+(`eth/bridge/local/e2e.sh`: anvil pinned to Osaka beside gnodev v1.2.0) passed on each round-6 fold (F18a–F18c, each
+on its own tree, in 489–500 seconds). Its header lists what it exercises: five decisions end to end through r/hlgov
 and `HlAdmin` — kind 7; kind 8 with a call, the gate upgraded by `upgradeAndCall` to an implementation built in the
 run, the new code's initializer run once through the proxy (its mark read back, a second run refused) and the same
 execute, left 1,500,000 gas, refused `CallStarved()` at the block before the relayer's, its EIP-1967 slots then held by
@@ -1321,17 +1456,21 @@ BUBBLE's, for another domain, none before it), each read back on Ethereum — be
 unpauses; the gate's refusal under a flag for both tokens (the relayer's own deliveries of a BUBBLE and a GNOT send,
 simulated at a block under the flag, revert `Paused()`, and pass at the block before each delivery), both Ethereum
 strokes asserted; a stranger's `MsgRun` refused in the allowlist's own words after a control that goes before the
-param is set; and `hleth audit` of the governed bridge UNVERIFIED from the operator's config alone, and PASS with the
+param is set; `hleth audit` of the governed bridge UNVERIFIED from the operator's config alone, and PASS with the
 member's own gno source and launch values beside it (its gno sources two spellings of one node: the agreement code,
-not independence) (E4-TL5, E4-RL4, E5-CF4). What it does not: a kind 9 (cmd/hleth's anvil tests hold it), the
-executor's starved resend (anvil's estimate finds the least gas that passes, so no execute starves there: the agent's
-and forge's tests hold it), a staged update, the backup relayer's takeover, sender replacements, the six-hour draw, a
-set of more than one validator. It sets `run_submitters` through GovDAO to GovDAO's one
-member there, as gnoland-1 admits its three, so a stranger's `MsgRun` is refused there too and the batch re-emit
-runs as `MsgCall`s (E3-GS10, E3-AS1). Open
-before Sepolia: the stage step (§4; E3-CF7); a provider whose RPC gas cap takes `HlAdmin`'s ≈66M estimate there
-(geth's default is 50M) and a gate that runs the setup against a Sepolia fork, which anvil cannot yet (§2; E3-AS2,
-E4-FC8); and the local run on gnoland-1's own gno (v1.5.1, §2; the realms' suite passes there since round 4).
+not independence) (E4-TL5, E4-RL4, E5-CF4); a burn of half BUBBLE's fee, dust, signed by every signer, left by the
+relayer (pending, alarmed once, never `Process`ed) and counted in flight and apart on the monitor; and its end check —
+the relayers' gno key funded with seven days of the planned float, so `runway:relayer-gno` is never raised, and the
+run failing on any alarm it does not raise on purpose or that stands at its end but the dust step's (the integration
+lane I3; E6-PC5). What it does not: a kind 9 (cmd/hleth's anvil tests hold it), the executor's starved resend
+(anvil's estimate finds the least gas that passes, so no execute starves there: the agent's and forge's tests hold
+it), a staged update, the backup relayer's takeover, sender replacements, the six-hour draw, a set of more than one
+validator, a route's migration (no machine drives its pages, §5.3). It sets `run_submitters` through GovDAO to
+GovDAO's one member there, as gnoland-1 admits its three, so a stranger's `MsgRun` is refused there too and the batch
+re-emit runs as `MsgCall`s (E3-GS10, E3-AS1). Open before Sepolia: the stage step (§4; E3-CF7); a provider whose RPC
+gas cap takes `HlAdmin`'s ≈66M estimate there (geth's default is 50M) and a gate that runs the setup against a
+Sepolia fork, which anvil cannot yet (§2; E3-AS2, E4-FC8); and the local run on gnoland-1's own gno (v1.5.1, §2; the
+realms' suite passes there since round 4).
 
 ## 11. Decisions that are Jae's
 
@@ -1351,8 +1490,10 @@ E4-FC8); and the local run on gnoland-1's own gno (v1.5.1, §2; the realms' suit
    first (free, by faucet). Not built, and his to ask for: a decision key and float route traffic never spends, and a
    cap on a key's daily route spending (E3-RT6). And GNOT: the relayers' gno key ≈2,000 GNOT — ≈90 GNOT a day at the
    planned 50 credits (the storage deposit a credit locks, ≈1.7 GNOT, and its gas), ≈22 days; the 500 GNOT asked
-   before lasts ≈5.6 days and alarms from launch day — refilled by the treasurer from r/hlfees, where a credit's 20
-   GNOT fee covers ≈11 credits' deposit (§5.5; E5-RT5).
+   before lasts ≈5.6 days and alarms from launch day — refilled by the treasurer from r/hlfees, where a GNOT credit's 20
+   GNOT fee covers ≈11 credits' deposit and a BUBBLE credit's, 400 BUBBLE, refills the key only once the treasurer
+   swaps it (§5.5; E5-RT5, E6-PC5); and each guardian's gno key 3 GNOT, the fee of a flag's simulation at the block's
+   gas, without which a flag naming ids stops on gno.land before it reaches Ethereum (§5.8; E6-PC4).
 5. The fees on the Ethereum routes (§5.5's proposal: one fee each way, 20 GNOT and 400 BUBBLE, minimums 40 GNOT and
    800 BUBBLE — 20 GNOT covers a send in a batch of four up to ≈0.61 gwei by the budget's model and 10 GNOT only to
    ≈0.31, the 30-day mean being 0.38; the launch notice prints BUBBLE's GnoSwap price beside its 400, E3-FC7, E4-FC2),
@@ -1368,21 +1509,27 @@ E4-FC8); and the local run on gnoland-1's own gno (v1.5.1, §2; the realms' suit
    execute and cannot propose a cancel, an unpause, a void or a rotation. Recommendation: make the yield conditional
    on `run_submitters` admitting GovDAO's members (or on a GovDAO path that takes a `MsgCall`), and say in the yield
    vote's words who can propose: until then the answer to a hostile decision rests on those three keys (§9; E4-RT2).
-10. The endpoints the machines read (E3-AS5, E3-AS4, E5-RT6): a gnoland-1 node of its own for every signer and
-    monitor — a requirement, not a preference: the cut reads its state and its head from one node, and a load-balanced
-    public endpoint can answer them from different backends, which flags an honest credit, pausing the gate for a
-    day (§5.6) — so the public endpoints the Solana deployment's machines read serve no signer or monitor here, and a
-    machine that reads them has their per-IP limits named in the launch notice, every poller of both bridges counted
-    under them; and the Ethereum providers — two per signer and monitor of different operators, full history from
+10. The endpoints the machines read and serve (E3-AS5, E3-AS4, E5-RT6, E5-RT2, E5-GS2) — three of the four things
+    round 5 changed in what Jae provides, §11.4's ≈2,000 GNOT the fourth (E6-PC3): a gnoland-1 node of its own for
+    every signer and monitor — a requirement, not a preference: the cut reads its state and its head from one node, and
+    a load-balanced public endpoint can answer them from different backends, which flags an honest credit, pausing the
+    gate for a day, or lets a halted signer sign a forged burn (§5.6; E6-GT2); the machines now refuse every verdict
+    once they see two backends (`gno:backends`), which finds such an endpoint but cannot undo what it fooled before — so
+    the public endpoints the Solana deployment's machines read serve no signer or monitor here, and a machine that
+    reads them has their per-IP limits named in the launch notice, every poller of both bridges counted under them;
+    the signers' public signature endpoints served by each signer's own TLS on its public port, with no reverse proxy
+    in front, or reached by the relayers directly where a proxy must share the port (§5.6, §8; e9 had nginx in front);
+    and the Ethereum providers — two per signer and monitor of different operators, full history from
     `eth.deployBlock`, paid plans where the free ones cannot carry a signer's round, and for the updater and the
-    relayers one that serves the client's logs of the last three days (§5.5, §5.6) — named in the launch notice with
-    their operators, tiers and cost.
+    relayers one that serves the client's logs of the last three days (§5.5, §5.6: publicnode cannot be theirs) —
+    named in the launch notice with their operators, tiers and cost.
 11. A lossless results source (§9): our own gnoland-1 node serving the relayers the binary results (the ABCI
     responses of its state store), or an upstream change — `block_results` serving the bytes, or `chain.Emit` and the
     VM refusing a string that is not UTF-8 — closes the last way a stranger keeps gno.land → Ethereum waiting. Round
-    4 closed this deployment's own doors (its realms repeat no caller's bytes, E4-GS1, E4-RL6), and round 5 made the
-    checker that holds them default-deny and kept a verifier's panic out by rule (E5-RL3, E5-RL4); any other realm's
-    failed call, or anyone's long panic cut mid-rune, still opens it, so the source stays a launch item.
+    4 closed this deployment's own doors (its realms repeat no caller's bytes, E4-GS1, E4-RL6), round 5 made the
+    checker that holds them default-deny and kept a verifier's panic out by rule (E5-RL3, E5-RL4), and round 6 closed
+    twelve constructs that checker still passed (E6-RL2); any other realm's failed call, or anyone's long panic cut
+    mid-rune, still opens it, so the source stays a launch item.
 12. Route migrations after §6.4's exit: only the launch r/hlgov writes hlmailbox's enrolment note, so after a fresh
     deployment no route migrates; a 7-day hlmailbox decision naming the r/hlgov whose notes count would lift that,
     a new power over the realms, not built — and, hlmailbox being immutable once deployed, built before its deploy or
@@ -1397,7 +1544,6 @@ E4-FC8); and the local run on gnoland-1's own gno (v1.5.1, §2; the realms' suit
     question: past an hour, should the monitors flag the gate — a pause of gno.land → Ethereum, liveness only — or read
     the gno.land → Ethereum rules (the supplies, the client's record, `HlAdmin`'s decisions) at `latest` meanwhile,
     where a false flag only pauses? Today the stall itself flags nothing: the watch is blind and alarms at flag level.
-
 ## 13. Appendix — byte-level facts for the implementer
 
 gno.land: the Solana plan §13's sign bytes, header leaves, validator leaf, commit rules, results leaf and `Dispatch`
@@ -1591,3 +1737,68 @@ operator's own gno nodes, now a requirement, and the providers (§11.10); the Et
 status site reading every page of every ledger at each status (F15c); and, under Proposal 2's verifier, the cut
 counting the routes' deliveries only (F15b; E5-GT4). Not converged by the loop's rule (`AUDIT.md`): three highs,
 E5-GS1, E5-GS4 and E5-RL1, each folded above with a test that fails before it.
+
+Round 6 (2026-10-15, the fifth code round; five audits, read-only, of the tree at e3d0053f with plan e10 and, for the
+live Solana bridge's fixes, of `bridge` at 4dd1f9d6; findings in `audits/r6/`; this plan's e11, after the folds of
+2026-10-16): the Go's spend path (E6-GS1: one medium), plan and conformance (E6-PC1–PC5: one medium-low, four low) and
+the realms (E6-RL1–RL4: one medium, three low), the three converged by the loop's rule; the Go's trust path
+(E6-GT1–GT4: one high, one medium-low, one low, one info), not converged; and the deploy gate of the live Solana
+bridge's fixes (E6-SF1–SF7: one high, one medium, five low; the Solana tree's), whose fold S6 converged, its high a
+live outage the audit found. In operations: on 2026-10-15 a public Solana provider's short history — it keeps about a
+day of ledger and refuses a listing that names an older signature — stopped the live Solana signers' scans: a route
+quiet for a day left a cursor that provider no longer knew, and every scan through it failed from then on, two of the
+three signers halting and one of the two monitors blind, so a 10 GNOT burn waited with one signature and Solana →
+gno.land was down; the fix is in the Solana tree (lane S7: a scan's cursor keeps the slot its route was read through,
+and a provider whose history no longer reaches it is listed back to that slot or refused for that route,
+`solana:history:<i>`, never a guess). The high here: E6-GT1, two signer keys' forged credit landing in every gno block
+kept every monitor's cut moving, so no rule after the cut ran and nothing was flagged — round 5's fold had made the
+BROKEN cut longer than a block — and a stranger's dust delivered a block halted the signers after an hour. The
+answers: F18a, the trust path (GT1's window, its moved-cut verdicts, the Ethereum side run whatever the cut did and
+`cut` at flag level after an hour; GT2's one-node record and `gno:backends`; GT3's dust folded out of the state; GT4's
+marks above the index read largest first, the webhook's escalation posted once a repeat, `hlwatch check`'s finalized
+age); F18b, the realms (RL1's void bounds, the credit tally, the range closed a block back, `Flagged`'s binary search
+and the void gate; RL3's pages of 25 and the migration gate calibrated at 10,000 claims; RL2's twelve constructs;
+RL4's two installments tests); F18c, the spend path and the executor (GS1's copies kept to what a verdict needs and
+judged once a step, the retired alarm by number; the realms audit's note: a gno call too big for any block alarmed and
+tried hourly); S7 on the Solana branch (SF1–SF6, GT1's Solana sibling, and its own find: the Solana forged-credit rule
+still needs both providers honouring `minContextSlot`); the integration lane I4 (S7's fixes merged into this branch, a restore's 40 ids held by the void gate (64 measured over a third of the block), and `hlwatch`'s `SetFlag` and `ClearFlag` sized up to the block); and this
+plan for the rest (PC1–PC5, and each fold's figures and residuals) — each fix of F18a–F18c with a test that fails
+before it, and the local run passing on each. Missing from e10's open list (E6-PC5): S6's deploy prerequisites — the
+live Solana monitors paired a provider S6's `minContextSlot` check refused, and the live relayers' gno key held ≈100
+GNOT against S6's new planned rate — and I3's item 4, the live Solana relayer's two dust gaps; S7 answered the first
+and the third (E6-SF2, E6-SF4), and the key's top-up stays an operator's step before the Solana deploy (E6-SF7).
+Struck from it: the installments rule's bridge-meter half, now held by a test (§5.4; E6-RL4).
+
+Open after round 6: the non-UTF-8 class beyond our realms (§9, §11.11: Jae's lossless results source); what the watch
+does in a finality stall past the hour — flag the gate, or read at `latest` (§11.13: Jae's); a gno endpoint answering from more than one backend, which the machines find but not before it
+fools a reading (§5.6, §11.10; E6-GT2); the monitors' burn index, which keeps every credited burn for good, ≈700 bytes
+each — honest traffic's growth, ≈12 MB a year at 50 credits a day, not a stranger's lever (E6-GT3); `cut`'s hour,
+which a one-shot `hlwatch status` sees only with `-state` (§5.6); a decision number's copies, each read every step
+while its verdict is open — waiting for its header, or for the finalized block after its delivery — so a 20,000-copy
+pile (≈160 GNOT) is 20,000 renders and marks a step for those minutes on both relayers and the updater, and a
+delivered copy taken for a recorded one, so a stranger who delivers a stale copy of a taken number turns its verdict
+to recorded and hides `decision:taken` (§5.7; F18c); `hlwatch flag`'s Ethereum strokes waiting on its gno.land leg
+(§5.8; E6-PC4); the relayers' thousand left dust burns, past which a forgotten one is never brought when the fee falls
+(§5.5; E6-PC5); BUBBLE credits, whose fee refills nothing of the gno key until it is swapped, so a stranger's burns at
+BUBBLE's fee each lock ≈1.7 GNOT of it (§5.5, §9, §11.4; E6-PC5); a stranger's old re-emit proven later by
+`proveHeader`, unseen, its message waiting for its newest event's header, and a message's events above the finalized
+trusted height kept in the index until it passes them (§5.7, §9); the updater's and the relayers' one provider, which
+can withhold a booking, and forging a receipt too, make one of `eth.updater`'s genuine transaction (§9); a provider's
+learned batch size, which only shrinks for the process's life (§5.6); a migration page's cost past 10,000 open claims,
+not measured, and no tool to drive a migration's pages, nor several claim-free pages to one `Adopt` (§5.3); `hleth
+audit`'s 30 seconds to bring a member's gno sources to one height, past which a lagging source is a FAIL (§5.8); the
+live Solana routes' migration pages of 500, their slivers and their voids at p/hlroute's 256 ids and 1,000 credits,
+immutable, and S7's own residuals (the Solana bridge's; E6-RL1); the documentation halves of E4-FC1 and E4-FC4 —
+`test/Gas.t.sol`'s "tx" comment, M2-NOTES.md §5's sizes and §6's method, M3b-NOTES.md's ≈0.7 gwei, `agent/floats.go`'s
+flag figures, `AUDIT.md`'s round-3 sentence (E5-RT4) — and round 6's: `agent/floats.go`'s comment that a release
+refunds the fee collector (E6-PC1), `eth/scripts/gnotest.sh`'s "a seventh of a node's gas" (E6-PC5), and `AUDIT.md`'s four lines its change list lacks (E6-PC3); and, from round 4's list, still: a
+provider lying at the floor with current data, the Solana bridge's; route migrations after the exit, and the launch
+r/hlgov's enrolment note unalarmed then (§6.4, §11.12); the proposal reading, advisory until r/hlgov records its
+builders' requests (§8); a pending kind 8's slots read before the vote, and its call simulated by a tool (§6.5, §8); a
+decision float route traffic cannot spend and a cap on a key's route spending (§5.5, §11.4); proposals after the yield
+by three keys alone (§9, §11.9); the operator's own gno nodes, a requirement, and the providers (§11.10); the Ethereum
+stage step and the Sepolia gates (§10); a stranger's identical header holding sends (§9); a kind 9 end to end (§10);
+the slot watch of a checkpointed `hlwatch` (§5.9); the executor's alarm for a ledger that does not read (§5.7); the
+prices' week (§5.5, §11.5); the status site reading every page of every ledger at each status (F15c); and, under
+Proposal 2's verifier, the cut counting the routes' deliveries only (F15b; E5-GT4). Not converged by the loop's rule
+(`AUDIT.md`): E6-GT1 is high, folded above with a test that fails before it.

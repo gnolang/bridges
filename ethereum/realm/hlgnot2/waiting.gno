@@ -40,23 +40,32 @@ var (
 // most one an entry — and the index stays within about twice the open claims while credits come.
 const tidyStep = 2
 
-// pullPage is how many records a migration page hands to the successor (Pull: st.Export(page, pullPage)): 50, where
+// pullPage is how many records a migration page hands to the successor (Pull: st.Export(page, pullPage)): 25, where
 // p/hlroute's PullPage, shared with the live Solana routes and immutable, is 500 (the round-5 realms audit's E5-RL1).
 // A page of 500 open claims, each leaving this index as the page takes it and entering the successor's, was 5.28B gas
 // on a gno v1.5.1 node — past gnoland-1's block of 3,000,000,000 — and page 0 moves the lock, so a migration stalled
 // there or later freezes the route for good. A page's cost grows with the route (the successor's trees deepen as it
-// imports): adopted whole on the node, a page of 100 open claims was 1.09B at 200 claims and 1.85B at 3,000; of 50,
-// 0.55B and 1.04B (fold-r5/f17c.md). Pull and Adopt of a page are held under a third of the block at their node figures
-// (eth/scripts/gnotest.sh's migration gate, TestTxGasPull and TestTxGasAdopt). It lives here, in the file the three
-// routes keep the same (gnotest.sh compares them), so every route pages alike.
-const pullPage = 50
+// imports, and its credit tally takes each claim, voids.gno): adopted whole on the node, a page of 50 open claims was
+// 1.04B at its costliest in a backlog of 3,000 (fold-r5/f17c.md) and 1.25B in one of 10,000 — 190 of its 200 claims
+// pages past a third of the block (the round-6 realms audit's E6-RL3) — and a page of 25, 0.70B at its costliest there
+// (fold-r6/f18b.md): every page of a 10,000-claim migration under a third of the block, for twice the pages. Pull and
+// Adopt of a page are held under a third of the block at their node figures in that backlog (eth/scripts/gnotest.sh's
+// migration gate, TestTxGasPull and TestTxGasAdopt). It lives here, in the file the three routes keep the same
+// (gnotest.sh compares them), so every route pages alike.
+const pullPage = 25
 
 // maxRestoreIDs is the most ids a restore names here (NewRestoreRequest), where p/hlroute's lists take 256
 // (hlroute.MaxIDs): before the yield the governor's Govern runs the builder and the closure in one transaction, and a
 // restore of 256 withheld claims at once — p/hlroute's own parse, checks and restores (≈2.7B on a gno v1.5.1 node) and
-// this index's 256 new places — was 3.69B there with the list read once, past the block of 3,000,000,000; 128 is
-// 1.93B. A 256-id void is restored by two decisions (E5-RL2; fold-r5/f17c.md).
-const maxRestoreIDs = 128
+// this index's 256 new places — was 3.69B there with the list read once, past the block of 3,000,000,000 (E5-RL2;
+// fold-r5/f17c.md). A restore costs more an id than the void it cures — each claim goes back into its recipient's
+// queue (a new one for a recipient with no other claim) and takes a new place here — so at 10,000 open claims, each
+// to a recipient of its own, a restore at once of 128 withheld claims was 2.43B and of 64, a void's own bound
+// (maxVoidIDs, voids.gno), 1.27B (≈116M and ≈18M an id; the Execute of a queued restore of forged claims ≈122M and
+// ≈12.7M an id): past a third of the block. 40 is 0.83B at once and 0.62B Executed there (48 was 0.97B at once;
+// fold-r6/i4.md), held under a third of the block by the void gate (TestTxVoidRestore, TestTxVoidRestoreExecute): a
+// void of 64 ids is restored by two decisions, a range void's 100 credits by three.
+const maxRestoreIDs = 40
 
 func posKey(n int64) string {
 	s := strconv.FormatInt(n, 10)

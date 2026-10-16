@@ -575,7 +575,7 @@ func TestMonitorProvidersDisagree(t *testing.T) {
 func TestMonitorDivertedAndForgedCredits(t *testing.T) {
 	r := newMonRig(t)
 	id := r.chain.burn(m3bGNOT, gnoside.RealmKey(m3bNS+"hlgnot"), r.alice, 200, 80)
-	r.gno.set(m3bMailPath, "delivered/"+hex.EncodeToString(id[:]), "61")
+	r.gno.set(m3bMailPath, "delivered/"+hex.EncodeToString(id[:]), "60") // at the head (a mark above it is no one node's, E6-GT2)
 	r.gno.set(m3bNS+"hlgnot", "json", m3bRouteJSON(1000, 200, 0, 0))
 	r.gno.set(m3bNS+"hlgnot", "claim/"+hex.EncodeToString(id[:]), `{"id":"`+hex.EncodeToString(id[:])+`","to":"g1thief000000000000000000000000000000000","amount":200,"state":"open"}`)
 	if err := r.poll(); err != nil {

@@ -108,9 +108,10 @@ func TestF15bLaggingProviderHlwatchWaits(t *testing.T) {
 	r.chain.mine(130, 130)
 	id := r.chain.burn(m3bGNOT, gnot, r.alice, 300, 120)
 	idh := hex.EncodeToString(id[:])
-	claim := `{"id":"` + idh + `","to":"g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5","amount":300,"state":"open","by":"verifier","height":61}`
+	// credited at the head, 60 (round 6: a mark above a head read after it is no one node's answer, E6-GT2)
+	claim := `{"id":"` + idh + `","to":"g1jg8mtutu9khhfwc4nxmuhcpftf0pajdhfvsqf5","amount":300,"state":"open","by":"verifier","height":60}`
 	r.gno.set(m3bNS+"hlgnot", "json", m3bRouteJSON(1000, 300, 0, 0))
-	r.gno.set(m3bMailPath, "delivered/"+idh, "61")
+	r.gno.set(m3bMailPath, "delivered/"+idh, "60")
 	r.gno.set(m3bNS+"hlgnot", "claims/0", "["+claim+"]")
 	r.gno.set(m3bNS+"hlgnot", "claim/"+idh, claim)
 	r.pa.mu.Lock()

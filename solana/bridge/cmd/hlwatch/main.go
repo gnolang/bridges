@@ -92,6 +92,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	st.ProvidersAre(urls) // a slot read through stands only while the provider that gave it is the one at its place
 	w := &watcher{cfg: cfg, gno: cfg.SourceClient(*node), nodeURL: *node, super: *supermajority, providers: [2]*rpc.Client{sol.NewRPC(urls[0]), sol.NewRPC(urls[1])}, urls: urls, st: st, statePath: *state}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

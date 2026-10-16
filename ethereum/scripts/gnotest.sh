@@ -29,8 +29,9 @@
 # the waiting claims, E4-RL1), claim/<id>, send/<id> and decisions.json/<from>; r/hlgov's json, decision/<n>, its page
 # (hleth's audit reads the seats there) and decisions.json/<from>; r/hlfees' json and decisions.json/<from>. The
 # harness is no node: it charges an object's load once and serves it from a cache after, where a node loads every
-# object of every query, so for a page of many small records it counts as little as a seventh of a node's gas
-# (p/hlroute's claims walk: 766M here, out of gas past 3B on a v1.5.1 node, E4-RL1) and for a page of a few long
+# object of every query, so for a page of many small records it counts as little as about a tenth of a node's gas
+# (delivered/<id>'s factor is 9.55, E5-RT4; p/hlroute's claims walk: 766M here, out of gas past 3B on a v1.5.1 node,
+# E4-RL1) and for a page of a few long
 # strings about what a node does. So each probe carries its page's node factor (node_factor: the page's gas on a
 # gno v1.5.1 node over the probe's figure here, measured on the same page, F15d's calibration in
 # fold-r4/f15d.md), and the gate holds the probe's figure × its factor — the node's figure — at or under
@@ -43,10 +44,18 @@
 # (required_tx_probes: hlgnot's TestTxGasPull, the predecessor's half of a page; hlgnot2's TestTxGasAdopt, a page
 # adopted whole) is run a second time with -run 'TestSetup$|TestTxGas' — TestSetup launches the route, TestTxGasSetup
 # makes a migration of 2×pullPage open claims and takes its page 0, each probe then takes page 1, one transaction's
-# work — and each probe's figure × its node factor (tx_factor, measured on a v1.5.1 node as node_factor's are, F17c's
-# calibration in fold-r5/f17c.md) is held at or under TX_GAS_MAX (1,000,000,000 by default: a third of the block).
-# It fails, too, when a probe has no factor, did not pass in that run, or is no longer declared; GNOTEST_TXGAS=0
-# skips it. In the whole suite the probes skip (the route has migrated already).
+# work — and each probe's figure × its node factor (tx_factor: the costliest page a v1.5.1 node measured in a
+# migration of 10,000 open claims over the probe's figure, E6-RL3) is held at or under TX_GAS_MAX (1,000,000,000 by
+# default: a third of the block). The void gate the same (the round-6 realms audit's E6-RL1: a void at p/hlroute's
+# bounds, 256 ids or 1,000 credits, outgrew the block): a realm with void probes (required_void_probes: hlgnot's
+# TestTxVoidList, TestTxVoidRange, TestTxVoidRangeExecute — one transaction each at the realm's bounds, voids.gno — and
+# a void's cure, the restore, TestTxVoidRestore and TestTxVoidRestoreExecute at maxRestoreIDs, waiting.gno) is
+# run a third time with -run 'TestSetup$|TestTxVoid', each figure × its void_factor (the node's figure for the same
+# transaction at 10,000 claims) held at or under TX_GAS_MAX. Each fails, too, when a probe has no factor, did not pass
+# in its run, or is no longer declared; GNOTEST_TXGAS=0 skips both. In the whole suite the probes skip (the route has
+# migrated already). Last, the tests a realm runs alone on a freshly launched route (required_alone: hlgnot's
+# installments tests, E6-RL4; its void bounds, E6-RL1) are run a fourth time with -run 'TestSetup$|TestAlone', each held
+# to passing.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 # The two layouts this runs in: the private tree (realm/ is the Solana deployment's, eth/realm this one's) and the
@@ -111,14 +120,87 @@ required_tx_probes() {
     hlgnot2) echo "TestTxGasAdopt" ;;
   esac
 }
-# tx_factor is a migration probe's calibration in hundredths, as node_factor's: the page's gas on a gno v1.5.1 node
-# (the rl1 lane's gas-logging gnodev, 2026-10-15; the same migration made by the same code) over the probe's figure
-# here, rounded up to the next 0.05, never below 1.00. The comment is the node's figure.
+# tx_factor is a migration probe's calibration in hundredths: the costliest page's gas on a gno v1.5.1 node (the rl1
+# lane's gas-logging gnodev, 2026-10-16) in a migration of 10,000 open claims, each to a recipient of its own beside a
+# send of its own, made by the same code, over the probe's figure here (a page of its own small state), rounded up to
+# the next 0.05 — so the gate holds the page the node measured costliest in that backlog, not the probe's own (the
+# round-6 realms audit's E6-RL3: a page's cost grows with the route, ≈+0.2B from 3,000 claims to 10,000 at 50 a page,
+# which a factor of the probe's state could not see). The comment is the node's figure (fold-r6/f18b.md).
 tx_factor() {
   case $1/$2 in
-    hlgnot/TestTxGasPull) echo 335 ;;   # node 248,328,551 (page 1 of 2×pullPage open claims pulled by a pull-only probe realm, its MsgCall in)
-    hlgnot2/TestTxGasAdopt) echo 210 ;; # node 541,656,543 (page 1 of 2×pullPage open claims adopted whole)
+    hlgnot/TestTxGasPull) echo 960 ;;   # node 323,812,185 (page 0 of 800, the lock with it, pulled by a pull-only probe realm, its MsgCall in)
+    hlgnot2/TestTxGasAdopt) echo 560 ;; # node 697,893,489 (page 256 of 800, adopted whole)
   esac
+}
+# required_void_probes are the void gate's probes a realm must declare (TestTxVoid…, its setups — any name ending in
+# Setup: TestTxVoidSetup, TestTxVoidRestoreSetup — aside)
+required_void_probes() {
+  case $1 in
+    hlgnot) echo "TestTxVoidList TestTxVoidRange TestTxVoidRangeExecute TestTxVoidRestore TestTxVoidRestoreExecute" ;;
+  esac
+}
+# void_factor is a void probe's calibration in hundredths, as tx_factor's: the transaction's gas on a gno v1.5.1 node
+# (2026-10-16) at 10,000 credited claims, each to a recipient of its own, three guardians' lists of 256 standing and
+# the fourth's flag a range (for the list, the costlier four lists, the ids in the fourth's) — the probe's transaction,
+# made afresh there by the same code — over the probe's figure here (its own state: 968 claims), rounded up to the
+# next 0.05. The comment is the node's figure (fold-r6/f18b.md).
+void_factor() {
+  case $1/$2 in
+    hlgnot/TestTxVoidList) echo 205 ;;         # node 958,798,080 (Govern of a void at once of 64 ids of the fourth list; of the third, three lists and a range standing, 923,571,264)
+    hlgnot/TestTxVoidRange) echo 505 ;;        # node 930,787,627 (Govern of a range void at once of 100 credits, one a height)
+    hlgnot/TestTxVoidRangeExecute) echo 835 ;; # node 790,482,574 (the Execute of a range void of 100 credits, one a height)
+    hlgnot/TestTxVoidRestore) echo 195 ;;      # node 825,510,806 (Govern of a restore at once of 40 withheld claims; fold-r6/i4.md)
+    hlgnot/TestTxVoidRestoreExecute) echo 270 ;; # node 623,235,508 (the Execute of a queued restore of 40 forged claims)
+  esac
+}
+# required_alone are the tests a realm runs alone, on a route TestSetup has just launched (-run 'TestSetup$|TestAlone'):
+# tests that need a ring of their own recipients and their meters at known levels, or more records than the whole
+# suite's migration takes in one page (the round-6 realms audit's E6-RL4: the installments rule's turns and the bridge
+# meter's half; E6-RL1: the void's bounds and the credit tally). Each must pass there; in the whole suite they skip.
+required_alone() {
+  case $1 in
+    hlgnot) echo "TestAloneFeeEachTurn TestAloneBridgeMeter TestAloneVoidBounds" ;;
+  esac
+}
+# alone REALM runs REALM's alone tests (required_alone, the prefix TestAlone) and holds each to passing.
+alone() {
+  local r=$1 want alog p
+  want=$(required_alone "$r")
+  [ -n "$want" ] || return 0
+  alog="$LOGS/$r.alone.log"
+  if ! (cd "$R/eth/$r" && GNOROOT="$ROOT" "$GNO" test -v -run 'TestSetup$|TestAlone' . >"$alog" 2>&1); then
+    echo "    alone: the run failed: FAIL"; grep -E -- '^--- FAIL|^panic: ' "$alog" | head -3 | cut -c1-200 | sed 's/^/      /'; rc=1
+  fi
+  for p in $want; do
+    if grep -q -- "^--- PASS: $p " "$alog"; then echo "    alone: $p ok"; else echo "    alone: $p did not pass: FAIL"; rc=1; fi
+  done
+}
+# txgate GATE PREFIX REQUIRED FACTOR REALM runs REALM's suite a second time with -run 'TestSetup$|PREFIX' and holds each
+# PREFIX… probe it declares (its PREFIXSetup aside) — every one REQUIRED names, each passed — at its figure × its node
+# factor (FACTOR) under TX_GAS_MAX.
+txgate() {
+  local gate=$1 prefix=$2 req=$3 fac=$4 r=$5 txp txlog declared measured p g f n verdict
+  txp=$($req "$r")
+  [ -n "$txp" ] || return 0
+  txlog="$LOGS/$r.$prefix.log"
+  if ! (cd "$R/eth/$r" && GNOROOT="$ROOT" "$GNO" test -v -run "TestSetup\$|$prefix" . >"$txlog" 2>&1); then
+    echo "    $gate gate: the probes' run failed: FAIL"; grep -E -- '^--- FAIL|^panic: ' "$txlog" | head -3 | cut -c1-200 | sed 's/^/      /'; rc=1
+  fi
+  declared=$(grep -ho "^func $prefix[A-Za-z0-9_]*" "$R/eth/$r"/*_test.gno 2>/dev/null | sed 's/^func //' | grep -v 'Setup$' | sort -u || true)
+  for p in $txp; do
+    case " $(echo $declared) " in *" $p "*) ;; *) echo "    $gate gas: $p is no longer declared: FAIL"; rc=1 ;; esac
+  done
+  measured=$(awk -v pre="^$prefix" '/^=== RUN /{n=$3} /^--- GAS:/{ if (n ~ pre) print n, $3; n="" }' "$txlog")
+  for p in $declared; do
+    if ! grep -q -- "^--- PASS: $p " "$txlog"; then echo "    $gate gas: $p did not pass in the probes' run: FAIL"; rc=1; continue; fi
+    g=$(echo "$measured" | awk -v p="$p" '$1 == p {print $2; exit}')
+    case $g in ''|*[!0-9]*) echo "    $gate gas: $p printed no gas figure ($g): FAIL"; rc=1; continue ;; esac
+    f=$($fac "$r" "$p")
+    case $f in ''|*[!0-9]*) echo "    $gate gas: $p $g here, and no node factor (measure its transaction on a node first): FAIL"; rc=1; continue ;; esac
+    n=$((g * f / 100))
+    if [ "$n" -gt "$TX_GAS_MAX" ]; then verdict=FAIL; rc=1; else verdict=ok; fi
+    echo "    $gate gas: $p $g here × $((f / 100)).$(printf %02d $((f % 100))) = $n on a node (max $TX_GAS_MAX) $verdict"
+  done
 }
 want=${1:-all}
 if [ "$want" != all ]; then
@@ -142,9 +224,10 @@ for f in "$SOL"/realm/bubble/*.gno; do case $f in *_test.gno|*_filetest.gno) ;; 
 for r in $REALMS; do [ -d "$SRC/$r" ] || { echo "no realm $SRC/$r"; exit 1; }; mkdir -p "$R/eth/$r"; cp "$SRC/$r"/*.gno "$SRC/$r"/gnomod.toml "$R/eth/$r/"; done
 LOGS=${GNOTEST_LOGS:-$ROOT/logs}; mkdir -p "$LOGS"
 rc=0
-# the three routes keep waiting.gno (E4-RL1, E5-RL1, E5-RL2) and installments.gno (E5-GS1) the same but for the package
-# line: hlbubble's probes stand for all three, and every route pages a migration and pays an installment alike
-for f in waiting.gno installments.gno; do
+# the three routes keep waiting.gno (E4-RL1, E5-RL1, E5-RL2), installments.gno (E5-GS1) and voids.gno (E6-RL1) the same
+# but for the package line: hlbubble's probes stand for all three, and every route pages a migration, pays an
+# installment and bounds a void alike
+for f in waiting.gno installments.gno voids.gno; do
   for r in hlbubble hlgnot2; do
     if ! cmp -s <(tail -n +2 "$SRC/hlgnot/$f") <(tail -n +2 "$SRC/$r/$f"); then
       echo "$f: $r's is not hlgnot's (beyond the package line): FAIL"; rc=1
@@ -189,28 +272,11 @@ for r in $REALMS; do
       echo "    render gas: $p $g here × $((f / 100)).$(printf %02d $((f % 100))) = $n on a node (max $RENDER_GAS_MAX) $verdict"
     done
   fi
-  txp=$(required_tx_probes "$r")
-  if [ -n "$txp" ] && [ "${GNOTEST_TXGAS:-1}" != 0 ]; then
-    txlog="$LOGS/$r.txgas.log"
-    if ! (cd "$R/eth/$r" && GNOROOT="$ROOT" "$GNO" test -v -run 'TestSetup$|TestTxGas' . >"$txlog" 2>&1); then
-      echo "    migration gate: the probes' run failed: FAIL"; grep -E -- '^--- FAIL|^panic: ' "$txlog" | head -3 | cut -c1-200 | sed 's/^/      /'; rc=1
-    fi
-    declared=$(grep -ho '^func TestTxGas[A-Za-z0-9_]*' "$R/eth/$r"/*_test.gno 2>/dev/null | sed 's/^func //' | grep -v 'Setup$' | sort -u || true)
-    for p in $txp; do
-      case " $(echo $declared) " in *" $p "*) ;; *) echo "    migration gas: $p is no longer declared: FAIL"; rc=1 ;; esac
-    done
-    measured=$(awk '/^=== RUN /{n=$3} /^--- GAS:/{ if (n ~ /^TestTxGas/) print n, $3; n="" }' "$txlog")
-    for p in $declared; do
-      if ! grep -q -- "^--- PASS: $p " "$txlog"; then echo "    migration gas: $p did not pass in the probes' run: FAIL"; rc=1; continue; fi
-      g=$(echo "$measured" | awk -v p="$p" '$1 == p {print $2; exit}')
-      case $g in ''|*[!0-9]*) echo "    migration gas: $p printed no gas figure ($g): FAIL"; rc=1; continue ;; esac
-      f=$(tx_factor "$r" "$p")
-      case $f in ''|*[!0-9]*) echo "    migration gas: $p $g here, and no node factor (measure its page on a node first): FAIL"; rc=1; continue ;; esac
-      n=$((g * f / 100))
-      if [ "$n" -gt "$TX_GAS_MAX" ]; then verdict=FAIL; rc=1; else verdict=ok; fi
-      echo "    migration gas: $p $g here × $((f / 100)).$(printf %02d $((f % 100))) = $n on a node (max $TX_GAS_MAX) $verdict"
-    done
+  if [ "${GNOTEST_TXGAS:-1}" != 0 ]; then
+    txgate migration TestTxGas required_tx_probes tx_factor "$r"
+    txgate void TestTxVoid required_void_probes void_factor "$r"
   fi
+  alone "$r"
   if [ "${GNOTEST_LINT:-}" = 1 ]; then
     if (cd "$R/eth/$r" && GNOROOT="$ROOT" "$GNO" lint -root-dir "$ROOT" . >"$LOGS/$r.lint" 2>&1); then
       echo "    lint: ok"

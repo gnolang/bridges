@@ -78,7 +78,7 @@ func NewWatch(ctx context.Context, cfg *Config, node, state string, fromBlock ui
 	if alarm == nil {
 		alarm = &Alarmer{Source: "hlwatch"}
 	}
-	m := &Monitor{Cfg: cfg, State: state, Alarm: alarm, FromBlock: fromBlock, ReadOnly: true, own: cfg.SourceClient(node)}
+	m := &Monitor{Cfg: cfg, State: state, Alarm: alarm, FromBlock: fromBlock, ReadOnly: true, own: cfg.SourceClient(node), ownURL: node}
 	if err := m.Open(ctx); err != nil {
 		return nil, err
 	}
@@ -578,6 +578,19 @@ func (w *Watch) TargetCheck(ctx context.Context, at ethx.At, spec TargetSpec) (s
 		text = spec.From + ": " + text
 	}
 	return text, nil
+}
+
+// FinalizedAgeLine says which finalized block a reading was taken at and how old it is by its own time — `hlwatch
+// check`'s, beside its verdict (the Go trust audit's E6-GT4, item 3): read at the pair's finalized block, a frozen
+// provider's answer is an old block, at which a target created since reads as not yet created (NOT SHOWN: fail-safe),
+// and the reader is told so past half an hour (a finality stall, or a provider answering an old block: E5-RT1).
+func FinalizedAgeLine(F *ethx.Block, now time.Time) string {
+	age := now.Sub(time.Unix(int64(F.Time), 0)).Round(time.Second)
+	line := fmt.Sprintf("read at Ethereum's finalized block %d (%s), %s old by its own time", F.Number, F.Hash.Hex(), age)
+	if age > finalAgeBlind {
+		line += fmt.Sprintf(" — past %s: Ethereum's finality stalled, or a provider answers an old block; a target created since reads as not yet created", finalAgeBlind)
+	}
+	return line
 }
 
 // LayoutAppendOnly is how LayoutDiff's answer begins when the new layout keeps the running one (anything else is a

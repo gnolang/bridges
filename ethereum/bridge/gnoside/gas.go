@@ -11,9 +11,11 @@ import (
 // A call whose gas only a simulation knows (a realm decision's Execute, GovDAO's ExecuteOrRejectProposal, a guardian's
 // SetFlag naming ids): gno.Client.Call simulates a call under the gas it is given and once more under four times it,
 // within the block's gas, then sizes the broadcast from the simulation that fit, a fifth above it (gno.GasFor). Under
-// the machines' 45M that reaches 180M — and on a gno v1.5.1 node a guardian's payouts flag naming 256 ids costs ≈555M
-// (64 ids ≈156M: the tool set ≈70 at most), a forged restore of 256 ids ≈2.53B to Execute (realms.md, audit round 5,
-// "for the lead"): such a call ran out of gas in its simulation for good, and needed a member's own hand.
+// the machines' 45M that reaches 180M — and on a gno v1.5.1 node a guardian's payouts flag naming 256 ids costs ≈475M
+// (hlmailbox keeps the list sorted, fold-r6/f18b.md; ≈555M in round 5, when the tool set ≈70 ids at most), the
+// Execute of a queued range void of 100 credits ≈0.8B and of a queued restore of 40 forged claims ≈0.62B at 10,000
+// open claims (fold-r6/f18b.md, i4.md; a forged restore of 256 ids was ≈2.53B in round 5, realms.md "for the lead"):
+// such a call ran out of gas in its simulation for good, and needed a member's own hand.
 
 // CallUpToTheBlock makes such a call: through the client, under gas first; on an out-of-gas the ceiling is raised
 // fourfold past what the client reached (16 times gas, then the block's), as far as the block's gas, gno.MaxBlockGas —

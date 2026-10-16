@@ -27,7 +27,7 @@ func echo(s string) string {
 func mustBeASCII(what, s string) {
 	for i := 0; i < len(s); i++ {
 		if s[i] >= 0x80 {
-			panic("hlgnot: the " + what + " holds a byte outside ASCII, at offset " + strconv.Itoa(i) + ": refused before it is read") // echo-ok(what): every caller names its parameter with a constant
+			panic("hlgnot: the " + what + " holds a byte outside ASCII, at offset " + strconv.Itoa(i) + ": refused before it is read") // echo-ok(what): every caller names its parameter with a constant: ASCII words
 		}
 	}
 }

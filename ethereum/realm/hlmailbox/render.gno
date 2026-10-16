@@ -442,7 +442,7 @@ func page() string {
 		return false
 	})
 	b.WriteString("- registered (" + strconv.Itoa(verifiers.Size()) + "): " + pathsLine(&verifiers, "verifiers"))
-	// echo-ok(signerRule): the signer rule's text: numbers
+	// echo-ok(signerRule): the signer rule's text: numbers and hex keys, ASCII
 	b.WriteString("\n\n## Signers\n\n- rule: " + signerRule.String() + "\n")
 	for i, k := range signerKeys {
 		b.WriteString("- " + strconv.Itoa(i) + ": `" + hx(k[:]) + "`\n")

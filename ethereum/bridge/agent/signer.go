@@ -128,6 +128,9 @@ type signerState struct {
 	// kept here, so a restart never restarts a finality stall's clock (E5-RT1's sibling)
 	FinalSeen  uint64 `json:"finalSeen,omitempty"`
 	FinalSince int64  `json:"finalSince,omitempty"`
+	// Gno is what the own node answered so far, held to one node's answers (backends.go, E6-GT2): a finding refuses every
+	// verdict until the operator gives the signer a node of its own
+	Gno gnoSeen `json:"gno"`
 }
 
 // aheadStanding is a standing ahead-stop: why, and the client's trusted height when it was judged.
@@ -144,7 +147,9 @@ func (s *Signer) load() error {
 	if err := readJSON(filepath.Join(s.Store, "state.json"), &s.state); err != nil {
 		return err
 	}
-	s.state.Index.init()
+	if err := s.state.Index.attachDust(filepath.Join(s.Store, "dust.jsonl")); err != nil { // the folded dust (E6-GT3)
+		return err
+	}
 	s.state.Sends.init()
 	if s.state.Pending == nil {
 		s.state.Pending = map[string]*pendingBreak{}
@@ -178,7 +183,7 @@ func (s *Signer) load() error {
 }
 
 func (s *Signer) save() error {
-	return writeJSON(filepath.Join(s.Store, "state.json"), s.state)
+	return saveWithDust(&s.state.Index, func() error { return writeJSON(filepath.Join(s.Store, "state.json"), s.state) })
 }
 
 // Run signs until ctx ends.
@@ -199,6 +204,7 @@ func (s *Signer) Run(ctx context.Context) error {
 	if s.gno == nil {
 		s.gno = s.Cfg.SourceClient(s.Cfg.Gno.RPC)
 	}
+	s.state.Gno.begin(s.Cfg.Gno.RPC, s.Cfg.Gno.Mailbox)
 	if s.sources == nil {
 		for _, src := range s.Cfg.Gno.Sources {
 			s.sources = append(s.sources, s.Cfg.SourceClient(src))
@@ -401,6 +407,7 @@ func (s *Signer) checkIdentity(ctx context.Context) error {
 		s.unverified("", fmt.Sprintf("own node is catching up (head %d)", head.Height))
 		return nil
 	}
+	s.state.Gno.head(head.Height, "the own node's head after the Ethereum snapshot", s.now())
 	if uint64(head.Height) < T {
 		allowance := s.Cfg.AheadAllowance()
 		if T-uint64(head.Height) > allowance { // past the allowance: the second source decides
@@ -416,29 +423,15 @@ func (s *Signer) checkIdentity(ctx context.Context) error {
 		s.unverified("", why)
 		return nil
 	}
-	// hlmailbox's count read before the routes and again after: a gno node answers its latest state at any height (the
-	// realms' objects are not versioned), so a send dispatched between the reads would be counted in flight and missing
-	// from the lock read before it — a false halt; the counts equal, the routes hold every send the walk counts. The
-	// first read is held again once every mark is read (cutMoved, below): a credit moves its delivered count.
-	before, err := gnoside.MailboxAt(ctx, s.gno, s.Cfg.Gno.Mailbox, head.Height)
+	// the cut's window (cutorder.go): hlmailbox, the routes and their lines of migrations, the own node's head, hlmailbox
+	// again — taken again at once while it moves, and nothing else inside it; the index, the sends and the marks are read
+	// after it, each mark placed in the window's state by its height (E6-GT1)
+	w, ids, lines, err := s.takeWindow(ctx, head.Height, snap)
 	if err != nil {
-		s.unverified("", "hlmailbox: "+err.Error())
+		s.unverified(disagreeKey(err), ethReadText(err))
 		return err
 	}
-	ids, lines, routes, err := gnoIdentities(ctx, s.gno, s.Cfg, head.Height, snap)
-	if err != nil {
-		s.unverified("", err.Error())
-		return err
-	}
-	mb, err := gnoside.MailboxAt(ctx, s.gno, s.Cfg.Gno.Mailbox, head.Height)
-	if err != nil {
-		s.unverified("", "hlmailbox: "+err.Error())
-		return err
-	}
-	if mb.Count != before.Count {
-		s.movingCut(fmt.Sprintf("hlmailbox dispatched %d message(s) while the routes were read (its count %d, then %d)", mb.Count-before.Count, before.Count, mb.Count))
-		return nil
-	}
+	mb, routes := w.first, w.routes
 	// the burn index, scanned after the gno read to the pair's finalized block now
 	F2, err := s.pair.FinalizedWithin(ctx, ethx.FinalizedApart)
 	if err != nil {
@@ -464,16 +457,39 @@ func (s *Signer) checkIdentity(ctx context.Context) error {
 		s.unverified("", fmt.Sprintf("the burn index is at block %d, behind the finalized block %d: catching up (%d blocks a round)", s.state.Index.Cursor, F2.Number, burnScanMax))
 		return nil
 	}
+	// the sends locked on gno.land at the cut's height and not delivered at its finalized block F (E2-RT9): in flight
+	// out, subtracted from the lock's room, exactly as the monitors count them — a send waits hours for its header by
+	// design, and left out it would be room for a forged mint the signers never see (read inside the window while a
+	// token's sends can be refunded: their refund marks are held to the lock read there)
+	if !w.sends {
+		if err := s.syncSends(ctx, mb, routes, lines, head.Height, snap); err != nil {
+			s.unverified(disagreeKey(err), ethReadText(err))
+			return err
+		}
+	}
+	if s.state.Sends.SendNext < mb.Count {
+		s.unverified("", fmt.Sprintf("the sends in flight are read to gno nonce %d of %d: catching up (%d a round)", s.state.Sends.SendNext, mb.Count, sendsPerRound))
+		return nil
+	}
 	// the delivered marks of the burns not credited yet, each read again only once hlmailbox's delivered count moved since
 	// it was read unset — the burns nobody credits (the dust below a route's fee the relayers leave, E5-GS5) were read
-	// every round, for good — and all of them while the last cut was in doubt and every markRefresh
+	// every round, for good — and all of them while the last cut was in doubt and every markRefresh; d is the count read
+	// last before them (the window's second read), Hc the window's head they are placed by
+	d, Hc := w.move.again.Delivered, w.height
 	allMarks := s.marksDoubt || s.now().Sub(s.marksAt) >= markRefresh
-	_, markedTop, read, err := s.state.Index.markCredited(ctx, s.gno, s.Cfg.Gno.Mailbox, head.Height, before.Delivered, allMarks)
+	_, markedTop, read, err := s.state.Index.markCredited(ctx, s.gno, s.Cfg.Gno.Mailbox, head.Height, d, allMarks)
 	if err != nil {
 		s.unverified("", err.Error())
 		return err
 	}
 	if allMarks {
+		// and the folded dust, whose marks a moving count does not read (E6-GT3)
+		_, top, err := s.state.Index.readFolded(ctx, s.gno, s.Cfg.Gno.Mailbox, head.Height, d, nil)
+		if err != nil {
+			s.unverified("", err.Error())
+			return err
+		}
+		markedTop = max(markedTop, top)
 		s.marksAt = s.now()
 	}
 	// a round that stops before it places its deliveries leaves its marks in doubt: the next round reads them all (the
@@ -482,55 +498,53 @@ func (s *Signer) checkIdentity(ctx context.Context) error {
 	s.mu.Lock()
 	s.marksRead = read
 	s.mu.Unlock()
-	// the sends locked on gno.land at the cut's height and not delivered at its finalized block F (E2-RT9): in flight
-	// out, subtracted from the lock's room, exactly as the monitors count them — a send waits hours for its header by
-	// design, and left out it would be room for a forged mint the signers never see
-	_, sendsDone, refundErr, err := s.state.Sends.sync(ctx, s.gno, s.pair, s.Cfg, mb, routes, lines, nil, head.Height, snap.Pin, s.now(), sendsPerRound)
-	if err == nil {
-		err = refundErr
-	}
-	if err != nil {
-		key := ""
-		if errors.Is(err, ethx.ErrDisagree) {
-			key = "eth:providers"
-		}
-		s.unverified(key, "the sends in flight: "+ethReadText(err))
-		return err
-	}
-	if !sendsDone {
-		s.unverified("", fmt.Sprintf("the sends in flight are read to gno nonce %d of %d: catching up (%d a round)", s.state.Sends.SendNext, mb.Count, sendsPerRound))
-		return nil
-	}
 	s.state.Sends.prune(routes, lines)
 	out := s.state.Sends.inflight()
-	in, after := s.state.Index.inflight(snap.Block.Number)
+	in, after := s.state.Index.inflight(snap.Block.Number, Hc)
 	for sym, id := range ids {
 		id.InflightIn, id.InflightOut = in[sym], out[sym]
 	}
-	// the deliveries the index cannot place (E4-GT1): hlmailbox's count less the burns the index holds credited, those
-	// prune dropped among them; while one is a BROKEN reading's possible lag, what the providers show above the index —
-	// the most that lag can carry (E5-GT1) — and the credited marks of those burns are read before the cut's re-read, so
-	// that with the cut holding they are the state's (E5-RT6)
-	unplaced := mb.Delivered - s.state.Index.placed() - s.state.PrunedCredited
-	if unplaced > 0 && anyStops(ids) {
-		// a delivery the index cannot place under a BROKEN reading is what one stale unset mark of a credited burn reads as
-		// — its amount in flight and in owed alike — so every uncredited mark is read again inside this cut, before its
-		// re-read, and the reading taken from that (the review of I3's follow-up 1, finding 2: one stale read halted the
-		// signer at once past E5-GT1's bound, or as a pending break confirmed later though the next round held)
-		_, top, more, err := s.state.Index.markCredited(ctx, s.gno, s.Cfg.Gno.Mailbox, head.Height, before.Delivered, true)
+	// the deliveries the index cannot place (E4-GT1): hlmailbox's count less the burns the index places in the window's
+	// state, those prune dropped among them; while one is a BROKEN reading's possible lag, what the providers show above
+	// the index — the most that lag can carry (E5-GT1) — and the credited marks of those burns are read, placed by the
+	// window's head as the index's are
+	unplaced := d - s.state.Index.placedBy(Hc) - s.state.PrunedCredited
+	if anyStops(ids) {
+		// what one stale unset mark of a credited burn reads as — its amount in flight and in owed alike — is a BROKEN
+		// reading, so every uncredited mark is read again before it is judged (the review of I3's follow-up 1, finding 2:
+		// one stale read halted the signer at once past E5-GT1's bound, or as a pending break confirmed later though the
+		// next round held). On one node that read gives what the first gave; read again whatever is unplaced (round 6): on
+		// an endpoint answering from two backends the count can be as stale as the mark (E6-GT2), and a mark read set at the
+		// window's head is then held to the count by the backends rule below
+		_, top, more, err := s.state.Index.markCredited(ctx, s.gno, s.Cfg.Gno.Mailbox, head.Height, d, true)
 		if err != nil {
 			s.unverified("", err.Error())
 			return err
 		}
 		markedTop = max(markedTop, top)
-		in, after = s.state.Index.inflight(snap.Block.Number)
+		in, after = s.state.Index.inflight(snap.Block.Number, Hc)
 		for sym, id := range ids {
 			id.InflightIn = in[sym]
 		}
-		unplaced = mb.Delivered - s.state.Index.placed() - s.state.PrunedCredited
+		unplaced = d - s.state.Index.placedBy(Hc) - s.state.PrunedCredited
 		s.mu.Lock()
 		s.marksRead += more
 		s.mu.Unlock()
+		// a token with folded dust still BROKEN with a delivery unplaced: what a delivered folded burn reads as (its amount
+		// in owed and in the folded sum) — its folded marks read too, before it is judged (E6-GT3)
+		if syms := foldedBroken(ids, s.state.Index.foldedSum()); unplaced > 0 && len(syms) > 0 {
+			_, top, err := s.state.Index.readFolded(ctx, s.gno, s.Cfg.Gno.Mailbox, head.Height, d, syms)
+			if err != nil {
+				s.unverified("", err.Error())
+				return err
+			}
+			markedTop = max(markedTop, top)
+			in, after = s.state.Index.inflight(snap.Block.Number, Hc)
+			for sym, id := range ids {
+				id.InflightIn = in[sym]
+			}
+			unplaced = d - s.state.Index.placedBy(Hc) - s.state.PrunedCredited
+		}
 	}
 	s.marksDoubt = markDoubt(unplaced, anyStops(ids), len(s.state.Pending))
 	var above *aboveIndex
@@ -538,21 +552,31 @@ func (s *Signer) checkIdentity(ctx context.Context) error {
 		above = readAbove(ctx, s.pair, s.Cfg, F2.Number, mb.Domain, s.now())
 		above.markAbove(ctx, s.gno, s.Cfg.Gno.Mailbox, head.Height)
 	}
-	// the own node's head before the cut's re-read: every credit the cut's state holds is at or below it (E4-GT1)
-	hAfter, tAfter, err := headAfterCut(ctx, s.gno)
-	if err != nil {
-		s.unverified("", "own node's head after the cut: "+err.Error())
+	// one node (E6-GT2): every mark read at or below a head read after it, and the deliveries placed at most hlmailbox's
+	// count read after the window's head — else the endpoint answers from more than one backend, and no verdict is taken
+	if err := s.holdToOneNode(ctx, creditTop(markedTop, above), d, Hc); err != nil {
+		s.unverified("", "own node's head after the marks: "+err.Error())
 		return err
 	}
-	// every mark read: hlmailbox and the counters held to the first read (E3-GT2, E3-RT3) — a credit landing after the
-	// routes were read and before its burn's mark is in neither owed nor in flight, a reading short by its amount
-	why, err := cutMoved(ctx, s.gno, s.Cfg, head.Height, before, routes, lines)
-	if err != nil {
-		s.unverified("", "the cut read again after the marks: "+err.Error())
-		return err
+	if text := s.state.Gno.text(); text != "" {
+		s.Alarm.Flag(backendsKey, text)
+		s.unverified("", text)
+		return nil
 	}
-	if why != "" {
-		s.movingCut(why)
+	s.Alarm.Clear(backendsKey)
+	// a cut that moved is no verdict — but a reading BROKEN across it with nothing unplaced, or past the most an honest
+	// lag can carry, is a break whatever landed (cutorder.go's window), and the pending readings are judged with the lag
+	// the index shows now: either halts
+	if w.move.why != "" {
+		var breaks []string
+		if !w.move.counters {
+			breaks = brokenBeyondTheMove(ids, unplaced, snap.Block.Number, Hc, &s.state.Index, above)
+		}
+		breaks = append(breaks, s.judgePending(F2)...)
+		if len(breaks) > 0 {
+			s.halt("the supply identity is broken (§5.6: supply + uncredited burns + undelivered sends > lock − owed − voided + lost): " + strings.Join(breaks, "; "))
+		}
+		s.movingCut(w.move.why)
 		return nil
 	}
 	s.movingCuts = 0
@@ -564,20 +588,8 @@ func (s *Signer) checkIdentity(ctx context.Context) error {
 	// while any delivery is unplaced an honest burn above the index may be one, so a BROKEN reading waits as no verdict
 	// (this signer signs nothing meanwhile) and halts once the index's finalized block's time has passed the reading's
 	// with its excess, less the lag found, standing — or at once, past the most that lag can carry (E5-GT1); the
-	// reading's height is the head read after the cut, raised to the highest credit its state shows (E5-RT6)
-	hAfter, tAfter = raiseToCredits(ctx, s.gno, markedTop, above, hAfter, tAfter, s.now())
-	var confirmed []string
-	for _, sym := range sortedSymbols(s.state.Pending) {
-		p := s.state.Pending[sym]
-		switch p.judge(&s.state.Index, int64(F2.Time)) {
-		case pendingLag:
-			log.Printf("signer: %s's reading at height %d was the lag of a provider: %d of burns credited above its block %d, the whole excess (E4-GT1)", sym, p.Height, p.lagSum(), p.Block)
-			delete(s.state.Pending, sym)
-		case pendingConfirmed:
-			delete(s.state.Pending, sym)
-			confirmed = append(confirmed, p.confirmedText(F2.Number, int64(F2.Time)))
-		}
-	}
+	// reading's height is the window's head (E6-GT1)
+	confirmed := s.judgePending(F2)
 	var broken, waits []string
 	beyond := 0 // breaks past the most an honest lag can carry, while a delivery is unplaced (E5-GT1)
 	for _, sym := range sortedSymbols(ids) {
@@ -590,13 +602,13 @@ func (s *Signer) checkIdentity(ctx context.Context) error {
 			broken = append(broken, text)
 			continue
 		}
-		if most, ok := lagMost(sym, snap.Block.Number, &s.state.Index, above); ok && excessOf(*id) > most {
+		if most, ok := lagMost(sym, snap.Block.Number, Hc, &s.state.Index, above); ok && excessOf(*id) > most {
 			broken = append(broken, beyondLagText(text, excessOf(*id), most, snap.Block.Number, above))
 			beyond++
 			continue
 		}
 		if s.state.Pending[sym] == nil {
-			s.state.Pending[sym] = &pendingBreak{Symbol: sym, Height: hAfter, Time: tAfter, Block: snap.Block.Number, Excess: excessOf(*id), Text: text, Since: s.now().Unix()}
+			s.state.Pending[sym] = &pendingBreak{Symbol: sym, Height: Hc, Time: w.time, Block: snap.Block.Number, Excess: excessOf(*id), Text: text, Since: s.now().Unix()}
 		}
 		waits = append(waits, pendingText(text, unplaced, snap.Block.Number, F2.Number))
 	}
@@ -630,6 +642,145 @@ func (s *Signer) checkIdentity(ctx context.Context) error {
 	s.lastCheck = s.now()
 	s.mu.Unlock()
 	s.conclude(broken, head.Height, T)
+	// the burns dust for an hour, signed, leave the state for the folded dust's file (E6-GT3)
+	if n := s.state.Index.foldDust(s.now(), snap.Block.Number, d, realmFee(routes, lines), func(id string) bool { return s.signed[id] }); n > 0 {
+		log.Printf("signer: %d burn(s) below their realm's fee for an hour folded out of the state (%d folded in all)", n, len(s.state.Index.folded()))
+	}
+	return nil
+}
+
+// foldedBroken are the tokens read BROKEN that hold folded dust (dust.go): their folded marks are read before they are
+// judged.
+func foldedBroken(ids map[string]*Identity, folded map[string][3]int64) map[string]bool {
+	out := map[string]bool{}
+	for sym, id := range ids {
+		if id.SignerStops() && folded[sym][1] > 0 {
+			out[sym] = true
+		}
+	}
+	return out
+}
+
+// judgePending judges every pending break with the lag the index shows now (E4-GT1) and answers the confirmed ones'
+// texts: explained by the lag, a reading ends; once the index's finalized block's time has passed the reading's, its
+// excess less the lag found is a break. Sound whatever the round's own cut did: every honest burn credited at or below a
+// reading's height has its mark read once hlmailbox's count moved past it.
+func (s *Signer) judgePending(F2 *ethx.Block) []string {
+	var confirmed []string
+	for _, sym := range sortedSymbols(s.state.Pending) {
+		p := s.state.Pending[sym]
+		switch p.judge(&s.state.Index, int64(F2.Time)) {
+		case pendingLag:
+			log.Printf("signer: %s's reading at height %d was the lag of a provider: %d of burns credited above its block %d, the whole excess (E4-GT1)", sym, p.Height, p.lagSum(), p.Block)
+			delete(s.state.Pending, sym)
+		case pendingConfirmed:
+			delete(s.state.Pending, sym)
+			confirmed = append(confirmed, p.confirmedText(F2.Number, int64(F2.Time)))
+		}
+	}
+	return confirmed
+}
+
+// brokenBeyondTheMove are the breaks a round whose cut moved halts on (E6-GT1): every token whose reading is BROKEN by
+// §5.6's rule with no delivery unplaced by hlmailbox's last count, or past the most an honest lag can carry (E5-GT1) —
+// a delivery or a dispatch landing inside the window takes from the right side only (cutorder.go).
+func brokenBeyondTheMove(ids map[string]*Identity, unplaced int, F uint64, Hc int64, x *burnIndex, above *aboveIndex) []string {
+	var out []string
+	for _, sym := range sortedSymbols(ids) {
+		id := ids[sym]
+		if !id.SignerStops() {
+			continue
+		}
+		_, text := id.Verdict()
+		if unplaced > 0 {
+			most, ok := lagMost(sym, F, Hc, x, above)
+			if !ok || excessOf(*id) <= most {
+				continue
+			}
+			text = beyondLagText(text, excessOf(*id), most, F, above)
+		}
+		out = append(out, text+" — read across a cut that moved (a delivery or a dispatch landing inside the window takes from the right side only: E6-GT1)")
+	}
+	return out
+}
+
+// takeWindow takes the cut's window, again at once while it moves (cutTries in all), and answers the last taking with
+// the identities over its routes and lines (each token's supply the snapshot's; what is in flight is added after the
+// window). The sends are read inside the window only while a token's can be refunded.
+func (s *Signer) takeWindow(ctx context.Context, H int64, snap *ethSnapshot) (*cutWindow, map[string]*Identity, map[string]*gnoside.Migration, error) {
+	var (
+		w     *cutWindow
+		ids   map[string]*Identity
+		lines map[string]*gnoside.Migration
+	)
+	for try := 1; try <= cutTries; try++ {
+		w = &cutWindow{}
+		mb, err := gnoside.MailboxAt(ctx, s.gno, s.Cfg.Gno.Mailbox, H)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("hlmailbox: %w", err)
+		}
+		s.state.Gno.mailbox(mb, "hlmailbox's first read", s.now())
+		w.first = mb
+		ids, lines, w.routes, err = gnoIdentities(ctx, s.gno, s.Cfg, mb, H, snap)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if refundable(s.Cfg, w.routes, lines) {
+			w.sends = true
+			if err := s.syncSends(ctx, mb, w.routes, lines, H, snap); err != nil {
+				return nil, nil, nil, err
+			}
+		}
+		w.height, w.time, err = headAfterCut(ctx, s.gno)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("own node's head after the cut: %w", err)
+		}
+		s.state.Gno.head(w.height, "the own node's head inside the cut's window", s.now())
+		w.move, err = cutMoved(ctx, s.gno, s.Cfg, H, mb, w.routes, lines)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("the cut read again: %w", err)
+		}
+		s.state.Gno.mailbox(w.move.again, "hlmailbox's second read", s.now())
+		if w.move.why == "" {
+			break
+		}
+		log.Printf("signer: the cut moved (taking %d of %d): %s", try, cutTries, w.move.why)
+	}
+	return w, ids, lines, nil
+}
+
+// syncSends reads the sends in flight (sends.go) up to hlmailbox's count as the window first read it; a reading that
+// fails is a round with no verdict.
+func (s *Signer) syncSends(ctx context.Context, mb *gnoside.Mailbox, routes map[string]*gnoside.Route, lines map[string]*gnoside.Migration, H int64, snap *ethSnapshot) error {
+	_, _, refundErr, err := s.state.Sends.sync(ctx, s.gno, s.pair, s.Cfg, mb, routes, lines, nil, H, snap.Pin, s.now(), sendsPerRound)
+	if err == nil {
+		err = refundErr
+	}
+	if err != nil {
+		return fmt.Errorf("the sends in flight: %w", err)
+	}
+	return nil
+}
+
+// disagreeKey is a failed reading's alarm: eth:providers when the two providers disagreed, else the round's own.
+func disagreeKey(err error) string {
+	if errors.Is(err, ethx.ErrDisagree) {
+		return "eth:providers"
+	}
+	return ""
+}
+
+// holdToOneNode holds a round's reads to one node's (E6-GT2, backends.go): the head read after the marks to every head
+// read before it and above the highest mark read, and the deliveries placed at the window's head (the index's, and
+// those pruned) to hlmailbox's count read after it.
+func (s *Signer) holdToOneNode(ctx context.Context, top int64, delivered int, Hc int64) error {
+	s.state.Gno.placed(s.state.Index.placedBy(Hc)+s.state.PrunedCredited, delivered, Hc, s.now())
+	end, err := s.gno.Status(ctx)
+	if err != nil {
+		return err
+	}
+	s.state.Gno.head(end.Height, "the own node's head after the marks", s.now())
+	s.state.Gno.marks(top, end.Height, s.now())
 	return nil
 }
 
@@ -808,12 +959,7 @@ func (s *Signer) readSigned(nonce uint32) (*SignedBurn, error) {
 
 // publishCounts copies the index's counts under the mutex for the status (the status never walks the index).
 func (s *Signer) publishCounts() {
-	n, w := len(s.state.Index.Burns), 0
-	for _, rec := range s.state.Index.Burns {
-		if rec.Credited == 0 {
-			w++
-		}
-	}
+	n, w := len(s.state.Index.Burns)+len(s.state.Index.folded()), s.state.Index.waiting()
 	s.mu.Lock()
 	s.indexedN, s.waitingN, s.signedN = n, w, len(s.signed)
 	s.cursorN, s.fromN, s.ignoredN, s.lineN = s.state.Index.Cursor, s.state.From, s.state.Index.IgnoredN, s.state.Index.Line
@@ -918,13 +1064,9 @@ func gnoSecondHead(ctx context.Context, sources []gnoside.Reader) (uint64, bool)
 // gnoIdentities reads every token's counters at a height for the identity — over the token's line of migrations while
 // one is open, as the watch and hlwatch read (the Solana audit's K35: the configured route alone reads 0 against the
 // live supply from page 0) — with each supply from the snapshot, and answers the lines read (the burn scan follows
-// them) and the routes' renders (the sends' refund marks read them). A route or a line that cannot be read is no
-// verdict.
-func gnoIdentities(ctx context.Context, g gnoside.Reader, cfg *Config, H int64, snap *ethSnapshot) (map[string]*Identity, map[string]*gnoside.Migration, map[string]*gnoside.Route, error) {
-	mb, err := gnoside.MailboxAt(ctx, g, cfg.Gno.Mailbox, H)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("hlmailbox: %w", err)
-	}
+// them) and the routes' renders (the sends' refund marks read them). mb is hlmailbox as the cut's window read it first
+// (a line's migration is read against it). A route or a line that cannot be read is no verdict.
+func gnoIdentities(ctx context.Context, g gnoside.Reader, cfg *Config, mb *gnoside.Mailbox, H int64, snap *ethSnapshot) (map[string]*Identity, map[string]*gnoside.Migration, map[string]*gnoside.Route, error) {
 	read := gnoside.RouteReaderAt(g, H)
 	ids := map[string]*Identity{}
 	lines := map[string]*gnoside.Migration{}
@@ -967,24 +1109,37 @@ func countersOf(rj *gnoside.Route, mig *gnoside.Migration) lineCounters {
 	return c
 }
 
-// cutMoved is the cut's read-twice guard, taken once every mark is read (F7.3 item 1; the Go trust audit's E3-GT2, the
-// plan red team's E3-RT3). gno.land answers its latest state at any height — its realms' objects are not versioned — so
-// the cut's gno reads are a sequence of reads at whatever is latest: hlmailbox (first), the routes and their lines, then,
-// after the burn scan, the burns' credited marks and the sends' refund marks. A credit landing after the routes were
-// read and before its burn's mark is read is in neither owed nor in flight: the reading is short by its amount, room
-// for a forged mint of that amount, burned back, to pass a round and have its burn signed. So hlmailbox is read again:
-// its delivered count moves with every credit (Process, and MarkDone's credit by vote), as its count moves with every
-// dispatch (held across the routes' read already). A token whose sends a refund can mark, or whose line of migrations
-// is open, has its counters read again too: a refund applied, or a migration's page moving the counters between the
-// line's realms, landing between the reads is the same slack (or a double count). It answers why the cut moved, ""
-// when it held.
-func cutMoved(ctx context.Context, g gnoside.Reader, cfg *Config, H int64, first *gnoside.Mailbox, routes map[string]*gnoside.Route, lines map[string]*gnoside.Migration) (string, error) {
+// cutMove is what the cut's second read of hlmailbox found: why the cut moved ("" when it held), hlmailbox as read again,
+// and whether it was a token's counters that moved (a refund, a migration's page) — the one move that can add to a
+// reading — rather than a count, which only takes from it (E6-GT1: brokenAcrossAMove).
+type cutMove struct {
+	why      string
+	again    *gnoside.Mailbox
+	counters bool
+}
+
+// cutMoved is the cut's read-twice guard, taken at the end of its window (F7.3 item 1; the Go trust audit's E3-GT2, the
+// plan red team's E3-RT3; E6-GT1). gno.land answers its latest state at any height — its realms' objects are not
+// versioned — so the window's gno reads are a sequence of reads at whatever is latest: hlmailbox (first), the routes and
+// their lines, the own node's head. A send dispatched after hlmailbox's first read and before the routes' is in the lock
+// and not counted in flight; a credit landing after the routes' read is in neither owed nor in flight once its mark is
+// read: either a reading short by its amount, room for a forged mint of that amount, burned back, to pass a round and
+// have its burn signed. So hlmailbox is read again: its count moves with every dispatch and its delivered count with
+// every credit (Process, and MarkDone's credit by vote). A token whose sends a refund can mark, or whose line of
+// migrations is open, has its counters read again too: a refund applied, or a migration's page moving the counters
+// between the line's realms, landing between the reads is the same slack (or a double count).
+func cutMoved(ctx context.Context, g gnoside.Reader, cfg *Config, H int64, first *gnoside.Mailbox, routes map[string]*gnoside.Route, lines map[string]*gnoside.Migration) (cutMove, error) {
 	again, err := gnoside.MailboxAt(ctx, g, cfg.Gno.Mailbox, H)
 	if err != nil {
-		return "", fmt.Errorf("hlmailbox: %w", err)
+		return cutMove{}, fmt.Errorf("hlmailbox: %w", err)
+	}
+	mv := cutMove{again: again}
+	var why []string
+	if again.Count != first.Count {
+		why = append(why, fmt.Sprintf("hlmailbox dispatched %d message(s) while the cut was read (its count %d, then %d: a send between hlmailbox's first read and the routes' is in the lock and not counted in flight)", int64(again.Count)-int64(first.Count), first.Count, again.Count))
 	}
 	if again.Delivered != first.Delivered {
-		return fmt.Sprintf("hlmailbox delivered %d message(s) while the cut was read (its delivered count %d, then %d: a credit between the routes' read and the credited marks' is in neither owed nor in flight)", again.Delivered-first.Delivered, first.Delivered, again.Delivered), nil
+		why = append(why, fmt.Sprintf("hlmailbox delivered %d message(s) while the cut was read (its delivered count %d, then %d: a credit after the routes' read is in neither owed nor in flight)", again.Delivered-first.Delivered, first.Delivered, again.Delivered))
 	}
 	read := gnoside.RouteReaderAt(g, H)
 	for _, r := range cfg.Routes {
@@ -998,17 +1153,19 @@ func cutMoved(ctx context.Context, g gnoside.Reader, cfg *Config, H int64, first
 		}
 		rj2, err := gnoside.RouteAt(ctx, g, r.Gno, H)
 		if err != nil {
-			return "", fmt.Errorf("%s: %w", r.Symbol, err)
+			return cutMove{}, fmt.Errorf("%s: %w", r.Symbol, err)
 		}
 		mig2, err := gnoside.MigrationOf(ctx, read, r.Symbol, r.Gno, r.Predecessor, rj2, again)
 		if err != nil {
-			return "", fmt.Errorf("%s's line of migrations: %w", r.Symbol, err)
+			return cutMove{}, fmt.Errorf("%s's line of migrations: %w", r.Symbol, err)
 		}
 		if a, b := countersOf(rj, mig), countersOf(rj2, mig2); a != b {
-			return fmt.Sprintf("%s's counters moved while the cut was read (lock, owed, voided, lost, refunds %v, then %v: a refund, or a migration's page, landing between the reads)", r.Symbol, a, b), nil
+			mv.counters = true
+			why = append(why, fmt.Sprintf("%s's counters moved while the cut was read (lock, owed, voided, lost, refunds %v, then %v: a refund, or a migration's page, landing between the reads)", r.Symbol, a, b))
 		}
 	}
-	return "", nil
+	mv.why = strings.Join(why, "; ")
+	return mv, nil
 }
 
 // sortedSymbols are a map's keys, sorted.

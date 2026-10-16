@@ -3,6 +3,7 @@ package hlmailbox
 import (
 	"chain"
 	"encoding/hex"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -162,7 +163,10 @@ func Paused(route, fn string) bool {
 
 // Flagged is whether some guardian's standing payouts flag on route names this claim — by its message id, or by a
 // range covering the height it was credited at (a "since" range only if the verifier credited it): the test that
-// makes GovDAO's void of that claim at once (§5.3). A watch key's flag never counts.
+// makes GovDAO's void of that claim at once (§5.3). A watch key's flag never counts. A route's void asks it of every
+// id or credit it takes (p/hlroute's Decide), so each list is searched, not scanned (named): with four guardians'
+// lists of 256 standing, a scan read up to 1,024 ids for each unflagged id of a void (the round-6 realms audit's
+// E6-RL1).
 func Flagged(route, id string, height int64, verifier bool) bool {
 	id = cleanID(id)
 	found := false
@@ -171,19 +175,28 @@ func Flagged(route, id string, height int64, verifier bool) bool {
 		if !IsGuardianSeat(f.seat) {
 			return false
 		}
-		if f.ranged && f.rng.Covers(height, verifier) {
+		if f.ranged && f.rng.Covers(height, verifier) || named(f.ids, id) {
 			found = true
 			return true
-		}
-		for _, x := range f.ids {
-			if x == id {
-				found = true
-				return true
-			}
 		}
 		return false
 	})
 	return found
+}
+
+// named is whether ids — a payouts flag's, sorted and without repeats (parseIDs) — holds id: a binary search, at most
+// nine reads of a list of 256.
+func named(ids []string, id string) bool {
+	lo, hi := 0, len(ids)
+	for lo < hi {
+		m := (lo + hi) / 2
+		if ids[m] < id {
+			lo = m + 1
+		} else {
+			hi = m
+		}
+	}
+	return lo < len(ids) && ids[lo] == id
 }
 
 // PayoutsEpoch is how many times an unpause or a removal cleared a standing payouts flag on route, and when the
@@ -197,7 +210,7 @@ func PayoutsEpoch(route string) (epoch, at int64) {
 	return r.epoch, r.epochAt
 }
 
-// Flags lists the standing flags of a route as "fn seat@time[ids…]" lines.
+// Flags lists the standing flags of a route as "fn seat@time[ids…]" lines, a list's ids sorted (parseIDs).
 func Flags(route string) []string {
 	var out []string
 	eachFlag(route, func(head string, ids []string) {
@@ -243,7 +256,8 @@ func mustBeRoute(cur realm) string {
 }
 
 // parseIDs reads what a payouts flag names: a range (hlroute.ParseRange's forms), or a comma-separated list of
-// message ids, at most maxFlagIDs; "" names nothing.
+// message ids, at most maxFlagIDs, kept sorted and without repeats — the order Flagged searches (named), and the
+// order Flags and the json list them in; "" names nothing.
 func parseIDs(s string) (ids []string, rng hlroute.Range, ranged bool) {
 	mustBeASCII("ids", s) // hlroute.ParseRange echoes a malformed range as it came (E4-GS1)
 	if strings.TrimSpace(s) == "" {
@@ -256,19 +270,18 @@ func parseIDs(s string) (ids []string, rng hlroute.Range, ranged bool) {
 	if len(parts) > maxFlagIDs {
 		panic("hlmailbox: more than " + strconv.Itoa(maxFlagIDs) + " ids")
 	}
-	out := make([]string, 0, len(parts))
+	all := make([]string, 0, len(parts))
 	for _, p := range parts {
 		id := cleanID(p)
 		if b, err := hex.DecodeString(id); err != nil || len(b) != 32 {
 			panic("hlmailbox: not a 32-byte message id in hex: " + echo(id))
 		}
-		dup := false
-		for _, x := range out {
-			if x == id {
-				dup = true
-			}
-		}
-		if !dup {
+		all = append(all, id)
+	}
+	sort.Strings(all)
+	out := make([]string, 0, len(all))
+	for _, id := range all {
+		if len(out) == 0 || out[len(out)-1] != id {
 			out = append(out, id)
 		}
 	}
@@ -283,7 +296,7 @@ func SetFlag(cur realm, route, fn, ids string) {
 	who := caller(cur)
 	seat := SeatOf(who)
 	if seat == 0 {
-		// echo-ok(who): the caller's bech32 address
+		// echo-ok(who): the caller's bech32 address, ASCII
 		panic("hlmailbox: not a guardian or a watch key: " + string(who))
 	}
 	if !routes.Has(route) {
@@ -309,7 +322,7 @@ func ClearFlag(cur realm, route, fn string) {
 	who := caller(cur)
 	seat := SeatOf(who)
 	if seat == 0 {
-		// echo-ok(who): the caller's bech32 address
+		// echo-ok(who): the caller's bech32 address, ASCII
 		panic("hlmailbox: not a guardian or a watch key: " + string(who))
 	}
 	if _, ok := flags.Remove(flagKey(route, fn, seat)); !ok {
@@ -555,7 +568,7 @@ func NoteEnrolled(cur realm, path string, height int64) {
 	}
 	r := v.(*routeRec)
 	r.enrolled, r.enrolledAt = height, now()
-	chain.Emit("RouteEnrolled", "pkgpath", path, "height", strconv.FormatInt(height, 10)) // echo-ok(path): a registered route's path (checked above)
+	chain.Emit("RouteEnrolled", "pkgpath", path, "height", strconv.FormatInt(height, 10)) // echo-ok(path): a registered route's path (checked above), ASCII by tm2's path rules
 }
 
 // ClearEnrolled is r/hlgov's word, from its cancel closure, that the kind 6 whose note stands on the route at path
@@ -574,7 +587,7 @@ func ClearEnrolled(cur realm, path string) {
 		return
 	}
 	r.enrolled, r.enrolledAt = 0, 0
-	chain.Emit("RouteEnrolmentCleared", "pkgpath", path) // echo-ok(path): a registered route's path (checked above)
+	chain.Emit("RouteEnrolmentCleared", "pkgpath", path) // echo-ok(path): a registered route's path (checked above), ASCII by tm2's path rules
 }
 
 // successorOf is whether the route at path succeeds the route whose address, as 32 bytes, is recipient — along the

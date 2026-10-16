@@ -111,7 +111,7 @@ func compiledLaunchValues() launchValues {
 func mustNotBeDevTree() string {
 	id := runtime.ChainID()
 	if why := launchGuard(id, compiledLaunchValues()); why != "" {
-		// echo-ok(why): the guard's own refusal: words, contract names, EIP-55 and bech32 addresses, a few hundred bytes at most: far under the cut
+		// echo-ok(why): the guard's own refusal: ASCII words, contract names, EIP-55 and bech32 addresses and pkgpaths, a few hundred bytes at most: far under the cut
 		panic(why)
 	}
 	return id
@@ -199,7 +199,7 @@ func devPlaceholder(chainID string, v launchValues) string {
 		return "hlmailbox: solanaNamespace is the dev tree's, " + v.solana + ", where no realm of the Solana deployment lives" + tail
 	}
 	if !sha256In([]string{mainnetSolanaNamespace}, []byte(v.solana)) {
-		return "hlmailbox: solanaNamespace is " + v.solana + ", not the Solana deployment's on gnoland-1 (the namespace hashing to " + mainnetSolanaNamespace[:16] + "…): a burn naming one of its six realms would be paid there, never swept" + tail
+		return "hlmailbox: solanaNamespace is " + v.solana + ", not the Solana deployment's on gnoland-1 (the namespace hashing to " + mainnetSolanaNamespace[:16] + "...): a burn naming one of its six realms would be paid there, never swept" + tail
 	}
 	return ""
 }

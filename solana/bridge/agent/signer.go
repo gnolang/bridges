@@ -65,12 +65,14 @@ type Signer struct {
 
 	// The dispatch index: every burn toward gno.land either provider's scan found, by id, with the providers
 	// that showed it; the unsigned ones in provider 1's order; the scans' own cursors and side lists (in memory:
-	// a restart puts back every burn it signed, from the store, and scans again from the signing cursor — E5-SF3).
+	// a restart puts back every burn it signed, from the store, and scans again from where the state says nothing
+	// unsigned lies below — E5-SF3, E6-SF1).
 	index    map[string]*signerDispatch
 	unsigned []*signerDispatch
-	icur     map[string]string     // "SYM#i" → provider i's index cursor
+	icur     map[string]scanCursor // "SYM#i" → provider i's index cursor
 	skipped  map[string][]scanSkip // "SYM#i" → the transactions provider i could not read
 	signed   map[string]bool       // ids signed (the store's files)
+	gaps     historyGaps           // the providers refused for a route's history (E6-SF1): no verdict while one stands
 
 	mu    sync.Mutex
 	state struct {
@@ -82,6 +84,14 @@ type Signer struct {
 		// the last round written, never from one window over every credit (the index scans again from the signing
 		// cursor only).
 		Credits creditBook `json:"credits"`
+		// SolThrough is, by "SYM#i", the slot a restart lists provider i's route back to (E6-SF1): the slot its listing
+		// was read through, below every burn it listed that is neither signed (the store puts those back) nor credited,
+		// and below every transaction it could not read (the side list is in memory) — so a restart lists again every
+		// burn the index held that the store does not (E5-SF3's rule), and a quiet route, whose signing cursor leaves a
+		// provider's day of history, is still listed from a slot inside it.
+		SolThrough map[string]uint64 `json:"solThrough,omitempty"`
+		// SolThroughHosts are the providers, by place, SolThrough was read through (a slot dropped when another takes it)
+		SolThroughHosts []string `json:"solThroughHosts,omitempty"`
 	}
 	minCtx      minContextCheck      // the providers' minContextSlot self-check (E5-SF2)
 	marksAt     time.Time            // when every uncredited mark was last read (markRefresh)
@@ -130,7 +140,7 @@ func (s *Signer) load() error {
 		s.state.SolCursors = map[string]string{}
 	}
 	s.index = map[string]*signerDispatch{}
-	s.icur = map[string]string{}
+	s.icur = map[string]scanCursor{}
 	s.skipped = map[string][]scanSkip{}
 	s.signed = map[string]bool{}
 	files, _ := filepath.Glob(filepath.Join(s.Store, "sol", "*.json"))
@@ -195,6 +205,11 @@ func (s *Signer) Run(ctx context.Context) error {
 		return err
 	}
 	s.sol = [2]*rpc.Client{sol.NewRPC(urls[0]), sol.NewRPC(urls[1])}
+	if s.state.SolThrough != nil {
+		s.state.SolThroughHosts = keepThroughOf(s.state.SolThrough, s.state.SolThroughHosts, urls[:])
+	} else {
+		s.state.SolThroughHosts = keepThroughOf(nil, nil, urls[:])
+	}
 	s.gno = s.Cfg.GnoClient()
 	for _, src := range s.Cfg.Gno.Sources {
 		s.sources = append(s.sources, s.Cfg.SourceClient(src))
@@ -365,7 +380,7 @@ func (s *Signer) checkIdentity(ctx context.Context) error {
 	s.raiseFloor(snap.Slot)
 	// a provider whose listing ignores minContextSlot feeds an index that cannot be held to the supplies' slot: a burn out
 	// of the supply could be out of the index, the reading short by it (E5-SF2) — no verdict while the config names it
-	if why := s.minCtx.check(ctx, s.sol, s.Cfg, snap.Slot, s.now(), s.Alarm); why != "" {
+	if why := s.minCtx.check(ctx, s.sol, s.Cfg, snap.Slot, s.now(), s.Alarm, true); why != "" {
 		s.unverified(why)
 		return nil
 	}
@@ -438,6 +453,16 @@ func (s *Signer) checkIdentity(ctx context.Context) error {
 		s.unverified("the dispatch index: " + err.Error())
 		return err
 	}
+	// a provider that cannot list a route back to where it was read (E6-SF1): the index rests on the other provider's
+	// word alone for that route — no verdict, never a guess, until a provider that keeps the route's history is named
+	if len(s.gaps.why) > 0 {
+		var why []string
+		for _, sym := range sortedKeys(gapsOf(s.gaps.why)) {
+			why = append(why, sym+": "+gapsOf(s.gaps.why)[sym])
+		}
+		s.unverified("the dispatch index rests on one provider's listing (E6-SF1): " + strings.Join(why, "; "))
+		return nil
+	}
 	// a dispatch the providers show differently is no reading of Solana (G17): no verdict until they agree
 	if id, why := s.disputed(); id != "" {
 		s.Alarm.Alarm("solana:providers:"+id[:8], why)
@@ -495,27 +520,34 @@ func (s *Signer) checkIdentity(ctx context.Context) error {
 		s.unverified("own node: " + err.Error())
 		return err
 	}
-	// every mark read: hlmailbox and the open lines held to the first read (E3-GT2) — a move is no verdict, quiet
-	why, err := cutMoved(ctx, s.gno, s.Cfg, head.Height, before, routes, migs, false)
+	// every mark read: hlmailbox and the open lines held to the first read (E3-GT2) — a move is no verdict, quiet; but a
+	// move of the delivered count alone makes a reading short, never over, so a token broken by more than the credits it
+	// cannot place could explain is broken whatever landed (E6-GT1's Solana sibling): halted at once
+	mv, err := cutMovedBy(ctx, s.gno, s.Cfg, head.Height, before, routes, migs, false)
 	if err != nil {
 		s.unverified("the cut read again after the marks: " + err.Error())
 		return err
 	}
-	if why != "" {
-		s.movingCut(why)
+	if mv.why != "" {
+		s.movingCut(mv.why)
+		if mv.creditsOnly {
+			s.brokenPastTheCut(ctx, ids, migs, head.Height, mv.again.Delivered, snap, "read across a moving cut")
+		}
 		return nil
 	}
 	s.movingCuts = 0
 	// the credits no index holds yet may be burns above the snapshot's slot (E4-GT1: a signer whose providers trail
 	// the others' halted over an honest credit): no verdict, quiet, until the index places them or the snapshot passes
-	// their time
+	// their time — but not over a token broken by more than they could explain
 	if why, _ := s.state.Credits.place(before.Delivered, atHead.Height, atHead.Time, signerCreditedHeights(s.index), snap.Time); why != "" {
 		s.unplacedRound(why)
+		s.brokenPastTheCut(ctx, ids, migs, head.Height, before.Delivered, snap, "read with credits the index cannot place yet")
 		return nil
 	}
 	s.unplacedSince = time.Time{}
 	if ok, why := cut.Holds(); !ok {
 		s.unverified(why)
+		s.brokenPastTheCut(ctx, ids, migs, head.Height, before.Delivered, snap, "read with burns credited above their slot")
 		return nil
 	}
 	var broken []string
@@ -536,6 +568,48 @@ func (s *Signer) checkIdentity(ctx context.Context) error {
 	s.mu.Unlock()
 	s.conclude(broken, head.Height, T)
 	return nil
+}
+
+// brokenPastTheCut halts the signer when a token reads broken by more than the credits this round cannot place could put
+// it over by (overBound) and its burns in flight besides (a stale mark counts a credited burn in flight and owed alike:
+// no verdict and heal, never a halt): a round whose cut moved by credits alone, or held with credits the index cannot
+// place yet, or with burns credited above their slot (E6-GT1's Solana sibling: a forger's stream of credits kept every
+// round at no verdict, the halt an hour away). Nothing else changes: a token within that bound waits for the next held cut.
+func (s *Signer) brokenPastTheCut(ctx context.Context, ids map[string]*Identity, migs map[string]*migration, H int64, d int, snap *supplySnapshot, how string) {
+	var stops []string
+	for _, sym := range sortedKeys(ids) {
+		if ids[sym].SignerStops() {
+			stops = append(stops, sym)
+		}
+	}
+	if len(stops) == 0 {
+		return
+	}
+	// every burn the index holds above its route's supply slot, read credited or not (a mark read unset at a count that
+	// has not moved, or by a backend behind: the review of lane s7, R1), by its amount (a round with a disputed record
+	// stopped before its marks)
+	after := map[string]int64{}
+	for _, rec := range s.index {
+		if rec.d.Slot > snap.SlotOf(rec.symbol) {
+			after[rec.symbol] += rec.amount
+		}
+	}
+	indexed := func(id string) bool { _, ok := s.index[id]; return ok }
+	bound, ok := overBound(ctx, s.gno, s.Cfg, migs, nil, d, H, s.state.Credits.boundFrom(), snap.Time, indexed, after)
+	if !ok {
+		return
+	}
+	var broken []string
+	for _, sym := range stops {
+		id := ids[sym]
+		if over := id.Right() + id.InflightOut - id.Lock; over > bound[sym] { // burns in flight left out
+			_, text := id.Verdict()
+			broken = append(broken, fmt.Sprintf("%s — %s, over by %d with no burn in flight counted: more than the %d the credits it cannot place could put it over by (E6-GT1)", text, how, over, bound[sym]))
+		}
+	}
+	if len(broken) > 0 {
+		s.halt("the supply identity is broken (§5.6: supply + uncredited burns > lock − owed − voided + lost): " + strings.Join(broken, "; "))
+	}
 }
 
 // conclude applies a verdict: a broken identity halts; a held one resumes — but §5.6's ahead-stop clears
@@ -735,21 +809,24 @@ func (s *Signer) indexScan(ctx context.Context, snap *supplySnapshot) error {
 			key := r.Symbol + "#" + strconv.Itoa(i)
 			cursor, started := s.icur[key]
 			if !started {
-				s.mu.Lock()
-				cursor = s.state.SolCursors[r.Symbol+"#0"]
-				s.mu.Unlock()
+				cursor = s.restartCursor(r.Symbol, i)
 			}
 			var minSlot uint64
 			if snap != nil {
 				minSlot = snap.SlotOf(r.Symbol)
 			}
-			ds, next, skipped, err := solScan(ctx, c, mailbox, r.TokenKey(), s.Cfg.Solana.Domain, gnoDomain, cursor, minSlot)
+			ds, next, skipped, err := solScan(ctx, c, mailbox, r.TokenKey(), s.Cfg.Solana.Domain, gnoDomain, cursor, minSlot, s.minCtx.honouring()[i])
+			if g, ok := asHistoryGap(err); ok {
+				s.gaps.set(key, g.why, s.now()) // its cursor kept: listed again next round
+				continue
+			}
 			if err != nil {
 				if firstErr == nil {
 					firstErr = fmt.Errorf("%s from provider %d: %w", r.Symbol, i+1, err)
 				}
 				continue
 			}
+			s.gaps.end(key)
 			s.icur[key] = next
 			more, keep := retrySkipped(ctx, c, mailbox, r.TokenKey(), s.Cfg.Solana.Domain, gnoDomain, s.skipped[key], s.now())
 			keep = append(keep, skipped...)
@@ -764,7 +841,61 @@ func (s *Signer) indexScan(ctx context.Context, snap *supplySnapshot) error {
 			}
 		}
 	}
+	s.gaps.alarm(s.Alarm, s.now())
+	through := s.restartThrough()
+	s.mu.Lock()
+	s.state.SolThrough = through // written with the next save (the floor's, a signature's): an older value is only lower
+	s.mu.Unlock()
 	return firstErr
+}
+
+// restartCursor is where provider i's listing of a route begins after a start (E5-SF3: the index is rebuilt from the
+// store, so every burn it held that the store does not is listed again): back to the slot the state names (SolThrough,
+// E6-SF1), or, from a state written before it, after the signing cursor (the last signed dispatch's transaction).
+func (s *Signer) restartCursor(symbol string, i int) scanCursor {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t := s.state.SolThrough[symbol+"#"+strconv.Itoa(i)]; t > 0 {
+		return scanCursor{Through: t}
+	}
+	return scanCursor{Sig: s.state.SolCursors[symbol+"#0"]}
+}
+
+// restartThrough is SolThrough as the index stands (E6-SF1): by "SYM#i", the slot provider i's listing of the route was
+// read through, lowered below every burn of the route the index holds that is neither signed nor credited — whichever
+// provider listed it (one this provider left out is listed again by it after a restart, as its next `until` would have:
+// the review of lane s7, R2) — and below every transaction it could not read; none for a cursor read through no slot yet;
+// the state's own for a route not listed since the start (its listing failed: what the state said still holds).
+func (s *Signer) restartThrough() map[string]uint64 {
+	out := map[string]uint64{}
+	s.mu.Lock()
+	for key, t := range s.state.SolThrough {
+		if _, listed := s.icur[key]; !listed {
+			out[key] = t
+		}
+	}
+	s.mu.Unlock()
+	for key, cur := range s.icur {
+		sym, _, _ := strings.Cut(key, "#")
+		if cur.Through == 0 {
+			continue
+		}
+		t := cur.Through
+		for id, rec := range s.index {
+			if rec.symbol == sym && !s.signed[id] && rec.credited == 0 && rec.d.Slot <= t {
+				t = rec.d.Slot - min(rec.d.Slot, 1)
+			}
+		}
+		for _, sk := range s.skipped[key] {
+			if sk.Slot <= t {
+				t = sk.Slot - min(sk.Slot, 1)
+			}
+		}
+		if t > 0 {
+			out[key] = t
+		}
+	}
+	return out
 }
 
 // record folds one scanned dispatch into the index. The second provider's sight of an indexed dispatch is

@@ -299,8 +299,11 @@ func rt6Credit(c *m3bChain, g *m3bGnoNode, pa *m3bProvider, alice [32]byte, now 
 	}
 }
 
-// A head read a block behind the state's (a load-balanced endpoint): the reading's height is raised to the highest
-// credit its state shows, so the honest credit at 61 is counted as the lag it is — never flagged, never a halt.
+// A head read a block behind the state's (a load-balanced endpoint). Round 5 raised the reading's height to the highest
+// credit its state showed, so the honest credit at 61 counted as the lag it is. Round 6 reads the marks after the cut's
+// window and places them by its head (E6-GT1), where a mark above the head is a credit after the window; a mark set
+// above a head read after it is no one node's answer (E6-GT2): the endpoint is refused — no verdict, gno:backends at
+// flag level, kept in the state — never a flag, never a halt (the signer signs nothing meanwhile).
 func TestF17bHeadBehindTheStateCountsTheLag(t *testing.T) {
 	r := newMonRig(t)
 	if err := r.poll(); err != nil {
@@ -311,9 +314,8 @@ func TestF17bHeadBehindTheStateCountsTheLag(t *testing.T) {
 	if err := r.poll(); err != nil {
 		t.Fatal(err)
 	}
-	p := r.m.state.Pending["GNOT"]
-	if p == nil || p.Height != 61 {
-		t.Fatalf("the reading's height is not the state's credit: %+v", p)
+	if !flagLevel(r.m.Alarm, backendsKey) || r.m.last.Verdict || len(r.m.state.Pending) > 0 || r.m.state.Gno.Backends == "" {
+		t.Fatalf("a head read lower than the one before it was not refused as more than one backend: alarms %v, verdict %v, pending %v, record %+v", r.m.Alarm.StandingKeys(), r.m.last.Verdict, r.m.state.Pending, r.m.state.Gno)
 	}
 	r.pa.mu.Lock()
 	r.pa.lag = 0
@@ -325,8 +327,8 @@ func TestF17bHeadBehindTheStateCountsTheLag(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(r.gnoFlags()) > 0 || r.snd.count() > 0 {
-		t.Fatalf("an honest credit flagged behind a head a block behind: %v %v", r.gnoFlags(), r.snd.calls)
+	if len(r.gnoFlags()) > 0 || r.snd.count() > 0 || r.m.last.Verdict || !flagLevel(r.m.Alarm, backendsKey) {
+		t.Fatalf("an honest credit flagged behind a head a block behind, or the endpoint taken as one node again: %v %v %v", r.gnoFlags(), r.snd.calls, r.m.Alarm.StandingKeys())
 	}
 	// the signer
 	s := newSignerRig(t)
@@ -342,8 +344,8 @@ func TestF17bHeadBehindTheStateCountsTheLag(t *testing.T) {
 		s.chain.mine(uint64(130+25*(i+1)), uint64(130+25*(i+1)))
 		s.round()
 	}
-	if st := s.status(); st["halted"] != "" {
-		t.Fatalf("a signer halted on an honest credit behind a head a block behind: %v", st["halted"])
+	if st := s.status(); st["halted"] != "" || st["signing"] == true || !s.alarmed(backendsKey) {
+		t.Fatalf("a signer behind a head a block behind: halted %v, signing %v, alarms %v", st["halted"], st["signing"], s.s.Alarm.StandingKeys())
 	}
 }
 

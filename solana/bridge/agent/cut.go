@@ -91,13 +91,48 @@ func countersText(cs []realmCounters) string {
 // not walked); the signers read no sends, so a dispatch moves only a lock their rule already reads short by every
 // send in flight (AP1).
 func cutMoved(ctx context.Context, g gnoReader, cfg *Config, H int64, first *mailboxJSON, routes map[string]*routeJSON, migs map[string]*migration, refunds bool) (string, error) {
+	mv, err := cutMovedBy(ctx, g, cfg, H, first, routes, migs, refunds)
+	return mv.why, err
+}
+
+// cutMove is what the read-twice guard found: why the cut moved ("" when it held), hlmailbox as read again, and whether
+// only its delivered count moved — every counter it reads again held — which can make a reading short, never over: a
+// credit of an indexed burn landing between the routes' read and its mark's is in neither owed nor in flight, and one of
+// a burn no index holds is in owed only if it landed before the routes were read, its amount then the most it puts a
+// reading over by (E6-GT1's Solana sibling, credits.go's overBound).
+type cutMove struct {
+	why         string
+	again       *mailboxJSON
+	creditsOnly bool
+}
+
+// cutMovedBy is cutMoved, saying what moved: the counters are read again even when the delivered count moved.
+func cutMovedBy(ctx context.Context, g gnoReader, cfg *Config, H int64, first *mailboxJSON, routes map[string]*routeJSON, migs map[string]*migration, refunds bool) (cutMove, error) {
 	again, err := mailboxAt(ctx, g, cfg.Gno.Mailbox, H)
 	if err != nil {
-		return "", fmt.Errorf("hlmailbox: %w", err)
+		return cutMove{}, fmt.Errorf("hlmailbox: %w", err)
 	}
+	mv := cutMove{again: again}
 	if again.Delivered != first.Delivered {
-		return fmt.Sprintf("hlmailbox delivered %d message(s) while the cut was read (its delivered count %d, then %d: a credit between the routes' read and the delivered marks' is in neither owed nor in flight)", again.Delivered-first.Delivered, first.Delivered, again.Delivered), nil
+		mv.why = fmt.Sprintf("hlmailbox delivered %d message(s) while the cut was read (its delivered count %d, then %d: a credit between the routes' read and the delivered marks' is in neither owed nor in flight)", again.Delivered-first.Delivered, first.Delivered, again.Delivered)
 	}
+	why, err := countersMoved(ctx, g, cfg, H, again, routes, migs, refunds)
+	if err != nil {
+		return cutMove{}, err
+	}
+	switch {
+	case why != "" && mv.why == "":
+		mv.why = why
+	case why == "" && mv.why != "":
+		// (a send dispatched meanwhile is in a lock the walk did not count, or in neither: short, never over)
+		mv.creditsOnly = true
+	}
+	return mv, nil
+}
+
+// countersMoved reads again, realm by realm, every token whose line of migrations is open — and, with refunds, every
+// token whose sends a refund can mark — and says why its counters moved since routes, "" when they held.
+func countersMoved(ctx context.Context, g gnoReader, cfg *Config, H int64, again *mailboxJSON, routes map[string]*routeJSON, migs map[string]*migration, refunds bool) (string, error) {
 	read := routeReaderAt(g, H)
 	for _, r := range cfg.Routes {
 		rj := routes[r.Symbol]

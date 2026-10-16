@@ -983,15 +983,19 @@ func TestCheckpointChecksTheHeaderAndSeedsTheIndex(t *testing.T) {
 		sigs = append(sigs, &rpc.TransactionSignature{Signature: solana.Signature{byte(i), byte(i >> 8), 1}, Slot: uint64(7499 - i)})
 	}
 	reader.sigs = map[solana.PublicKey][]*rpc.TransactionSignature{token: sigs}
-	cursors := map[string]string{"BUBBLE#1": "kept"}
-	n, err = seedCursors(ctx, [2]solReader{reader, reader}, cfg, 5000, cursors)
+	cursors, through := map[string]string{"BUBBLE#1": "kept"}, map[string]uint64{}
+	n, err = seedCursors(ctx, [2]solReader{reader, reader}, cfg, 5000, cursors, through)
 	if err != nil || n != 1 || cursors["BUBBLE#0"] != sigs[2499].Signature.String() || cursors["BUBBLE#1"] != "kept" {
 		t.Fatalf("the cursors: %d %v %v", n, err, cursors)
 	}
-	// every signature above the slot: no cursor (the whole history is after the checkpoint)
-	cursors = map[string]string{}
-	if n, err := seedCursors(ctx, [2]solReader{reader, reader}, cfg, 4000, cursors); err != nil || n != 0 || len(cursors) != 0 {
-		t.Fatalf("cursors with nothing at or below the slot: %d %v %v", n, err, cursors)
+	// each seeded cursor is read through the checkpoint's slot (lane s7, E6-SF1); a kept one keeps its own
+	if through["BUBBLE#0"] != 5000 || through["BUBBLE#1"] != 0 {
+		t.Fatalf("the slots read through: %v", through)
+	}
+	// every signature above the slot: no cursor (the whole history is after the checkpoint), read through the slot
+	cursors, through = map[string]string{}, map[string]uint64{}
+	if n, err := seedCursors(ctx, [2]solReader{reader, reader}, cfg, 4000, cursors, through); err != nil || n != 0 || len(cursors) != 0 || through["BUBBLE#0"] != 4000 {
+		t.Fatalf("cursors with nothing at or below the slot: %d %v %v %v", n, err, cursors, through)
 	}
 	// a null transaction answer is tried again at once nullRetries times (lane s6: a backend behind the listing), then a
 	// retention skip, retried after its hour

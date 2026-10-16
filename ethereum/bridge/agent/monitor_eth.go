@@ -715,7 +715,9 @@ func (m *Monitor) pendingAll(ctx context.Context, line *adminLine, snap *ethSnap
 	return out, nil
 }
 
-// ethChecks runs the Ethereum-side rules once the cut holds.
+// ethChecks runs the Ethereum-side rules at every poll that read the snapshot and the own node's head, whatever the gno
+// cut gave (E6-GT1): mb and routes are hlmailbox and the routes as the cut's window first read them, nil when they did
+// not read (the pause mirror and the caps then wait).
 func (m *Monitor) ethChecks(ctx context.Context, snap *ethSnapshot, mb *gnoside.Mailbox, routes map[string]*gnoside.Route, H int64, view *monitorView) {
 	cs := snap.Client
 	if cs == nil {
@@ -801,7 +803,11 @@ func (m *Monitor) ethChecks(ctx context.Context, snap *ethSnapshot, mb *gnoside.
 		m.mu.Lock()
 		m.status.Gate = map[string]any{"anyFlag": o.gate.AnyFlag(), "hold": o.gate.Hold.Set(), "quarantineEnd": cs.QuarantineEnd, "paused": paused, "why": why, "keys": addrStrings(o.gate.Keys[:]), "flags": flagStrings(o.gate.Flags[:])}
 		m.mu.Unlock()
-		m.mirrorSends(ctx, mb, paused, why)
+		if mb != nil {
+			m.mirrorSends(ctx, mb, paused, why)
+		} else {
+			m.blind("the pause mirror (sends flagged on gno.land while deliveries are paused): hlmailbox did not read this poll")
+		}
 		m.capRatios(o.gate, routes, mb)
 	}
 	if view != nil {

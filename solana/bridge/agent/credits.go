@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -114,4 +115,74 @@ func creditedHeights(index map[string]*dispatchRec) []int64 {
 		}
 	}
 	return out
+}
+
+// overBound is, by symbol, the most the credits a reading cannot place could put it over by (E6-GT1's Solana sibling): the
+// burns the index holds above their route's supply slot (owed, if credited, while their supply is not burned at the
+// snapshot: above, by symbol, the caller's), and every credit no index holds that may still be a burn above the snapshot's slot — made
+// above height from (the last height the book counted exactly, or an open window's start) in a block less than
+// creditMargin before Solana stamped the snapshot's slot (snapTime; the book's own rule: an older one is placed or no
+// lag) — by its claim's amount (such a burn credited before the routes were read is owed, its supply not burned yet). A
+// move of the delivered count does nothing else that puts a reading over (cutMove). ok false when the done tree, a
+// block or a claim could not be read: nothing is judged on it.
+func overBound(ctx context.Context, g gnoReader, cfg *Config, migs map[string]*migration, lineErrs map[string]error, d int, H, from int64, snapTime time.Time, indexed func(id string) bool, above map[string]int64) (map[string]int64, bool) {
+	out := map[string]int64{}
+	for sym, a := range above {
+		out[sym] += a
+	}
+	entries, err := doneIDs(ctx, g, cfg.Gno.Mailbox, d)
+	if err != nil {
+		return nil, false
+	}
+	recent, err := recentFrom(ctx, g, H, from, snapTime)
+	if err != nil {
+		return nil, false
+	}
+	for _, e := range entries {
+		if e.Height <= from || e.Height < recent || indexed(e.ID) {
+			continue
+		}
+		c, r, err := creditClaimOf(ctx, g, cfg, migs, lineErrs, e.ID, H)
+		if err != nil {
+			return nil, false
+		}
+		if c != nil && r != nil {
+			out[r.Symbol] += max(c.Amount, c.Swept)
+		}
+	}
+	return out, true
+}
+
+// recentWalk bounds recentFrom's walk back from the head: past it every credit above from counts (≈4 minutes of blocks).
+const recentWalk = 64
+
+// recentFrom is the lowest height whose credits may still be burns above the snapshot's slot: back from H, the first
+// block made at least creditMargin before snapTime ends it (that block and the ones below are placed or no lag); every
+// height above from with Solana's clock unread, or past the walk.
+func recentFrom(ctx context.Context, g gnoReader, H, from int64, snapTime time.Time) (int64, error) {
+	if snapTime.IsZero() {
+		return from + 1, nil
+	}
+	for h, n := H, 0; h > from; h, n = h-1, n+1 {
+		if n >= recentWalk {
+			return from + 1, nil
+		}
+		b, err := g.Block(ctx, h)
+		if err != nil {
+			return 0, err
+		}
+		if !snapTime.Before(b.Time.Add(creditMargin)) {
+			return h + 1, nil
+		}
+	}
+	return from + 1, nil
+}
+
+// boundFrom is the lowest height the book does not count as placed: its last exact height, or an open window's start.
+func (b *creditBook) boundFrom() int64 {
+	from := b.At
+	for _, w := range b.Open {
+		from = min(from, w.From)
+	}
+	return from
 }

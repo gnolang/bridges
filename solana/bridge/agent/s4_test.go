@@ -80,6 +80,25 @@ type solNet struct {
 	// (slot 100 at s4ClockZero, the gno node's block time, by default); clockLie moves provider i's answer of it.
 	clockBase time.Time
 	clockLie  [2]time.Duration
+	// history is the first slot of provider i's ledger (0: all of it), as publicnode keeps about a day (lane s7, E6-SF1):
+	// a signature below it given as `until` or `before` is −32020 "Transaction … not found", its listing ends there, a
+	// transaction below it reads null, and getFirstAvailableBlock answers it.
+	history [2]uint64
+	// hide makes provider i's listing leave out signatures (a provider that lies by omission, lane s7); delay holds each
+	// of its answers that long (a provider's latency, lane s7's measure of the cut's window).
+	hide    [2]map[solana.Signature]bool
+	delay   [2]time.Duration
+	latency func(i int, method string) time.Duration // by method, beside delay
+	// invent makes provider i's listing of an address open with signatures of its own making, at the slots it says (a
+	// liar's newest, lane s7)
+	invent [2][]solSigAt
+}
+
+// keepHistory makes provider i keep its ledger from a slot on (0: all of it).
+func (n *solNet) keepHistory(i int, from uint64) {
+	n.mu.Lock()
+	n.history[i] = from
+	n.mu.Unlock()
 }
 
 // lagListing holds provider i's signature listing lag slots behind its finalized slot.
@@ -171,6 +190,15 @@ func (n *solNet) serve(i int, w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	n.mu.Lock()
+	delay := n.delay[i]
+	if n.latency != nil {
+		delay += n.latency(i, req.Method)
+	}
+	n.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+	n.mu.Lock()
 	defer n.mu.Unlock()
 	at := n.at[i]
 	slotOf := func(k solana.PublicKey) uint64 {
@@ -242,12 +270,30 @@ func (n *solNet) serve(i int, w http.ResponseWriter, r *http.Request) {
 		if notReached(view) {
 			return
 		}
+		for _, given := range []string{opts.Until, opts.Before} { // publicnode's answer to a signature below its ledger, or none it knows
+			sig, err := solana.SignatureFromBase58(given)
+			if tx, known := n.txs[sig]; given != "" && err == nil && n.history[i] > 0 && (!known || tx.slot < n.history[i]) {
+				_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32020, "message": "Transaction " + given + " not found"}})
+				return
+			}
+		}
 		list := []any{}
 		skipping := opts.Before != ""
 		all := n.sigs[k]
+		if len(n.invent[i]) > 0 && opts.Before == "" && opts.Until == "" {
+			for _, s := range n.invent[i] {
+				list = append(list, map[string]any{"signature": s.sig.String(), "slot": s.slot, "err": nil, "memo": nil, "blockTime": nil, "confirmationStatus": "finalized"})
+			}
+		}
 		for j := len(all) - 1; j >= 0; j-- { // newest first
 			s := all[j]
 			if s.slot > view {
+				continue
+			}
+			if s.slot < n.history[i] {
+				break // the ledger's first slot: nothing older is listed
+			}
+			if n.hide[i][s.sig] {
 				continue
 			}
 			if skipping {
@@ -267,7 +313,7 @@ func (n *solNet) serve(i int, w http.ResponseWriter, r *http.Request) {
 		var s string
 		_ = json.Unmarshal(req.Params[0], &s)
 		sig, _ := solana.SignatureFromBase58(s)
-		if tx, ok := n.txs[sig]; ok && tx.slot <= at {
+		if tx, ok := n.txs[sig]; ok && tx.slot <= at && tx.slot >= n.history[i] {
 			result = map[string]any{"slot": tx.slot, "blockTime": nil, "version": "legacy",
 				"transaction": []string{base64.StdEncoding.EncodeToString(tx.raw), "base64"},
 				"meta": map[string]any{"err": nil, "fee": 5000, "preBalances": []any{}, "postBalances": []any{}, "innerInstructions": []any{}, "logMessages": []any{},
@@ -276,6 +322,10 @@ func (n *solNet) serve(i int, w http.ResponseWriter, r *http.Request) {
 		}
 	case "getBalance":
 		result = map[string]any{"context": map[string]any{"slot": at}, "value": 1_000_000_000}
+	case "getFirstAvailableBlock":
+		result = n.history[i]
+	case "getSlot":
+		result = at
 	default:
 		n.unknown = append(n.unknown, req.Method)
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32601, "message": "solNet: no method " + req.Method}})
@@ -397,6 +447,8 @@ type s4Gno struct {
 	head    gno.Head
 	after   func(pkg, path string)
 	evals   int // the vm/qeval reads answered (lane s6)
+	// times are the heads' block times by height, as setHead made them (lane s7: a block's time read by height)
+	times map[int64]time.Time
 }
 
 func newS4Gno() *s4Gno {
@@ -429,7 +481,11 @@ func (g *s4Gno) Status(context.Context) (gno.Head, error) {
 func (g *s4Gno) Block(_ context.Context, h int64) (gno.Head, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return gno.Head{Height: h, Hash: fmt.Sprintf("hash%d", h), Time: g.head.Time}, nil
+	t, ok := g.times[h]
+	if !ok {
+		t = g.head.Time
+	}
+	return gno.Head{Height: h, Hash: fmt.Sprintf("hash%d", h), Time: t}, nil
 }
 
 func (g *s4Gno) Call(context.Context, string, string, int64, ...string) (*gno.Result, error) {
@@ -454,6 +510,10 @@ func (g *s4Gno) Query(_ context.Context, path string, data []byte, _ int64) ([]b
 func (g *s4Gno) setHead(height int64, t time.Time) {
 	g.mu.Lock()
 	g.head = gno.Head{Height: height, Time: t, Hash: fmt.Sprintf("head%d", height)}
+	if g.times == nil {
+		g.times = map[int64]time.Time{}
+	}
+	g.times[height] = t
 	g.mu.Unlock()
 }
 

@@ -74,7 +74,7 @@ var ethContracts = distinctContracts([EthContracts][32]byte{
 // routes' routers) would pass both routes' init checks against one token.
 func distinctContracts(cs [EthContracts][32]byte) [EthContracts][32]byte {
 	if why := duplicateContract(cs); why != "" {
-		// echo-ok(why): the guard's own refusal: words, contract names, EIP-55 and bech32 addresses, a few hundred bytes at most: far under the cut
+		// echo-ok(why): the guard's own refusal: ASCII words, contract names, EIP-55 and bech32 addresses and pkgpaths, a few hundred bytes at most: far under the cut
 		panic(why)
 	}
 	return cs
@@ -96,7 +96,7 @@ func duplicateContract(cs [EthContracts][32]byte) string {
 func mustEth(s string) [32]byte {
 	k, err := ParseEthAddress(s)
 	if err != nil {
-		// echo-ok(err): ParseEthAddress's refusal, which echoes what it read (echo, E4-GS1)
+		// echo-ok(err): ParseEthAddress's refusal: its ASCII words and its echo of what it read (echo, E4-GS1)
 		panic("hlmailbox: " + err.Error())
 	}
 	if k == ([32]byte{}) {

@@ -660,44 +660,26 @@ func skipFor(sig string, slot uint64, err error, now time.Time, tries int) scanS
 	return sk
 }
 
-// solScan finds the messages a route dispatched to destination in transactions finalized after cursor (a
-// transaction signature; "" for all of them), oldest first, and returns the new cursor (the newest signature
-// seen) and the transactions it could not read, which the cursor passes over. A message counts only as the
+// solScan finds the messages a route dispatched to destination in the transactions finalized past a cursor (its
+// signature, and the slot it was read through: history.go; neither for all of them), oldest first, and returns the
+// new cursor and the transactions it could not read, which the cursor passes over. A message counts only as the
 // mailbox's own dispatched-message account holds it — not as a log line, since any program can log anything,
 // and not every mailbox build logs through the noop program. minSlot, when not 0, is the slot the listing must
 // reach (minContextSlot: a provider whose finalized view is below it fails the scan): the slot the route's supply
 // was read at, so that every burn the supply has burned is in the index (E4-SF3: a listing answered from a
-// backend behind the supply's left a burn out of the supply and out of flight alike — a forged mint's room).
-func solScan(ctx context.Context, c solReader, mailbox sol.Mailbox, route solana.PublicKey, origin, destination uint32, cursor string, minSlot uint64) ([]solDispatch, string, []scanSkip, error) {
-	var sigs []*rpc.TransactionSignature
-	var until solana.Signature
-	if cursor != "" {
-		s, err := solana.SignatureFromBase58(cursor)
-		if err != nil {
-			return nil, cursor, nil, err
-		}
-		until = s
+// backend behind the supply's left a burn out of the supply and out of flight alike — a forged mint's room). bound
+// says the provider honours minContextSlot on the listing, so the route is read through minSlot from here on (the
+// minContextSlot check's verdict; an answer that may ignore the bound moves the cursor's slot only to the newest
+// signature it lists). A provider that cannot list the route back to the cursor is a *historyGap (E6-SF1).
+func solScan(ctx context.Context, c solReader, mailbox sol.Mailbox, route solana.PublicKey, origin, destination uint32, cur scanCursor, minSlot uint64, bound bool) ([]solDispatch, scanCursor, []scanSkip, error) {
+	l, err := listAfter(ctx, c, route, cur, minSlot)
+	if err != nil {
+		return nil, cur, nil, err
 	}
-	var before solana.Signature
-	limit := 1000
-	for {
-		opts := &rpc.GetSignaturesForAddressOpts{Limit: &limit, Commitment: rpc.CommitmentFinalized, Until: until, Before: before}
-		if minSlot > 0 {
-			opts.MinContextSlot = &minSlot
-		}
-		page, err := c.GetSignaturesForAddressWithOpts(ctx, route, opts)
-		if err != nil {
-			return nil, cursor, nil, err
-		}
-		sigs = append(sigs, page...)
-		if len(page) < limit {
-			break
-		}
-		before = page[len(page)-1].Signature
-	}
+	sigs := l.sigs
 	var out []solDispatch
 	var skipped []scanSkip
-	next := cursor
+	next := cur
 	for i := len(sigs) - 1; i >= 0; i-- { // oldest first
 		s := sigs[i]
 		if s.Err == nil {
@@ -712,10 +694,33 @@ func solScan(ctx context.Context, c solReader, mailbox sol.Mailbox, route solana
 				}
 			}
 		}
-		next = s.Signature.String()
+	}
+	switch {
+	case l.newest != nil:
+		// the newest the provider lists: every transaction at or below its slot was read (those past the cursor now, the
+		// rest before), so it is the next `until` — read back from, it may lie at or below the slot read through; the slot
+		// it claims is held to the supplies' slot, which both providers answered at or above (the review of lane s7, R3: a
+		// liar's slot of 10^12 kept in the state outlived its replacement, every burn below it never listed again)
+		next.Sig = l.newest.Signature.String()
+		if minSlot > 0 {
+			next.Through = max(next.Through, min(l.newest.Slot, minSlot))
+		} else {
+			next.Through = max(next.Through, l.newest.Slot)
+		}
+	case l.back:
+		next.Sig = "" // listed back and nothing at all: the old cursor is one the provider does not know
+	}
+	if bound && minSlot > throughMargin {
+		// honoured, the bound says the provider's bank reached minSlot, not that its address index did (one a moment behind
+		// its root, or a custom indexer's): a margin below it is listed again by the next listing back, so a burn one listing
+		// left out is listed by the next (the review of lane s7, R2)
+		next.Through = max(next.Through, minSlot-throughMargin)
 	}
 	return out, next, skipped, nil
 }
+
+// throughMargin is how far below the bound a listing's slot read through stays: ≈3.5 minutes of ≈0.21 s slots.
+const throughMargin = 1000
 
 // minContextCheck is the self-check of the listing guard (E5-SF2): solScan holds a route's listing to the slot its supply
 // was read at by minContextSlot (E4-SF3), and a getSignaturesForAddress answer is a bare list with no context slot, so
@@ -723,10 +728,16 @@ func solScan(ctx context.Context, c solReader, mailbox sol.Mailbox, route solana
 // api.mainnet-beta, publicnode and Helius refuse, measured on mainnet 2026-10-15). Each provider is asked at a machine's
 // first reading and hourly for a listing 100,000 slots past the snapshot's slot (≈6 hours, the audit's measured probe),
 // a view no provider has: honoured, it is refused with −32016; answered, the provider ignores the bound — alarmed
-// (solana:min-context-ignored:<i>) and refused: no reading that rests on the dispatch index (the identity, the signers'
-// verdict, the forged-credit rule) while the config names it. The check fails closed (the review of lane s6, F4): a
-// provider is refused until one −32016 shows it honours the bound — a probe answered otherwise (another error code, a
-// timeout, a status) is asked again each minute meanwhile — and keeps a decided answer through a probe that cannot tell.
+// (solana:min-context-ignored:<i>). A reading that rests on the dispatch index (the identity, the signers' verdict, the
+// forged-credit rule) needs one provider that honours it on a monitor and in hlwatch, both on a signer (the round-6
+// live-fixes audit's E6-SF2: refusing either refused both live monitors, which pair Alchemy): a burn the honouring
+// provider lists and an ignoring one has not listed yet is one-sided — no verdict, never short (E5-SF4) — and nothing is
+// read from the ignoring provider alone; but a lying honouring provider could hide a burn for the readings its ignoring
+// partner lags, which on a monitor is one more way to its token's no verdict (one-sided the poll after) and on a signer
+// would be a forged burn signed (TestS7OneHonouringProviderThatLiesHidesABurnForAReading), so a signer still needs both. The check fails
+// closed (the review of lane s6, F4): a provider is refused until one −32016 shows it honours the bound — a probe
+// answered otherwise (another error code, a timeout, a status) is asked again each minute meanwhile — and keeps a
+// decided answer through a probe that cannot tell.
 type minContextCheck struct {
 	next  time.Time
 	state [2]int    // minContextUnknown, minContextHonours or minContextIgnores, by provider
@@ -745,8 +756,9 @@ const (
 	minContextAhead = 100_000 // slots past the snapshot's: ≈6 hours of 0.21 s slots
 )
 
-// check probes when due and says why a reading resting on the dispatch index is refused, "" when it is not.
-func (mc *minContextCheck) check(ctx context.Context, providers [2]*rpc.Client, cfg *Config, slot uint64, now time.Time, alarm *Alarmer) string {
+// check probes when due and says why a reading resting on the dispatch index is refused, "" when it is not: both says
+// the reading needs both providers to honour the bound (a signer), else one (a monitor, hlwatch: E6-SF2).
+func (mc *minContextCheck) check(ctx context.Context, providers [2]*rpc.Client, cfg *Config, slot uint64, now time.Time, alarm *Alarmer, both bool) string {
 	probe, ok := listedRoute(cfg)
 	if !ok {
 		return "" // no route lists anything: nothing rests on the guard
@@ -768,21 +780,48 @@ func (mc *minContextCheck) check(ctx context.Context, providers [2]*rpc.Client, 
 			case honours:
 				mc.state[i], mc.why[i] = minContextHonours, ""
 				alarm.Clear(key)
+			case both:
+				mc.state[i] = minContextIgnores
+				alarm.Alarm(key, fmt.Sprintf("Solana provider %d answers getSignaturesForAddress for a view it does not have (minContextSlot %d ignored): its listing cannot be held to the supplies' slot, so a burn out of the supply could be out of the dispatch index — a signer's verdict is refused until the config names a provider that honours it (api.mainnet-beta, publicnode and Helius do; Alchemy does not) (E5-SF2)", i+1, slot+minContextAhead))
 			default:
 				mc.state[i] = minContextIgnores
-				alarm.Alarm(key, fmt.Sprintf("Solana provider %d answers getSignaturesForAddress for a view it does not have (minContextSlot %d ignored): its listing cannot be held to the supplies' slot, so a burn out of the supply could be out of the dispatch index — the readings that rest on the index are refused until the config names a provider that honours it (api.mainnet-beta, publicnode and Helius do; Alchemy does not) (E5-SF2)", i+1, slot+minContextAhead))
+				alarm.AlarmEvery(key, fmt.Sprintf("Solana provider %d answers getSignaturesForAddress for a view it does not have (minContextSlot %d ignored): the identities rest on the other provider holding its listing to the supplies' slot — a burn this one has not listed yet is one-sided, no verdict and never short (E5-SF4) — none is taken while neither honours it, and the forged-credit rule waits while the config names it (a burn the honouring one hid would be in no index); a lying honouring provider could still hide a burn for the readings this one lags, so name two that honour it where possible (api.mainnet-beta, publicnode and Helius do; Alchemy does not) (E5-SF2, E6-SF2)", i+1, slot+minContextAhead), 24*time.Hour)
 			}
 		}
 	}
+	honouring := 0
+	var why []string
 	for i := range providers {
 		switch mc.state[i] {
+		case minContextHonours:
+			honouring++
 		case minContextIgnores:
-			return fmt.Sprintf("Solana provider %d ignores minContextSlot on getSignaturesForAddress (E5-SF2): no reading rests on a dispatch index its listing feeds until the config names a provider that honours it", i+1)
+			why = append(why, fmt.Sprintf("Solana provider %d ignores minContextSlot on getSignaturesForAddress (E5-SF2)", i+1))
 		case minContextUnknown:
-			return fmt.Sprintf("Solana provider %d has not shown yet that it honours minContextSlot on getSignaturesForAddress (its probe: %s; asked again each minute): no reading rests on a dispatch index its listing feeds until it does (E5-SF2)", i+1, orNone(mc.why[i]))
+			why = append(why, fmt.Sprintf("Solana provider %d has not shown yet that it honours minContextSlot on getSignaturesForAddress (its probe: %s; asked again each minute)", i+1, orNone(mc.why[i])))
 		}
 	}
+	switch {
+	case both && len(why) > 0:
+		return why[0] + ": no signer's verdict rests on a dispatch index its listing feeds until the config names a provider that honours it"
+	case !both && honouring == 0:
+		return strings.Join(why, "; ") + ": no reading rests on the dispatch index until one of the providers shows it honours the bound (E6-SF2)"
+	}
 	return ""
+}
+
+// honouring says, by provider, whether it has shown it honours minContextSlot on the listing: a listing of it held to a
+// slot is read through that slot (E6-SF1).
+func (mc *minContextCheck) honouring() [2]bool {
+	return [2]bool{mc.state[0] == minContextHonours, mc.state[1] == minContextHonours}
+}
+
+// both says whether both providers have shown they honour it: what a judgement that a burn is in neither provider's
+// index — the forged-credit rule, a flag — needs (E6-SF2: with one provider ignoring the bound and lagging past the
+// credits' margin, a burn the honouring one hid would be in no index, and its honest credit would read forged on one
+// liar's word).
+func (mc *minContextCheck) both() bool {
+	return mc.state[0] == minContextHonours && mc.state[1] == minContextHonours
 }
 
 // listedRoute is the token program of the first route that has one: the address the guard's probe lists.

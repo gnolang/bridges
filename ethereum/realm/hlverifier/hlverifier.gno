@@ -68,7 +68,7 @@ func (verifier) Verify(origin uint32, metadata, message []byte) error {
 		last = i
 	}
 	if !satisfies(rule, signed) {
-		// echo-ok(rule): the signer rule's text: numbers
+		// echo-ok(rule): the signer rule's text: numbers and hex keys, ASCII
 		return errors.New("hlverifier: the signatures do not meet the rule: " + rule.String())
 	}
 	return nil
@@ -111,7 +111,7 @@ func Render(path string) string {
 	} else {
 		active = "registered, not the active verifier"
 	}
-	// echo-ok(active, rule): its own words; the signer rule's text: numbers
+	// echo-ok(active, rule): its own words; the signer rule's text: numbers and hex keys, ASCII
 	return "# The ed25519 verifier\n\n" + active + " for origin " + strconv.FormatUint(uint64(hlmailbox.LaunchOrigin()), 10) +
 		": " + strconv.Itoa(len(keys)) + " signers in r/hlmailbox under the rule " + rule.String() + "\n"
 }

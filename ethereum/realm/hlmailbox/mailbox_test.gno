@@ -666,8 +666,10 @@ func TestFlags(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(g2))
 	aborts(t, "not a 32-byte message id", func() { SetFlag(cross(cur), launchRouteGNOT, FnPayouts, "abcd") })
 
+	// a payouts flag's list is kept sorted and without repeats, whatever order and spelling it came in: Flagged searches
+	// it (the round-6 realms audit's E6-RL1)
 	testing.SetRealm(testing.NewUserRealm(g2))
-	SetFlag(cross(cur), launchRouteGNOT, FnPayouts, id1+",0x"+strings.ToUpper(id2)+","+id1)
+	SetFlag(cross(cur), launchRouteGNOT, FnPayouts, "0x"+strings.ToUpper(id2)+","+id1+","+id2)
 	testing.SetRealm(testing.NewUserRealm(w5))
 	SetFlag(cross(cur), launchRouteGNOT, FnCredits, "")
 	testing.SetRealm(testing.NewUserRealm(w5))

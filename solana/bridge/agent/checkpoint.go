@@ -135,8 +135,10 @@ func signatureAtOrBelow(ctx context.Context, c solReader, addr solana.PublicKey,
 
 // seedCursors starts each route's empty scan cursors at the checkpoint's slot on each provider (G36): before,
 // a fresh install's first scan listed every signature of each token program since the deploy, the old ones
-// answered null for good and the forged-credit rule never ran on that machine. A cursor set already is kept.
-func seedCursors(ctx context.Context, providers [2]solReader, cfg *Config, slot uint64, cursors map[string]string) (int, error) {
+// answered null for good and the forged-credit rule never ran on that machine. A cursor set already is kept. Each
+// one seeded is read through the checkpoint's slot (through, E6-SF1): nothing below it is read, by design, so a
+// provider with a day of history that no longer knows the seeded signature lists back to that slot instead.
+func seedCursors(ctx context.Context, providers [2]solReader, cfg *Config, slot uint64, cursors map[string]string, through map[string]uint64) (int, error) {
 	n := 0
 	for _, r := range cfg.Routes {
 		if r.Token == "" {
@@ -144,7 +146,7 @@ func seedCursors(ctx context.Context, providers [2]solReader, cfg *Config, slot 
 		}
 		for i, c := range providers {
 			key := r.Symbol + "#" + strconv.Itoa(i)
-			if cursors[key] != "" {
+			if cursors[key] != "" || through[key] > 0 {
 				continue
 			}
 			sig, err := signatureAtOrBelow(ctx, c, r.TokenKey(), slot)
@@ -155,6 +157,7 @@ func seedCursors(ctx context.Context, providers [2]solReader, cfg *Config, slot 
 				cursors[key] = sig
 				n++
 			}
+			through[key] = slot
 		}
 	}
 	return n, nil

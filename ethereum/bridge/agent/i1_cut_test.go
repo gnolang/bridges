@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -21,8 +20,8 @@ import (
 // The monitor's hlmailbox count is read again after the routes AND their lines of migrations (E3-GT2 as the Solana port
 // found it: bridge be66bc47). A token's open line is read after its route — the successor's json, and so its lock —
 // and the count's second read came before it, so a send to the line landing between the two was in the lock and not
-// counted in flight: a forged mint of its amount passed the poll unseen. Read after the line, that poll has no verdict,
-// and the next one sees the forged mint (broken: flagged).
+// counted in flight: a forged mint of its amount passed the poll unseen. Read after the line, the cut moves and is
+// taken again at once (round 6, E6-GT1), which sees the forged mint in the same poll (broken: flagged).
 func TestMonitorCountReadAfterTheLines(t *testing.T) {
 	r := newMonRig(t) // GNOT supply 1,000 on Ethereum
 	r.chain.view(m3bMailbox, "delivered", func(uint64, []any) []any { return []any{false} })
@@ -52,17 +51,8 @@ func TestMonitorCountReadAfterTheLines(t *testing.T) {
 	if err := r.poll(); err != nil {
 		t.Fatal(err)
 	}
-	if c := cutText(r.m.Status()); !strings.Contains(c, "dispatched 1 message(s) while the routes were read") {
-		t.Fatalf("the poll took a verdict over a send to the open line landing between hlmailbox's second read and the line's: %s (identity %v)", c, r.m.Status()["identity"])
-	}
-	if r.alarmed("identity:GNOT:flag") {
-		t.Fatal("flagged on the moving cut")
-	}
-	r.step(10 * time.Second)
-	if err := r.poll(); err != nil {
-		t.Fatal(err)
-	}
-	if !r.alarmed("identity:GNOT:flag") || len(r.gnoFlags()) == 0 {
-		t.Fatalf("the forged mint was not flagged on the next poll: %v (identity %v)", r.m.Alarm.StandingKeys(), r.m.Status()["identity"])
+	ident, _ := r.m.Status()["identity"].(map[string]any)["GNOT"].(map[string]any)
+	if !r.alarmed("identity:GNOT:flag") || len(r.gnoFlags()) == 0 || ident["inflightOut"] != float64(300) {
+		t.Fatalf("the cut over a send to the open line landing in its window was not taken again, or the forged mint not flagged: %v (identity %v)", r.m.Alarm.StandingKeys(), ident)
 	}
 }

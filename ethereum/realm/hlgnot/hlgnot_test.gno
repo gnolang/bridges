@@ -970,6 +970,7 @@ func TestYield(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewCodeRealm(announced))
 	hlmailbox.AnnounceSuccessor(cross(cur), hlmailbox.SymbolGNOT)
 	bid, refunded, fresh := idOf(inBob3Msg), strings.Repeat("ef", 32), strings.Repeat("9a", 32)
+	testing.SkipHeights(1) // a range void covers the credits before its own block (voids.gno): the verifier's are at this one
 	for _, r := range []struct {
 		what string
 		mk   func() Request
@@ -1193,6 +1194,7 @@ func TestRangeVoid(cur realm, t *testing.T) {
 	asRelayer(cur)
 	Execute(cross(cur), st.Ledger.Last())
 	hB := st.ClaimOf(idB).Height
+	testing.SkipHeights(1) // a range void covers the credits before its own block (voids.gno): dave's is at this one
 	if hA <= 0 || hB <= hA || !strings.Contains(Render("claim/"+idA), "\"height\":"+itoa(hA)+",") || !strings.Contains(Render(""), "at height "+itoa(hA)+" `"+idA+"`") {
 		t.Fatalf("heights %d %d:\n%s", hA, hB, Render(""))
 	}

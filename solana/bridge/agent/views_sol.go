@@ -28,7 +28,11 @@ import (
 
 // WatchState is what hlwatch keeps between runs: the scan cursors, the dispatch index, the sends, the record.
 type WatchState struct {
-	Cursors          map[string]string       `json:"cursors"`
+	Cursors map[string]string `json:"cursors"`
+	// Through is the slot each cursor's route was read through, by "SYM#i" (E6-SF1; the monitor's own), and ThroughHosts
+	// the providers it was read through, by place (scheme://host)
+	Through          map[string]uint64       `json:"through,omitempty"`
+	ThroughHosts     []string                `json:"throughHosts,omitempty"`
 	Skipped          map[string][]scanSkip   `json:"skipped"`
 	Index            map[string]*dispatchRec `json:"index"`
 	Sends            map[string]*sendRec     `json:"sends"`
@@ -66,6 +70,9 @@ type WatchState struct {
 func (s *WatchState) init() {
 	if s.Cursors == nil {
 		s.Cursors = map[string]string{}
+	}
+	if s.Through == nil {
+		s.Through = map[string]uint64{}
 	}
 	if s.ProposalsSeen == nil {
 		s.ProposalsSeen = map[string]int64{}
@@ -421,7 +428,7 @@ func ReadSolana(ctx context.Context, providers [2]*rpc.Client, own gnoReader, cf
 	v.Slot = snap.Slot
 	v.Supplies = snap.Supplies
 	// a provider whose listing ignores minContextSlot (E5-SF2): no identity and no forged-credit line rest on the index
-	minCtxWhy := st.minCtx.check(ctx, providers, cfg, snap.Slot, now, &Alarmer{Source: "hlwatch"})
+	minCtxWhy := st.minCtx.check(ctx, providers, cfg, snap.Slot, now, &Alarmer{Source: "hlwatch"}, false)
 	// the open migrations (AQ3, K28, AR6): each token judged over its line, the successor's import shown; a token
 	// whose line could not be read has no identity this round, the other token has (G44)
 	migs, migErrs := migrationsOf(ctx, own, cfg, routes, mb, H)
@@ -450,9 +457,16 @@ func ReadSolana(ctx context.Context, providers [2]*rpc.Client, own gnoReader, cf
 		}
 	}
 	v.IndexFromHeight, v.IndexSeeded = st.IndexFromHeight, st.IndexSeeded
-	indexErr := indexDispatches(ctx, providers, both, cfg, mb.Domain, st.Cursors, st.Skipped, st.Index, snap.Slots, now, alarm)
+	var gaps historyGaps // a provider that cannot list a route back to where it was read (E6-SF1): this reading's
+	indexErr := indexDispatches(ctx, providers, both, cfg, mb.Domain, st.Cursors, st.Through, st.minCtx.honouring(), st.Skipped, st.Index, snap.Slots, now, alarm, &gaps)
 	if indexErr != nil {
 		v.Err = append(v.Err, "the dispatch index: "+indexErr.Error())
+	}
+	gapped := gapsOf(gaps.why)
+	for p := 1; p <= 2; p++ {
+		if text := historyText(gaps.why, p); text != "" {
+			v.Err = append(v.Err, "the dispatch index: "+text)
+		}
 	}
 	for key, skipped := range st.Skipped {
 		v.Unconfirmed = append(v.Unconfirmed, fmt.Sprintf("the dispatch index of %s: %d transactions unread (%s)", key, len(skipped), skipText(skipped)))
@@ -579,6 +593,10 @@ func ReadSolana(ctx context.Context, providers [2]*rpc.Client, own gnoReader, cf
 			v.Err = append(v.Err, "the identity of "+r.Symbol+": no verdict: a burn toward gno.land is not on both providers' word: "+why+" (E5-SF4)")
 			continue
 		}
+		if why := gapped[r.Symbol]; why != "" {
+			v.Err = append(v.Err, "the identity of "+r.Symbol+": no verdict: its dispatch index rests on one provider's listing: "+why+" (E6-SF1)")
+			continue
+		}
 		v.Identities[r.Symbol] = identityOf(r, rj, migs[r.Symbol], H, snap.Supplies[r.Symbol], snap.SlotOf(r.Symbol), inflightOut[r.Symbol], inflightIn[r.Symbol])
 	}
 	// each token program's enrolled router for gno.land's domain, named among the line's realms (F27, AS2: a
@@ -610,7 +628,11 @@ func ReadSolana(ctx context.Context, providers [2]*rpc.Client, own gnoReader, cf
 	// after the snapshot's slot may be a burn the trailing providers have not shown yet) — the credits no index holds
 	// found by id (E4-RL1: hlmailbox's delivered ids, each judged by its claim read by id, never a walk of the routes'
 	// claims pages), each id printed on its second consecutive poll (G33)
-	if indexErr == nil && len(st.Skipped) == 0 && moved == "" {
+	oneHonours := minCtxWhy == "" && !st.minCtx.both() // the identities judged, the forged-credit lines wait (E6-SF2)
+	if oneHonours {
+		v.Unconfirmed = append(v.Unconfirmed, "the forged-credit lines: not read while a provider has not shown it honours minContextSlot on the listing — a burn the other hid could be in no index yet (E6-SF2)")
+	}
+	if indexErr == nil && len(st.Skipped) == 0 && len(gaps.why) == 0 && moved == "" && !oneHonours {
 		if missing := unindexedMissing(mb.Delivered, st.Index, st.Unindexed); missing > 0 {
 			if entries, err := doneIDs(ctx, own, cfg.Gno.Mailbox, mb.Delivered); err != nil {
 				v.Err = append(v.Err, fmt.Sprintf("hlmailbox's delivered ids could not be read (%d credit(s) no index holds are not judged as forged until they read): %v", missing, err))
@@ -1019,7 +1041,7 @@ func RecordCheckpoint(ctx context.Context, providers [2]*rpc.Client, own GnoRead
 	if err != nil {
 		return "", fmt.Errorf("the checkpoint's stages: %w", err)
 	}
-	cursors, err := seedCursors(ctx, [2]solReader{providers[0], providers[1]}, cfg, cs.Slot, st.Cursors)
+	cursors, err := seedCursors(ctx, [2]solReader{providers[0], providers[1]}, cfg, cs.Slot, st.Cursors, st.Through)
 	if err != nil {
 		return "", fmt.Errorf("the checkpoint's cursors: %w", err)
 	}

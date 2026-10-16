@@ -197,19 +197,20 @@ type burnRec struct {
 	mark markSeen
 }
 
-// markSeen is when a burn's delivered mark was last read unset: hlmailbox's delivered count at that reading's first
-// read of the mailbox. A mark is set only with that count's rise — Process and a credit by vote each set one, in the
-// transaction that raises the count, and none is ever unset — so while a reading's first read gives the same count, a
-// mark read unset at it is unset still, and is not read again (the Solana machines' E5-SF5 fix, carried over by the
-// integration lane I3: the burns nobody credits — the dust below a route's fee the relayers leave, E5-GS5, a stranger's
-// at an Ethereum fee each — were read again on every signer's round and every monitor's poll, for good, one render
-// each).
+// markSeen is when a burn's delivered mark was last read unset: hlmailbox's delivered count read last before it (the
+// cut window's second read: the marks are read after the window, E6-GT1). A mark is set only with that count's rise —
+// Process and a credit by vote each set one, in the transaction that raises the count, and none is ever unset — so while
+// a later reading's count is the same, a mark read unset after it is unset still, and is not read again (the Solana
+// machines' E5-SF5 fix, carried over by the integration lane I3: the burns nobody credits — the dust below a route's fee
+// the relayers leave, E5-GS5, a stranger's at an Ethereum fee each — were read again on every signer's round and every
+// monitor's poll, for good, one render each).
 type markSeen struct {
 	delivered int
 	read      bool
 }
 
-// stale says whether the mark is to be read at a reading whose first read of hlmailbox gave the delivered count d.
+// stale says whether the mark is to be read at a reading whose last read of hlmailbox before the marks gave the
+// delivered count d.
 func (m markSeen) stale(d int) bool { return !m.read || m.delivered != d }
 
 // markRefresh is how often every uncredited mark is read again whatever the count (beside a reading in doubt: a token
@@ -227,7 +228,7 @@ func markDoubt(unplaced int, broken bool, pending int) bool {
 	return unplaced > 0 && (broken || pending > 0)
 }
 
-// deliveredMarks reads the delivered marks of ids at a reading whose first read of hlmailbox gave the delivered count d:
+// deliveredMarks reads the delivered marks of ids at a reading whose last read of hlmailbox gave the delivered count d:
 // the height each delivered one was delivered at (the others absent). One render each — or, for more ids than a page and
 // than the done tree has pages (a restart's first reading of every burn its index holds, a pile of dust after a credit
 // moved the count), the done tree whole by vm/qeval, a hundred ids a read, an id it does not hold being undelivered; a
@@ -273,6 +274,10 @@ type burnIndex struct {
 	// Line is the launch line the last scan read (HlAdmin.launchNonce(), ethx.LaunchLine): no message numbered below
 	// it is a burn of this deployment (PLAN.md §5.6; M2-NOTES.md Fold F5, F5.1 item 12).
 	Line uint32 `json:"line"`
+	// DustLines is how many lines of the folded dust's file this index holds (dust.go, E6-GT3): the burns that have been
+	// dust for an hour are kept there, out of the state written every round, and counted in flight by their sum
+	DustLines int `json:"dustLines,omitempty"`
+	dust      *dustFile
 }
 
 // burnScanMax bounds the blocks one scan reads: an index far behind catches up over several rounds, with no verdict
@@ -321,6 +326,13 @@ func (x *burnIndex) catchUp(ctx context.Context, p ethx.Pair, mailbox, admin str
 			x.Ignored = append(x.Ignored, fmt.Sprintf("tx %s: message #%d is below the launch line %d (HlAdmin.launchNonce()): dropped from the index, none of the bridge's burns", rec.Tx, rec.Nonce, line.Nonce))
 		}
 	}
+	for id, rec := range x.folded() {
+		if rec.Nonce < line.Nonce {
+			x.unfold(id, 0)
+			delete(x.Burns, id)
+			x.IgnoredN++
+		}
+	}
 	burns, ignored, err := ethx.ScanBurns(ctx, p, Address(mailbox), origin, gnoDomain, line.Nonce, routes, lo, hi)
 	if err != nil {
 		return nil, false, fmt.Errorf("the burns of blocks %d–%d: %w", lo, hi, err)
@@ -333,7 +345,7 @@ func (x *burnIndex) catchUp(ctx context.Context, p ethx.Pair, mailbox, admin str
 			ignored = append(ignored, ethx.Ignored{Tx: b.Tx, LogIndex: b.LogIndex, Why: why})
 			continue
 		}
-		if _, ok := x.Burns[id]; ok {
+		if x.has(id) {
 			continue
 		}
 		x.Burns[id] = rec
@@ -369,10 +381,11 @@ func burnRecOf(b ethx.Burn, now time.Time) (*burnRec, string) {
 	return rec, ""
 }
 
-// markCredited reads, for the burns not yet known credited, the height hlmailbox delivered each at as of H — each read
-// again only once hlmailbox's delivered count d (the reading's first read of it) moved since it was read unset, or all
-// of them (all: a reading in doubt, or markRefresh passed) — and answers how many it found credited and the highest
-// height among them (a credit this read of the state shows: E5-RT6), and how many marks it read.
+// markCredited reads, for the burns not yet known credited, the height hlmailbox delivered each at — each read again
+// only once hlmailbox's delivered count d (read last before the marks: the cut window's second read) moved since it was
+// read unset, or all of them (all: a reading in doubt, or markRefresh passed) — and answers how many it found credited,
+// the highest height among them (held to a head read after it: backends.go) and how many marks it read. A cut places
+// each by its height (creditedAt): the marks are read after its window (E6-GT1).
 func (x *burnIndex) markCredited(ctx context.Context, g gnoside.Reader, mailbox string, H int64, d int, all bool) (int, int64, int, error) {
 	var unread []string
 	for _, id := range x.ids() {
@@ -398,18 +411,24 @@ func (x *burnIndex) markCredited(ctx context.Context, g gnoside.Reader, mailbox 
 	return n, top, len(unread), nil
 }
 
-// inflight sums by symbol the burns at or below block F that are not credited, and lists the ids credited at H whose
-// burn is above F (the cut's order fails on them).
-func (x *burnIndex) inflight(F uint64) (in map[string]int64, creditedAfter []string) {
+// inflight sums by symbol the burns at or below block F that the state a cut's window read at head h does not credit —
+// their marks unset, or set above h: after the window (E6-GT1); the folded dust among them (dust.go: uncredited as last
+// read) — and lists the ids it credits whose burn is above F (the cut's order fails on them).
+func (x *burnIndex) inflight(F uint64, h int64) (in map[string]int64, creditedAfter []string) {
 	in = map[string]int64{}
 	for _, id := range x.ids() {
 		rec := x.Burns[id]
 		switch {
-		case rec.Credited != 0 && rec.Block > F:
+		case rec.creditedAt(h) && rec.Block > F:
 			creditedAfter = append(creditedAfter, id)
-		case rec.Credited == 0 && rec.Block <= F:
+		case !rec.creditedAt(h) && rec.Block <= F:
 			in[rec.Symbol] = satAdd(in[rec.Symbol], rec.Amount)
 		}
+	}
+	// every folded burn is at or below F: folded at or below the snapshot's block of its round, and no reading is taken
+	// below the floor (E3-GT9)
+	for sym, st := range x.foldedSum() {
+		in[sym] = satAdd(in[sym], st[0])
 	}
 	return in, creditedAfter
 }
@@ -430,9 +449,9 @@ func (x *burnIndex) ids() []string {
 	return out
 }
 
-// waiting counts the burns not yet credited.
+// waiting counts the burns not yet credited, the folded dust among them.
 func (x *burnIndex) waiting() int {
-	n := 0
+	n := len(x.folded())
 	for _, rec := range x.Burns {
 		if rec.Credited == 0 {
 			n++

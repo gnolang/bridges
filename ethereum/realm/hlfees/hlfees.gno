@@ -56,7 +56,7 @@ func guardLaunch() uint32 {
 		panic("hlfees: the compiled governor " + string(launchGovernor) + " is not the mailbox's " + string(hlmailbox.Governor()))
 	}
 	if why := treasurerFault(launchTreasurer); why != "" {
-		// echo-ok(why): the guard's own refusal: words, contract names, EIP-55 and bech32 addresses, a few hundred bytes at most: far under the cut
+		// echo-ok(why): the guard's own refusal: ASCII words, contract names, EIP-55 and bech32 addresses and pkgpaths, a few hundred bytes at most: far under the cut
 		panic(why)
 	}
 	return hlmailbox.LocalDomain()
@@ -200,7 +200,7 @@ func Govern(cur realm, r Request) {
 	}
 	mustBeGovernor(cur)
 	if err := r.decide(cur); err != nil {
-		// echo-ok(err): p/decisions' refusal: words and numbers
+		// echo-ok(err): p/decisions' refusal: ASCII words and numbers
 		panic("hlfees: " + err.Error())
 	}
 }
@@ -218,7 +218,7 @@ func NewSetTreasurerRequest(cur realm, to address) Request {
 		panic("hlfees: not an address: " + echo(string(typed)))
 	}
 	if to == treasurer {
-		panic("hlfees: " + string(to) + " is the treasurer already") // echo-ok(to): canonical (CanonicalAddress above)
+		panic("hlfees: " + string(to) + " is the treasurer already") // echo-ok(to): canonical bech32 (CanonicalAddress above), ASCII
 	}
 	text := "set treasurer to " + string(to) + " (now " + string(treasurer) + ")"
 	return propose(cur, "set treasurer", text, func(made, t int64) {
@@ -238,7 +238,7 @@ func NewCancelRequest(cur realm, id int64) Request {
 	text := "cancel decision " + itoa(id) + " (" + d.Text + ")"
 	return propose(cur, "cancel", text, func(made, t int64) {
 		if _, err := ledger.Cancel(id, t); err != nil {
-			// echo-ok(err): p/decisions' refusal: words and numbers
+			// echo-ok(err): p/decisions' refusal: ASCII words and numbers
 			panic("hlfees: " + err.Error())
 		}
 		c := ledger.Record("cancel", text, cancelParams{id}, made, t, t)
@@ -254,7 +254,7 @@ func Execute(cur realm, id int64) {
 	t := now()
 	d, err := ledger.Due(id, t)
 	if err != nil {
-		// echo-ok(err): p/decisions' refusal: words and numbers
+		// echo-ok(err): p/decisions' refusal: ASCII words and numbers
 		panic("hlfees: " + err.Error())
 	}
 	p, ok := d.Params.(treasurerParams)

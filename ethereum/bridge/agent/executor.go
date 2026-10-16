@@ -457,13 +457,15 @@ func (r *Relayer) realms(ctx context.Context) []string {
 
 // executes calls Execute(id) on every queued decision whose delay has passed by block time — except a refund,
 // which is GovDAO's own at-once apply (AT2): logged once, kept in the status, never attempted. Each is sized from its
-// simulation as far as the block's gas (tryCall's gasUpToTheBlock).
+// simulation as far as the block's gas (tryCall's gasUpToTheBlock); one that runs out of gas there is alarmed
+// decision:too-big:<realm>#<id> and tried again hourly (tooBigFailed) until a member cancels it or it lands.
 func (r *Relayer) executes(ctx context.Context) error {
 	head, err := r.gno.Status(ctx)
 	if err != nil {
 		return err
 	}
 	var firstErr error
+	due, read := map[string]bool{}, map[string]bool{}
 	for _, realm := range r.realms(ctx) {
 		// the ledger by page (E3-RL4: the whole page runs out of query gas near 360 decisions), from the lowest
 		// number that may still be pending: a decision applied, cancelled or spent never pends again
@@ -474,6 +476,7 @@ func (r *Relayer) executes(ctx context.Context) error {
 			}
 			continue
 		}
+		read[realm] = true
 		low := r.state.GnoLow[realm]
 		for _, d := range ds {
 			if d.State == "pending" {
@@ -486,6 +489,7 @@ func (r *Relayer) executes(ctx context.Context) error {
 		}
 		for _, d := range gnoside.DueDecisions(ds, head.Time.Unix()) {
 			key := "gnoexec:" + realm + "#" + strconv.FormatInt(d.ID, 10)
+			due[key] = true
 			if d.Kind == "refund" {
 				what := "awaiting GovDAO's apply (an apply-refund proposal, at once; Execute refuses a refund and the relayer never calls it — read hlwatch's gate first, AT2)"
 				if !r.noted(key) {
@@ -498,6 +502,9 @@ func (r *Relayer) executes(ctx context.Context) error {
 				continue
 			}
 			res, err := r.tryCall(ctx, key, realm, "Execute", r.GnoGas, gasUpToTheBlock, strconv.FormatInt(d.ID, 10))
+			r.tooBigAlarm(key, "decision:too-big:"+realm+"#"+strconv.FormatInt(d.ID, 10),
+				fmt.Sprintf("%s decision #%d (%s)", realm, d.ID, d.Kind),
+				"a member cancels it and decides it again in parts (a void's range as several ranges by height, a list as shorter lists)")
 			if err != nil {
 				if !errors.Is(err, errNotYet) && firstErr == nil {
 					firstErr = err
@@ -509,7 +516,29 @@ func (r *Relayer) executes(ctx context.Context) error {
 			log.Printf("relayer: %s decision #%d (%s) applied: %s", realm, d.ID, d.Kind, res.Hash)
 		}
 	}
+	r.forgetGoneGnoExecutes(due, read)
 	return firstErr
+}
+
+// forgetGoneGnoExecutes drops the bookkeeping of every queued decision of a realm whose ledger read this tick that is
+// no longer due there — applied, cancelled or spent (a member's cancel is the cure of one too big for a block) — and
+// its alarms with it, as forgetGoneExecutes does for HlAdmin's (G27).
+func (r *Relayer) forgetGoneGnoExecutes(due, read map[string]bool) {
+	keys := keysOf(r.state.Ready)
+	for k := range r.state.Attempts {
+		keys[k] = true
+	}
+	for key := range keys {
+		rest, ok := strings.CutPrefix(key, "gnoexec:")
+		if !ok || due[key] {
+			continue
+		}
+		if realm, _, ok := strings.Cut(rest, "#"); !ok || !read[realm] {
+			continue
+		}
+		r.forget(key)
+		r.Alarm.Clear("decision:too-big:" + rest)
+	}
 }
 
 // finishProposals calls r/gov/dao's ExecuteOrRejectProposal on every builder-made proposal that has the votes and is
@@ -564,12 +593,15 @@ func (r *Relayer) finishProposals(ctx context.Context) error {
 		key := "finish:" + pk
 		if !p.Armed || now.Sub(time.Unix(first, 0)) < deadline+time.Minute {
 			delete(r.state.Ready, key)
+			r.Alarm.Clear("proposal:too-big:" + pk) // not tried while it lacks the votes
 			continue
 		}
 		if !r.act(key) {
 			continue
 		}
 		res, err := r.tryCall(ctx, key, r.Cfg.Gno.DAO, "ExecuteOrRejectProposal", r.GnoGas, gasUpToTheBlock, pk)
+		r.tooBigAlarm(key, "proposal:too-big:"+pk, fmt.Sprintf("GovDAO proposal #%d (%s), past its deadline with the votes,", p.ID, p.Title),
+			"GovDAO's members decide it anew in parts (a void's range as several ranges by height, a list as shorter lists); this proposal stays open")
 		if err != nil {
 			if !errors.Is(err, errNotYet) && firstErr == nil {
 				firstErr = err
@@ -584,6 +616,7 @@ func (r *Relayer) finishProposals(ctx context.Context) error {
 		if whole && !open[pk] { // a list not read whole may hold it open still: its first sighting stays
 			delete(r.state.ProposalsSeen, pk)
 			r.forget("finish:" + pk)
+			r.Alarm.Clear("proposal:too-big:" + pk)
 		}
 	}
 	return firstErr

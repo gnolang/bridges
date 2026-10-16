@@ -13,7 +13,8 @@
 // no code yet (it pends until code is deployed there: whoever can create at that address decides when it runs),
 // alarmed once it has waited past its maturity longer than -code-wait. `watch` alarms the holder on every change;
 // `flag`/`unflag` set or clear the holder's flag on hlmailbox and on both Ethereum objects (two Ethereum transactions,
-// each confirmed final, either re-sent when a reorganisation dropped it); `check` reads a kind 8's or 9's target
+// each confirmed final, either re-sent when a reorganisation dropped it; each of the three sent whatever another
+// answered, a failed one named and the exit non-zero); `check` reads a kind 8's or 9's target
 // before the vote, with the verdict: "immutable", "MUTABLE: would be spent", "NO CODE YET: pends" or "NOT SHOWN
 // IMMUTABLE" (no build matches, an immutable or an argument nothing here vouches for, no creation transaction given).
 //
@@ -245,6 +246,7 @@ func main() {
 			log.Fatal(err)
 		}
 		fmt.Println(text)
+		fmt.Println(agent.FinalizedAgeLine(F, time.Now())) // the block it was read at, and its age (E6-GT4)
 	default:
 		log.Fatalf("unknown command %s", cmd)
 	}
@@ -441,7 +443,11 @@ func sortedKeys[V any](m map[string]V) []string {
 
 // stroke sets (or clears) the holder's flag on hlmailbox, then on the gate and on HlAdmin — two Ethereum transactions,
 // each confirmed final (its block at or below the finalized block, still canonical, the flag read there), either
-// re-sent when a reorganisation dropped it.
+// re-sent when a reorganisation dropped it. Each of the three legs is sent whatever another answered (the plan
+// conformance audit's E6-PC4, round 6): gno.land's leg went first and any failure returned — a gno key short of a sized
+// flag's simulation fee, the holder's node down, gno.land halted — before the Ethereum brake the plan leans on when
+// gno.land is the trouble, and an Ethereum key no object seats stopped gno.land's flag too. Every leg's outcome is
+// printed; the error names each leg that failed (hlwatch exits non-zero).
 func stroke(ctx context.Context, w *agent.Watch, cfg *agent.Config, node string, set bool, home, key, ethKey, route, fn, ids string) error {
 	path := route
 	if r := cfg.RouteBySymbol(strings.ToUpper(route)); r != nil {
@@ -453,21 +459,44 @@ func stroke(ctx context.Context, w *agent.Watch, cfg *agent.Config, node string,
 	if ids != "" && (fn != "payouts" || !set) {
 		return errors.New("only a payouts flag names ids")
 	}
-	k, err := ethx.LoadKey(ethKey)
-	if err != nil {
-		return fmt.Errorf("the Ethereum key: %w", err)
-	}
-	me := ethx.KeyAddress(k)
-	// the holder's seats, read first: on hlmailbox, the gate and HlAdmin
+	verb := map[bool]string{true: "set", false: "cleared"}[set]
 	c := cfg.SourceClient(node)
 	c.Home, c.Key = home, key
+	eth := &ethLegs{pair: w.Pair(), cfg: cfg, ethKey: ethKey, set: set}
+	legs := []struct {
+		name string
+		run  func() (string, error)
+	}{
+		{"gno.land (hlmailbox, " + fn + " on " + path + ")", func() (string, error) { return gnoLeg(ctx, c, cfg.Gno.Mailbox, set, path, fn, ids) }},
+		{"the gate", func() (string, error) { return eth.gate(ctx) }},
+		{"HlAdmin", func() (string, error) { return eth.admin(ctx) }},
+	}
+	var failed []string
+	for _, l := range legs {
+		res, err := l.run()
+		if err != nil {
+			fmt.Printf("%s: the flag is NOT %s: %v\n", l.name, verb, err)
+			failed = append(failed, l.name+": "+err.Error())
+			continue
+		}
+		fmt.Printf("%s: %s\n", l.name, res)
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("the flag is not %s on %d of the 3 objects (every leg was sent whatever another answered) — %s", verb, len(failed), strings.Join(failed, "; "))
+	}
+	return nil
+}
+
+// gnoLeg is a stroke's gno.land leg: the holder's seat read from hlmailbox through its node, then its flag set or
+// cleared there (flagGno).
+func gnoLeg(ctx context.Context, c *gno.Client, mailbox string, set bool, path, fn, ids string) (string, error) {
 	addr, err := c.KeyAddress(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
-	mb, err := gnoside.MailboxAt(ctx, c, cfg.Gno.Mailbox, 0)
+	mb, err := gnoside.MailboxAt(ctx, c, mailbox, 0)
 	if err != nil {
-		return err
+		return "", err
 	}
 	seat := 0
 	for i, s := range mb.Seats {
@@ -476,67 +505,105 @@ func stroke(ctx context.Context, w *agent.Watch, cfg *agent.Config, node string,
 		}
 	}
 	if seat == 0 {
-		return fmt.Errorf("%s (%s) holds no seat in hlmailbox: only a guardian or a watch key flags", key, addr)
+		return "", fmt.Errorf("%s (%s) holds no seat in hlmailbox: only a guardian or a watch key flags", c.Key, addr)
 	}
-	pair := w.Pair()
-	F, err := pair.Finalized(ctx)
+	r, err := flagGno(ctx, c, mailbox, set, path, fn, ids)
 	if err != nil {
-		return err
+		return "", err
 	}
-	gate, err := ethx.ReadGate(ctx, pair, agent.Address(cfg.Eth.Gate), ethx.AtHash(F.Hash))
+	return fmt.Sprintf("%s %s on %s by seat %d (%s): %s", fn, map[bool]string{true: "set", false: "cleared"}[set], path, seat, addr, r.Hash), nil
+}
+
+// ethLegs are a stroke's two Ethereum legs, the gate's and HlAdmin's: the holder's key and a sender over the config's
+// providers, made at the first leg (a failure there is both legs'), then each object read at the finalized block for
+// the key's slot there and its flag stroked (finalStroke) — one leg's failure is never the other's.
+type ethLegs struct {
+	pair   ethx.Pair
+	cfg    *agent.Config
+	ethKey string
+	set    bool
+	made   bool
+	me     common.Address
+	snd    *ethx.Sender
+	err    error
+}
+
+func (e *ethLegs) sender(ctx context.Context) error {
+	if e.made {
+		return e.err
+	}
+	e.made = true
+	k, err := ethx.LoadKey(e.ethKey)
 	if err != nil {
-		return fmt.Errorf("the gate: %w", err)
+		e.err = fmt.Errorf("the Ethereum key: %w", err)
+		return e.err
 	}
-	admin, err := liveAdmin(ctx, pair, agent.Address(cfg.Eth.Admin), ethx.AtHash(F.Hash))
-	if err != nil {
-		return fmt.Errorf("HlAdmin: %w", err)
-	}
-	slotOf := func(keys [6]common.Address) int {
-		for i, a := range keys {
-			if a == me {
-				return i
-			}
-		}
-		return -1
-	}
-	gs, as := slotOf(gate.Keys), slotOf(admin.Keys)
-	if gs < 0 || as < 0 {
-		return fmt.Errorf("%s holds no slot on the gate or on HlAdmin: only a guardian or a watch key flags", me.Hex())
-	}
-	// gno.land first
-	r, err := flagGno(ctx, c, cfg.Gno.Mailbox, set, path, fn, ids)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("%s %s on %s by seat %d (%s): %s\n", fn, map[bool]string{true: "set", false: "cleared"}[set], path, seat, addr, r.Hash)
-	// then the two Ethereum objects
+	e.me = ethx.KeyAddress(k)
 	var clients []*ethx.Client
-	for _, p := range cfg.Eth.Providers {
+	for _, p := range e.cfg.Eth.Providers {
 		cl, err := ethx.Dial(ctx, p)
 		if err != nil {
+			e.err = err
 			return err
 		}
 		clients = append(clients, cl)
 	}
-	snd, err := ethx.NewSender(k, cfg.EthChainID(), clients, cfg.SendConfig(""))
+	e.snd, e.err = ethx.NewSender(k, e.cfg.EthChainID(), clients, e.cfg.SendConfig(""))
+	return e.err
+}
+
+func (e *ethLegs) gate(ctx context.Context) (string, error) {
+	return e.stroke(ctx, "the gate", ethx.Gate, func(at ethx.At) (common.Address, [6]common.Address, error) {
+		g, err := ethx.ReadGate(ctx, e.pair, agent.Address(e.cfg.Eth.Gate), at)
+		if err != nil {
+			return common.Address{}, [6]common.Address{}, err
+		}
+		return g.Address, g.Keys, nil
+	})
+}
+
+// admin is HlAdmin's leg, its successor line followed (liveAdmin).
+func (e *ethLegs) admin(ctx context.Context) (string, error) {
+	return e.stroke(ctx, "HlAdmin", ethx.Admin, func(at ethx.At) (common.Address, [6]common.Address, error) {
+		a, err := liveAdmin(ctx, e.pair, agent.Address(e.cfg.Eth.Admin), at)
+		if err != nil {
+			return common.Address{}, [6]common.Address{}, err
+		}
+		return a.Address, a.Keys, nil
+	})
+}
+
+// stroke reads the object at the finalized block, finds the key's slot and sends its flag (finalStroke).
+func (e *ethLegs) stroke(ctx context.Context, name string, c *ethx.Contract, read func(ethx.At) (common.Address, [6]common.Address, error)) (string, error) {
+	if err := e.sender(ctx); err != nil {
+		return "", err
+	}
+	F, err := e.pair.Finalized(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
-	method := "setFlag"
-	if !set {
-		method = "clearFlag"
+	addr, keys, err := read(ethx.AtHash(F.Hash))
+	if err != nil {
+		return "", err
 	}
-	for _, obj := range []struct {
-		name string
-		addr common.Address
-		c    *ethx.Contract
-		slot int
-	}{{"the gate", agent.Address(cfg.Eth.Gate), ethx.Gate, gs}, {"HlAdmin", admin.Address, ethx.Admin, as}} {
-		if err := finalStroke(ctx, pair, snd, cfg, obj.name, obj.addr, obj.c, method, obj.slot, set); err != nil {
-			return fmt.Errorf("the gno flag is %s; %s: %w", map[bool]string{true: "set", false: "cleared"}[set], obj.name, err)
+	slot := -1
+	for i, a := range keys {
+		if a == e.me {
+			slot = i
+			break
 		}
 	}
-	return nil
+	if slot < 0 {
+		return "", fmt.Errorf("%s holds no slot on %s: only a guardian or a watch key flags", e.me.Hex(), name)
+	}
+	method := "setFlag"
+	if !e.set {
+		method = "clearFlag"
+	}
+	if err := finalStroke(ctx, e.pair, e.snd, e.cfg, name, addr, c, method, slot, e.set); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s by slot %d (%s), final", method, slot+1, e.me.Hex()), nil
 }
 
 // flagGas is the gas the holder's flag call is first simulated under on gno.land (a flag naming no ids takes a few
@@ -544,9 +611,10 @@ func stroke(ctx context.Context, w *agent.Watch, cfg *agent.Config, node string,
 const flagGas = 45_000_000
 
 // flagGno sets (or clears) the holder's flag on hlmailbox. A guardian's payouts flag may name the ids it suspects,
-// and on a gno v1.5.1 node SetFlag naming 256 ids costs ≈555M (64 ids ≈156M), past the 180M the client reaches from
-// 45M — the tool set ≈70 ids at most (realms.md, audit round 5, "for the lead") — so the call is sized from its
-// simulation, its ceiling raised as far as the block's gas (gnoside.CallUpToTheBlock); a clear the same way.
+// and on a gno v1.5.1 node SetFlag naming 256 ids, hlmailbox's most, costs ≈475M (the list kept sorted,
+// fold-r6/f18b.md; ≈555M in round 5, 64 ids ≈156M), past the 180M the client reaches from 45M — the tool set ≈70 ids
+// at most then (realms.md, audit round 5, "for the lead") — so the call is sized from its simulation, its ceiling
+// raised as far as the block's gas (gnoside.CallUpToTheBlock); a clear the same way (TestI4FlagOf256IdsIsSent).
 func flagGno(ctx context.Context, c gnoside.Caller, mailbox string, set bool, path, fn, ids string) (*gno.Result, error) {
 	if set {
 		return gnoside.CallUpToTheBlock(ctx, c, mailbox, "SetFlag", flagGas, path, fn, ids)

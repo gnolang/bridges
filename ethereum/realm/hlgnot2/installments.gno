@@ -61,7 +61,7 @@ func claimTurn(e hlroute.Env, t, epoch, epochAt int64) (paid int) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(sliver); !ok {
-				// echo-ok(r): a panic of p/hlroute's Claim or of this realm's payment, re-raised as it came (sliver{} aside): each holds to its own checks
+				// echo-ok(r): a panic of p/hlroute's Claim or of this realm's payment, re-raised as it came (sliver{} aside): each holds to its own checks, p/hlroute's texts and the banker's ASCII
 				panic(r)
 			}
 			paid = 0

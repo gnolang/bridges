@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -38,9 +39,10 @@ func cutText(st map[string]any) string { return fmt.Sprint(st["cut"]) }
 // E3-GT2 (the plan red team's E3-RT3): the read-twice guard held hlmailbox's dispatch count only. A credit landing after
 // the signer read the routes and before it read the credited marks was in neither owed nor in flight — the reading
 // short by its amount — so a forged mint of that amount, burned back, passed the round, the halt lifted and its burn
-// was signed. hlmailbox's delivered count moves with every credit: read again once the marks are read, a move is a
-// moving cut (no verdict, quiet), and the break shows the round after; credits landing round after round alarm at the
-// fifth, as dispatches do.
+// was signed. hlmailbox's delivered count moves with every credit: read again at the end of the cut's window, a move
+// is a moving cut — the window taken again at once (round 6, E6-GT1: the next commit is a block away), which holds and
+// shows the break in the same round; credits landing in every taking, round after round, alarm at the fifth, as
+// dispatches do.
 func TestF12CreditBetweenReadsIsAMovingCut(t *testing.T) {
 	r := newSignerRig(t) // GNOT locked 1,000 on gno.land, supply 1,000 on Ethereum
 	gnot := gnoside.RealmKey(m3bNS + "hlgnot")
@@ -72,14 +74,16 @@ func TestF12CreditBetweenReadsIsAMovingCut(t *testing.T) {
 	r.step(time.Second)
 	r.round()
 	st := r.status()
-	if !strings.Contains(cutText(st), "delivered 1 message(s) while the cut was read") {
-		t.Fatalf("round 3 took a verdict over a credit landing between the routes' read and the marks': %v", st)
+	// the first taking moved (the credit landed between the routes' read and hlmailbox's second); the second held, with
+	// alice's credit in owed and her burn out of flight, and shows the forged mint
+	if st["signing"] == true || !strings.Contains(fmt.Sprint(st["halted"]), "broken") || !strings.Contains(fmt.Sprint(st["halted"]), "owed 300") {
+		t.Fatalf("round 3 did not take the cut again over the credit landing in its window and halt on the forged mint: %v", st)
 	}
 	if _, err := r.s.readSigned(1); err == nil {
 		t.Fatal("the burn of the forged mint (nonce 1) was signed")
 	}
-	if st["signing"] == true || r.alarmed("signer:no-verdict") {
-		t.Fatalf("round 3: signing %v, alarms %v", st["signing"], r.s.Alarm.Standing())
+	if r.alarmed("signer:no-verdict") {
+		t.Fatalf("round 3: alarms %v", r.s.Alarm.Standing())
 	}
 	// round 4: the reads hold still, the break shows
 	r.gno.mu.Lock()
@@ -93,13 +97,13 @@ func TestF12CreditBetweenReadsIsAMovingCut(t *testing.T) {
 	if _, err := r.s.readSigned(1); err == nil {
 		t.Fatal("the burn of the forged mint was signed")
 	}
-	// credits landing round after round alarm at the fifth
+	// credits landing in every taking of the window, round after round, alarm at the fifth
 	n := 0
 	r.gno.mu.Lock()
 	r.gno.afterRender = func(pkg, path string) {
 		if pkg == m3bNS+"hlgnot" && path == "json" {
 			n++
-			r.gno.set(m3bMailPath, fmt.Sprintf("delivered/%064x", n), "70")
+			r.gno.set(m3bMailPath, fmt.Sprintf("delivered/%064x", n), strconv.FormatInt(r.gno.height, 10)) // at the head
 		}
 	}
 	r.gno.mu.Unlock()
@@ -113,7 +117,8 @@ func TestF12CreditBetweenReadsIsAMovingCut(t *testing.T) {
 }
 
 // The same race on the monitor: a credit landing between its routes' read and its marks' read hid a forged mint of
-// its amount for the poll. The poll is a moving cut, no verdict; the next one flags the forged mint.
+// its amount for the poll. The cut moves, is taken again at once and holds (round 6, E6-GT1): the forged mint is flagged
+// in the same poll, the credit counted once.
 func TestF12MonitorCreditBetweenReads(t *testing.T) {
 	r := newMonRig(t) // GNOT locked 1,000, supply 1,000
 	gnot := gnoside.RealmKey(m3bNS + "hlgnot")
@@ -135,22 +140,17 @@ func TestF12MonitorCreditBetweenReads(t *testing.T) {
 	if err := r.poll(); err != nil {
 		t.Fatal(err)
 	}
-	if c := cutText(r.m.Status()); !strings.Contains(c, "delivered 1 message(s) while the cut was read") {
-		t.Fatalf("the poll took a verdict over a credit landing mid-read: %s (%v)", c, r.m.Status()["identity"])
-	}
-	r.step(10 * time.Second)
-	if err := r.poll(); err != nil {
-		t.Fatal(err)
-	}
-	if !r.alarmed("identity:GNOT:flag") || len(r.gnoFlags()) == 0 {
-		t.Fatalf("the forged mint was not flagged on the next poll: %v", r.m.Alarm.Standing())
+	id, _ := r.m.Status()["identity"].(map[string]any)["GNOT"].(map[string]any)
+	if !r.alarmed("identity:GNOT:flag") || len(r.gnoFlags()) == 0 || id["owed"] != float64(300) || id["inflightIn"] != float64(300) {
+		t.Fatalf("the cut over a credit landing in its window was not taken again, or the forged mint not flagged: %v (%v)", r.m.Alarm.Standing(), id)
 	}
 }
 
 // The sibling (E3-RT3: "every counter"): a refund — GovDAO's, on a successor's imported send — applied between the
 // routes' read and the sends' refund marks took the send out of flight while the lock read before still held it: the
-// reading short by its amount, a forged mint of it passing. A token whose sends can be refunded has its counters read
-// again with hlmailbox: a refund (or a migration's page) landing between the reads is a moving cut.
+// reading short by its amount, a forged mint of it passing. A token whose sends can be refunded has its refund marks
+// read inside the cut's window and its counters read again with hlmailbox: a refund (or a migration's page) landing
+// between the reads is a moving cut — taken again at once (round 6), which holds and halts on the forged mint.
 func TestF12RefundBetweenReadsIsAMovingCut(t *testing.T) {
 	r := newSignerRig(t)
 	gnot := gnoside.RealmKey(m3bNS + "hlgnot")
@@ -179,8 +179,8 @@ func TestF12RefundBetweenReadsIsAMovingCut(t *testing.T) {
 	r.gno.mu.Unlock()
 	r.round()
 	st := r.status()
-	if !strings.Contains(cutText(st), "GNOT's counters moved while the cut was read") {
-		t.Fatalf("the round took a verdict over a refund landing mid-read: %v", st)
+	if st["signing"] == true || !strings.Contains(fmt.Sprint(st["halted"]), "broken") || !strings.Contains(fmt.Sprint(st["halted"]), "lock 1000") {
+		t.Fatalf("the round over a refund landing in its window did not take the cut again and halt over the refunded lock: %v", st)
 	}
 	if _, err := r.s.readSigned(0); err == nil {
 		t.Fatal("the burn of the forged mint was signed")

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -266,7 +267,7 @@ func TestSignerRefusalRuleStopsAndClears(t *testing.T) {
 	}
 	// the burn credited (by two other signers, say) and GovDAO voids it as forged before a unit is paid: the
 	// remainder leaves owed — the identity holds again, and the stop clears itself
-	r.gno.set(m3bMailPath, "delivered/"+hex.EncodeToString(id[:]), "70")
+	r.gno.set(m3bMailPath, "delivered/"+hex.EncodeToString(id[:]), strconv.FormatInt(r.gno.height+1, 10)) // the next block, which the step brings
 	r.gno.set(m3bNS+"hlgnot", "json", m3bRouteJSON(1000, 0, 0, 0))
 	r.step(time.Second)
 	r.round()

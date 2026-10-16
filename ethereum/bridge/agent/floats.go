@@ -24,9 +24,12 @@ import (
 // creditGnoUgnot is what one Ethereum → gno.land credit costs the relayers' gno key (E5-GS5; the plan red team's
 // E5-RT5): the storage deposit its Process locks at 100 ugnot a byte — measured on gno v1.5.1 nodes at 0.87 GNOT for one
 // claim to a fresh recipient (audit round 5's claim/run-gnot.out), 1.28 GNOT a credit in 200-credit batches before the
-// waiting index and 1.70 with it (fold F15d's ab2 runs) — the most of them, since none comes back to the key (a paid
-// claim keeps its record; a release refunds the storage fee collector while ugnot is restricted), and ≈0.1 GNOT of its
-// Process's and Claim's gas (GasFor at gnoland-1's 0.001 ugnot a gas).
+// waiting index and 1.70 with it (fold F15d's ab2 runs) — the most of them, an upper bound: a release refunds its
+// caller, not the storage fee collector, while ugnot is unrestricted on gnoland-1 (bank's restricted_denoms `[]`, read
+// 2026-10-15; the plan conformance audit's E6-PC1), so the waiting index's tidy in the relayers' own Process returns
+// part of it to the key and a paid claim's freed queue entry, ≈0.31 GNOT, goes to whoever calls Claim (strangers may
+// race the relayers for it; a paid claim keeps its record) — and ≈0.1 GNOT of its Process's and Claim's gas (GasFor at
+// gnoland-1's 0.001 ugnot a gas).
 const creditGnoUgnot = 1_800_000
 
 const (

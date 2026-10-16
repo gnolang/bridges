@@ -111,22 +111,12 @@ func pendingText(text string, unplaced int, block uint64, indexBlock uint64) str
 // excessOf is by how much a reading's right side with what is in flight exceeds the lock (≤ 0 when it does not).
 func excessOf(id Identity) int64 { return satSub(satAdd(id.Right(), id.Inflight()), id.Lock) }
 
-// placed counts the index's burns marked credited.
-func (x *burnIndex) placed() int {
-	n := 0
-	for _, rec := range x.Burns {
-		if rec.Credited != 0 {
-			n++
-		}
-	}
-	return n
-}
-
-// placedBy counts the index's burns credited at or below a height.
+// placedBy counts the index's burns credited at or below a height: at a cut whose window's head is h, the deliveries the
+// index places in its state (E6-GT1).
 func (x *burnIndex) placedBy(h int64) int {
 	n := 0
 	for _, rec := range x.Burns {
-		if rec.Credited != 0 && rec.Credited <= h {
+		if rec.creditedAt(h) {
 			n++
 		}
 	}
@@ -175,10 +165,42 @@ func oldUnplaced(ss []deliverySample, indexTime int64, x *burnIndex) int {
 	return max(0, ss[i].Delivered-x.placedBy(ss[i].Height))
 }
 
-// headAfterCut reads the own node's head once a cut's marks are read and before its re-read (cutMoved): every credit
-// the cut's state holds was made at or below it (a gno node answers its latest state at any height), and a credit at or
-// below it that the state lacks moves the delivered count the re-read holds — so the credits at or below it are the
-// state's exactly.
+// The cut's window (the Go trust audit's E6-GT1). A gno node answers its latest state at any height, so the cut's gno
+// reads are held to one state by reading hlmailbox's counts before them and again after (cutMoved): a dispatch or a
+// delivery landing between the two moves a count, and that cut is taken again. The window is the span between those two
+// reads, and a delivery a block can keep every cut moving once the window outlasts a block — which round 5's cut did: it
+// read inside the window every uncredited mark (a pile of dust anyone can make, read again each time the count moved),
+// every mark twice in doubt, the burns above the index and their marks, and the providers. So the window holds only what
+// must be one state: hlmailbox, the routes and their lines of migrations, the own node's head, hlmailbox again (and the
+// sends' refund marks where a refund can mark one). Everything else is read after it, and every delivered mark is placed
+// in the cut's state by its height: a synced node's head is the last block it applied (tm2's /status reads consensus's
+// last height, set only once the block is committed to the app), so every delivery the window's state holds is at or
+// below the head read inside it, and — the counts held across the window — every delivery at or below that head is in
+// the state. A mark set above the head was set after the cut's reads, and counts as not set there; a mark read unset
+// after the window was unset in it. (One node, §11.10: an endpoint answering from more than one backend breaks the head's
+// meaning, and backends.go refuses it.)
+//
+// A cut that moved anyway (the window taken cutTries times, each moving) is no verdict — but its BROKEN readings are
+// acted on (brokenAcrossAMove, the signer's moved round): a delivery or a dispatch landing inside the window only takes
+// from the right side. Every amount the reading counts is read once: a credit landing before the routes' read is in owed
+// and its mark, set at or below the head, takes its burn out of flight — consistent; one landing after the routes' read
+// and at or below the head is in neither owed nor in flight — the reading short by its amount; one above the head is
+// not in owed and its burn is still in flight — consistent; a forged credit before the routes' read is in owed, a real
+// break, and after it not seen. A send dispatched before the routes' read and after hlmailbox's first is in the lock
+// and not walked (the walk reads to the first read's count): short by its amount; after the routes' read, in neither.
+// What a delivery can add is the lag of an honest burn above the snapshot's block credited before the routes' read —
+// its mark at or below the head, so E5-GT1's bound counts it. So a reading BROKEN across a moved cut with no delivery
+// unplaced by hlmailbox's last count (nothing lags), or past E5-GT1's bound, is a break whatever landed. Only a move of
+// a token's counters (a refund, a migration's page) can add — a page moving owed between the line's realms read on both
+// sides of it — and such a cut is judged no further.
+
+// cutTries is how many times a poll or a round takes the cut's window while it moves: a delivery or a dispatch lands at
+// a block's commit, so the window taken again at once after the commit that moved it has the rest of a block to itself.
+const cutTries = 3
+
+// headAfterCut reads the own node's head inside the cut's window, after the routes and before hlmailbox's second read
+// (cutMoved): every delivery the cut's state holds was made at or below it, and, the counts held, every delivery at or
+// below it is in the state — the height every mark is placed by.
 func headAfterCut(ctx context.Context, g gnoside.Reader) (int64, int64, error) {
 	h, err := g.Status(ctx)
 	if err != nil {
@@ -186,6 +208,10 @@ func headAfterCut(ctx context.Context, g gnoside.Reader) (int64, int64, error) {
 	}
 	return h.Height, h.Time.Unix(), nil
 }
+
+// creditedAt says whether a burn is credited in the state of a cut whose window's head is h: its delivered mark set at h
+// or below (E6-GT1: the marks are read after the window; one set above h was set after it).
+func (rec *burnRec) creditedAt(h int64) bool { return rec.Credited != 0 && rec.Credited <= h }
 
 // The dispatches above the burn index (the Go trust audit's E5-GT1, the plan red team's E5-RT6). A BROKEN reading
 // waits while a delivery the index cannot place may be an honest burn above the index — but what both providers show
@@ -198,10 +224,11 @@ func headAfterCut(ctx context.Context, g gnoside.Reader) (int64, int64, error) {
 // block sits in no waiting index, so the dispatch check on waiting claims never sees it). A liar can only add burns —
 // which widens the bound, the old wait — and hides none the honest one shows; a burn's token and amount are its
 // message's, which its id binds, never a log's topics. Residual, as the fast path's (E5-GT4 item 2): both providers
-// omitting an honest burn's log above the index — two faults — flags its lag at once. The credited marks are read before the
-// cut's re-read, so with the cut holding they are the state's: the highest of them, and of the index's, raises the
-// reading's height, which a load-balanced endpoint can answer from a backend a block behind the one that served the
-// state (E5-RT6) — an honest credit there is then counted as the lag it is.
+// omitting an honest burn's log above the index — two faults — flags its lag at once. The credited marks are read after
+// the cut's window and placed by its head (E6-GT1): a burn whose mark is set at or below the head was credited in the
+// state the routes were read from. (Round 5 raised the reading's height to the highest mark read, for a load-balanced
+// endpoint that answered the head from a backend a block behind the state's, E5-RT6; a mark read after the window may be
+// a credit after it, so the height is the head now, and such an endpoint is refused — backends.go, E6-GT2.)
 
 // aboveIndex is what the providers show dispatched toward gno.land above the burn index's finalized block, each to its
 // own head: every message id (anyone's dispatch: the forged-credit rule's fast path), and the configured tokens' own
@@ -230,8 +257,9 @@ const headFresh = 2 * time.Minute
 // finalized block is far older than the finality rule allows (E5-RT1) and nothing above it is vouched for.
 const aboveRangeMax = 600
 
-// aboveMarksMax bounds the credited marks a cut reads for the burns above the index (each a render of hlmailbox): one
-// not read counts as credited — the bound only widens, the old wait.
+// aboveMarksMax bounds the credited marks a cut reads for the burns above the index (each a render of hlmailbox, read
+// after the window): one not read counts as credited — the bound only widens, the old wait — so the largest are read
+// first, and what stays unread is the smallest (E6-GT4).
 const aboveMarksMax = 200
 
 // readAbove reads the dispatches toward gno.land in the blocks above `from` (the index's finalized block), through each
@@ -308,13 +336,16 @@ func readAbove(ctx context.Context, p ethx.Pair, cfg *Config, from uint64, gnoDo
 	return a
 }
 
-// markAbove reads, for the burns above the index, the height hlmailbox delivered each at as of H (aboveMarksMax at
-// most, by id; one that does not read, and the rest, stay -1: counted as credited).
+// markAbove reads, for the burns above the index, the height hlmailbox delivered each at (aboveMarksMax at most, the
+// largest amounts first, then by id; one that does not read, and the rest, stay -1: counted as credited). By id alone a
+// forger's own dust above the index filled the reads, and its large burns stood unread — counted as credited, the bound
+// widened past its forged credit, which waited E4-GT1's wait again (the Go trust audit's E6-GT4, item 1).
 func (a *aboveIndex) markAbove(ctx context.Context, g gnoside.Reader, mailbox string, H int64) {
 	if a == nil {
 		return
 	}
 	ids := sortedSymbols(a.burns)
+	sort.SliceStable(ids, func(i, j int) bool { return a.burns[ids[i]].Amount > a.burns[ids[j]].Amount })
 	for i, id := range ids {
 		if i == aboveMarksMax {
 			return
@@ -327,9 +358,9 @@ func (a *aboveIndex) markAbove(ctx context.Context, g gnoside.Reader, mailbox st
 	}
 }
 
-// creditTop is the highest credit a cut's read of the state shows: the marks this cut read for the index's burns
-// (markedTop; a mark an earlier read gave may be a backend's or a node's the state is not at) and for the burns above
-// the index — a height the state was read at or above, the cut holding (E5-RT6).
+// creditTop is the highest credit a cut's reads of the marks gave: the marks read for the index's burns (markedTop) and
+// for the burns above the index. Every one is at or below a head the own node gives after it — on one node a mark is set
+// at the block that applies it — which the backends rule holds it to (E6-GT2).
 func creditTop(markedTop int64, a *aboveIndex) int64 {
 	top := markedTop
 	if a != nil {
@@ -340,21 +371,23 @@ func creditTop(markedTop int64, a *aboveIndex) int64 {
 	return top
 }
 
-// lagMost is the most an honest lag can carry for a token in a reading at block F (E5-GT1): the burns of the index
-// above F that the state credits, and the burns either provider shows above the index that it credits or whose mark did
-// not read; false when the providers' reading above the index is not known (the wait, as before).
-func lagMost(sym string, F uint64, x *burnIndex, a *aboveIndex) (int64, bool) {
+// lagMost is the most an honest lag can carry for a token in a reading at block F of the state a cut's window read at
+// head h (E5-GT1): the burns of the index above F that the state credits (their marks set at h or below), and the burns
+// either provider shows above the index that it credits or whose mark did not read; false when the providers' reading
+// above the index is not known (the wait, as before). A mark set above h was set after the window (E6-GT1): no lag of
+// the reading, whose owed was read before it.
+func lagMost(sym string, F uint64, h int64, x *burnIndex, a *aboveIndex) (int64, bool) {
 	if a == nil || !a.known {
 		return 0, false
 	}
 	var most int64
 	for _, rec := range x.Burns {
-		if rec.Symbol == sym && rec.Block > F && rec.Credited != 0 {
+		if rec.Symbol == sym && rec.Block > F && rec.creditedAt(h) {
 			most = satAdd(most, rec.Amount)
 		}
 	}
 	for _, b := range a.burns {
-		if b.Symbol == sym && b.Credited != 0 {
+		if b.Symbol == sym && (b.Credited < 0 || (b.Credited > 0 && b.Credited <= h)) {
 			most = satAdd(most, b.Amount)
 		}
 	}
@@ -364,18 +397,4 @@ func lagMost(sym string, F uint64, x *burnIndex, a *aboveIndex) (int64, bool) {
 // beyondLagText says why a BROKEN reading is a verdict at once although a delivery is unplaced (E5-GT1).
 func beyondLagText(text string, excess, most int64, F uint64, a *aboveIndex) string {
 	return fmt.Sprintf("%s — the excess of %d is more than any honest lag the reading can carry (%d: the token's burns above its block %d that the cut's state credits, the index's and those either provider shows to its head, %s): a break at once, not kept waiting for the index (E5-GT1)", text, excess, most, F, a.heads)
-}
-
-// raiseToCredits raises a reading's height and time to the highest credit its state shows, when that is above the head
-// read after the cut (a load-balanced endpoint's backend a block behind: E5-RT6): the time is that block's as the node
-// gives it, else the machine's clock (a later time only waits longer).
-func raiseToCredits(ctx context.Context, g gnoside.Reader, markedTop int64, a *aboveIndex, h, t int64, now time.Time) (int64, int64) {
-	top := creditTop(markedTop, a)
-	if top <= h {
-		return h, t
-	}
-	if b, err := g.Block(ctx, top); err == nil && !b.Time.IsZero() && b.Time.Unix() >= t {
-		return top, b.Time.Unix()
-	}
-	return top, max(t, now.Unix())
 }

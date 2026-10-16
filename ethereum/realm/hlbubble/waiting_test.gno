@@ -226,7 +226,7 @@ func TestLaterInstallments(cur realm, t *testing.T) {
 }
 
 // TestReopens (the round-5 realms audit's E5-RL2): a restore reads its ids once — restoreList, the draft's own parse,
-// is hlroute.ParseIDs's list whatever the spelling — and names 128 at most (maxRestoreIDs); its closure enters the
+// is hlroute.ParseIDs's list whatever the spelling — and names 40 at most (maxRestoreIDs); its closure enters the
 // claims it restored at once and keeps only the others for Execute, which enters those it opens and moves none the
 // closure entered; a cancel drops what the decision it cancels kept; the index keeps its contract throughout.
 func TestReopens(cur realm, t *testing.T) {
@@ -299,20 +299,28 @@ func TestReopens(cur realm, t *testing.T) {
 		t.Fatalf("the cancelled restore: %s, kept %v", st.Ledger.Get(dec2).State(), reopened(dec2))
 	}
 
-	// 128 ids at most: 129 voided claims, the restore of all refused, of 128 restored at once and entered
-	ids := make([]string, maxRestoreIDs+1)
+	// 40 ids at most (128 before; the 64 of a void's own bound is 1.27B at once at 10,000 claims, fold-r6/i4.md): 41
+	// voided claims (by voids of maxVoidIDs ids at most each, E6-RL1), the restore of all refused, of 40 restored at
+	// once and entered
+	ids := make([]string, 41)
 	for i := range ids {
 		ids[i] = credit(10+i, false)
 	}
-	void(strings.Join(ids, ","), false)
+	for i := 0; i < len(ids); i += maxVoidIDs {
+		j := i + maxVoidIDs
+		if j > len(ids) {
+			j = len(ids)
+		}
+		void(strings.Join(ids[i:j], ","), false)
+	}
 	asMember(cur)
-	aborts(t, "hlbubble: a restore names 129 ids, 128 at most: restore them by more than one decision", func() { NewRestoreRequest(cross(cur), strings.Join(ids, ",")) })
+	aborts(t, "hlbubble: a restore names 41 ids, 40 at most: restore them by more than one decision", func() { NewRestoreRequest(cross(cur), strings.Join(ids, ",")) })
 	last := waitingLast
 	asMember(cur)
-	pass(cur, NewRestoreRequest(cross(cur), strings.Join(ids[:maxRestoreIDs], ",")))
-	for i, id := range ids[:maxRestoreIDs] {
+	pass(cur, NewRestoreRequest(cross(cur), strings.Join(ids[:40], ",")))
+	for i, id := range ids[:40] {
 		if st.ClaimOf(id).State != hlroute.Open || placeOf(id) != last+int64(i)+1 {
-			t.Fatalf("the restore of 128: %s at %d", st.ClaimOf(id).State, placeOf(id))
+			t.Fatalf("the restore of 40: %s at %d", st.ClaimOf(id).State, placeOf(id))
 		}
 	}
 	tidy(waitingByPos.Size()) // the claims still voided leave the index, as the next credits' tidy would take them: the probes count from a tidy index
@@ -390,20 +398,23 @@ func TestWalkClaimsDeep(cur realm, t *testing.T) {
 	}
 }
 
-// gasCancel is the route's longest decision a builder writes: the cancel of a void naming 256 ids with the unpause
-// option, whose text nests the void's (≈16.8 KB).
+// gasCancel is the route's longest decision a builder writes: the cancel of a sweep payment naming 256 entries, whose
+// text nests the payment's (≈16.7 KB) — since a void names 64 ids at most (maxVoidIDs, E6-RL1), a list of 256 is a
+// sweep payment's, a refund's or a write-off's, each written alike.
 var gasCancel int64
 
 func TestRouteDecisionsSetup(cur realm, t *testing.T) {
+	epoch, _ := hlmailbox.PayoutsEpoch(pkgPath)
 	ids := make([]string, hlroute.MaxIDs)
 	for i := range ids {
-		ids[i] = probeID(0xc1, i)
+		ids[i] = probeID(0x5f, i)
+		st.Credit(now(), runtime.ChainHeight(), epoch, ids[i], probeTo(i), one, hlroute.BySigners, true) // a sweep entry
 	}
 	asMember(cur)
-	pass(cur, NewVoidRequest(cross(cur), strings.Join(ids, ","), false, "sends,credits,payouts", ""))
-	void := st.Ledger.Last()
+	pass(cur, NewSweepRequest(cross(cur), strings.Join(ids, ","), carol))
+	sweep := st.Ledger.Last()
 	asMember(cur)
-	pass(cur, NewCancelRequest(cross(cur), void))
+	pass(cur, NewCancelRequest(cross(cur), sweep))
 	gasCancel = st.Ledger.Last()
 	if d := st.Ledger.Get(gasCancel); d == nil || d.Kind != hlroute.KindCancel || len(d.Text) < 16_600 {
 		t.Fatalf("the longest decision: %+v", d)

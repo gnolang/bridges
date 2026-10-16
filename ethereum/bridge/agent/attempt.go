@@ -21,6 +21,9 @@ type attempt struct {
 	// MinGas is the least gas limit the action's next transaction carries: an execute HlAdmin refused CallStarved
 	// (audit round 3, E3-CT4) is sent again with more gas than its estimate showed (executor.go, starvedGas).
 	MinGas uint64 `json:"minGas,omitempty"`
+	// TooBig is a gno call sized as far as the block's gas whose simulation ran out of gas there — no block takes it
+	// (relayer.go, tooBigFailed): the gas the simulation used (1 when its output said none); tried again hourly
+	TooBig int64 `json:"tooBig,omitempty"`
 }
 
 // causeIs says whether the action parked on the named refusal (the cause recorded, or the last error's text).

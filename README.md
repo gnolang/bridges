@@ -1,7 +1,7 @@
 # bridges
 
 gno.land's bridges to other chains: [`solana/`](solana/) moves GNOT and BUBBLE between gno.land and Solana (live),
-and [`ethereum/`](ethereum/) between gno.land and Ethereum (built and audited, not yet deployed). The Ethereum bridge
+and [`ethereum/`](ethereum/) between gno.land and Ethereum (a draft under audit, not yet deployed). The Ethereum bridge
 is the Solana bridge's design carried to Ethereum rule by rule; its plan says where Ethereum changes a rule and why.
 
 The site is **[bridge.gno.world](https://bridge.gno.world)**. It sends, claims, and shows the bridge's state live.
@@ -40,7 +40,7 @@ a block Ethereum has finalized. A zero-knowledge proof of Ethereum's sync commit
 that loosens a limit or swaps a key, four guardians who can pause and hold, an immutable admin contract on Ethereum
 that acts only on decisions proven from gno.land, and one governor until he yields to GovDAO.
 
-**Status: a draft — built, under audit (six rounds so far), not deployed.** [`ethereum/bridge/PLAN.md`](ethereum/bridge/PLAN.md)
+**Status: a draft — built, under audit, not deployed.** [`ethereum/bridge/PLAN.md`](ethereum/bridge/PLAN.md)
 is the design and its trust statement (§1). The audit records (`AUDIT.md` and `audits/`) are held back for now: several
 findings also apply to the live Solana bridge, and they will be published once its machines run the fixes. On Ethereum it uses
 Hyperlane's own `Mailbox` and `HypERC20` (release 12.2.0, unchanged) beside three contracts of its own: the light

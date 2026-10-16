@@ -117,11 +117,11 @@ func guardLaunch() uint32 {
 	}
 	d := hlmailbox.LocalDomain()
 	if why := devPlaceholder(d, st.Router); why != "" {
-		// echo-ok(why): the guard's own refusal: words, contract names, EIP-55 and bech32 addresses, a few hundred bytes at most: far under the cut
+		// echo-ok(why): the guard's own refusal: ASCII words, contract names, EIP-55 and bech32 addresses and pkgpaths, a few hundred bytes at most: far under the cut
 		panic(why)
 	}
 	if why := wrongRouter(st.Router); why != "" {
-		// echo-ok(why): the guard's own refusal: words, contract names, EIP-55 and bech32 addresses, a few hundred bytes at most: far under the cut
+		// echo-ok(why): the guard's own refusal: ASCII words, contract names, EIP-55 and bech32 addresses and pkgpaths, a few hundred bytes at most: far under the cut
 		panic(why)
 	}
 	return d
@@ -144,7 +144,7 @@ func wrongRouter(k [32]byte) string {
 func mustAddr(s string) [32]byte {
 	k, err := hlmailbox.ParseEthAddress(s)
 	if err != nil {
-		// echo-ok(err): ParseEthAddress's refusal, which echoes what it read (echo, E4-GS1)
+		// echo-ok(err): ParseEthAddress's refusal: its ASCII words and its echo of what it read (echo, E4-GS1)
 		panic("hlgnot: " + err.Error())
 	}
 	return k
@@ -172,7 +172,7 @@ func caller(cur realm) address {
 func mustHex(s, what string) []byte {
 	b, err := hex.DecodeString(strings.TrimPrefix(strings.TrimSpace(s), "0x"))
 	if err != nil {
-		panic("hlgnot: the " + what + " is not hex") // echo-ok(what): every caller names its argument with a constant
+		panic("hlgnot: the " + what + " is not hex") // echo-ok(what): every caller names its argument with a constant: ASCII words
 	}
 	return b
 }
@@ -216,7 +216,7 @@ var zeroAddress = zeroAddr()
 func zeroAddr() address {
 	a, err := hl.Bytes32ToAddress([32]byte{})
 	if err != nil {
-		// echo-ok(err): p/hyperlane's fixed text, never reached: 32 zero bytes always decode
+		// echo-ok(err): p/hyperlane's fixed text, ASCII, never reached: 32 zero bytes always decode
 		panic(err.Error())
 	}
 	return a
@@ -238,7 +238,7 @@ func mustBeLive() {
 
 func mustNotBePaused(fn string) {
 	if hlmailbox.Paused(pkgPath, fn) {
-		panic("hlgnot: " + fn + " are paused by a guardian or a watch key") // echo-ok(fn): one of hlmailbox's three function names, constants
+		panic("hlgnot: " + fn + " are paused by a guardian or a watch key") // echo-ok(fn): one of hlmailbox's three function names, ASCII constants
 	}
 }
 
@@ -322,12 +322,12 @@ func TransferRemote(cur realm, destination uint32, recipient string, amount int6
 	st.CheckSend(amount)
 	to, err := hlmailbox.ParseEthAddress(recipient)
 	if err != nil {
-		// echo-ok(err): ParseEthAddress's refusal, which echoes what it read (echo, E4-GS1)
+		// echo-ok(err): ParseEthAddress's refusal: its ASCII words and its echo of what it read (echo, E4-GS1)
 		panic("hlgnot: the recipient is " + err.Error())
 	}
 	// the zero address, this route's router, an address at or below 0xffff and every contract of the deployment (ER10)
 	if why := hlmailbox.RefusedEthRecipient(to, st.Router); why != "" {
-		// echo-ok(why): hlmailbox.RefusedEthRecipient's words and an EIP-55 address, a few hundred bytes at most: far under the cut
+		// echo-ok(why): hlmailbox.RefusedEthRecipient's ASCII words and an EIP-55 address, a few hundred bytes at most: far under the cut
 		panic("hlgnot: the recipient is " + why)
 	}
 	if a, err := hl.Bytes32ToAddress(to); err == nil && isRealm(a) {
@@ -378,14 +378,14 @@ func Process(cur realm, metadata, message string) {
 	msg := mustHex(message, "message")
 	m, err := hl.ParseMessage(msg)
 	if err != nil {
-		panic(err.Error()) // echo-ok(err): p/hyperlane's ParseMessage refuses with one fixed text (hyperlane.gno:73)
+		panic(err.Error()) // echo-ok(err): p/hyperlane's ParseMessage refuses with one fixed ASCII text (hyperlane.gno:73)
 	}
 	if st.Migrated() {
 		// echo-ok(st.MigratedTo): the successor a migrate decision named: an announced realm's pkgpath, ASCII by tm2's path rules
 		panic("hlgnot: migrated to " + st.MigratedTo + ": the successor takes this message")
 	}
 	if self, err := hl.AddressToBytes32(Address()); err != nil {
-		panic(err.Error()) // echo-ok(err): this realm's own address, which always decodes
+		panic(err.Error()) // echo-ok(err): p/hyperlane's ASCII text and this realm's own bech32 address, which always decodes
 	} else {
 		st.MustTake(m.Recipient == self, hlmailbox.Predecessor(pkgPath))
 	}
@@ -396,7 +396,7 @@ func Process(cur realm, metadata, message string) {
 	}
 	rcpt, amount, _, err := hl.ParseTokenMessage(m.Body)
 	if err != nil {
-		panic(err.Error()) // echo-ok(err): p/hyperlane's ParseTokenMessage refuses with fixed texts (hyperlane.gno:224, :228)
+		panic(err.Error()) // echo-ok(err): p/hyperlane's ParseTokenMessage refuses with fixed ASCII texts (hyperlane.gno:224, :228)
 	}
 	if amount > maxI64 {
 		panic("hlgnot: the amount is past what GNOT can hold")
@@ -416,8 +416,10 @@ func Process(cur realm, metadata, message string) {
 	idb := hl.ID(msg)
 	id := hex.EncodeToString(idb[:])
 	epoch, _ := hlmailbox.PayoutsEpoch(pkgPath)
+	h := runtime.ChainHeight()
 	// echo-ok(to): p/hyperlane's bech32 of the recipient's 32 bytes (or none when they are no gno address: swept)
-	swept := st.Credit(t, runtime.ChainHeight(), epoch, id, to, int64(amount), hlroute.BySigners, err != nil || unpayable(to))
+	swept := st.Credit(t, h, epoch, id, to, int64(amount), hlroute.BySigners, err != nil || unpayable(to))
+	countCredit(h) // the credit tally a range void is bounded by (voids.gno, E6-RL1)
 	if !swept {
 		enter(id) // a claim: into the waiting index (waiting.gno, E4-RL1)
 	}
@@ -576,7 +578,7 @@ func proposePaying(cur realm, d hlroute.Draft, payee address, reopen []string, c
 			mustNotBePaused(hlmailbox.FnPayouts) // a refund moves coins out of the lock: under a standing payouts flag it waits like a claim (§5.9; the proposal survives for a retry)
 		}
 		if payee != "" && unpayable(payee) {
-			panic("hlgnot: the vote pays " + string(payee) + ", which is a realm of the bridge now (a route registered, dropped or announced as a successor since the vote was made): never paid; credit the id to its owner afresh") // echo-ok(payee): canonical (the credit and sweep builders' CanonicalAddress)
+			panic("hlgnot: the vote pays " + string(payee) + ", which is a realm of the bridge now (a route registered, dropped or announced as a successor since the vote was made): never paid; credit the id to its owner afresh") // echo-ok(payee): canonical bech32, ASCII (the credit and sweep builders' CanonicalAddress)
 		}
 		dec := st.Decide(made, t, d, env(cur))
 		if payee != "" {
@@ -610,7 +612,7 @@ func mustStillBePayable(id int64) {
 		return
 	}
 	if to := v.(address); unpayable(to) {
-		// echo-ok(to): a vote's payee, kept in its canonical spelling (CanonicalAddress at the builder)
+		// echo-ok(to): a vote's payee, kept in its canonical bech32 spelling, ASCII (CanonicalAddress at the builder)
 		panic("hlgnot: decision " + itoa(id) + " pays " + string(to) + ", which is a realm of the bridge now (a route registered, dropped or announced as a successor since the vote): it stays pending; cancel it, and credit the id to its owner afresh")
 	}
 }
@@ -637,7 +639,7 @@ func Govern(cur realm, r Request) {
 	}
 	mustBeGovernor(cur)
 	if err := r.decide(cur); err != nil {
-		// echo-ok(err): p/decisions' refusal: words and numbers
+		// echo-ok(err): p/decisions' refusal: ASCII words and numbers
 		panic("hlgnot: " + err.Error())
 	}
 }
@@ -677,7 +679,7 @@ func NewSetRouterRequest(cur realm, router string) Request {
 	mustBeLive()
 	k := mustAddr(router)
 	if why := refusedRouter(k); why != "" {
-		// echo-ok(why): refusedRouter's words, a contract's name and EIP-55 addresses, a few hundred bytes at most: far under the cut
+		// echo-ok(why): refusedRouter's ASCII words, a contract's name and EIP-55 addresses, a few hundred bytes at most: far under the cut
 		panic(why)
 	}
 	return propose(cur, st.DraftRouter(k, hlmailbox.EthAddress(k)))
@@ -695,10 +697,12 @@ func refusedRouter(k [32]byte) string {
 	return ""
 }
 
-// NewVoidRequest voids credits by message id (comma separated, up to 256; a claim, or a sweep entry as forged) or
-// by a range of credits ("heights:<from>-<to>", every credit at those block heights; "since:<from>", every credit
-// the verifier made from that height on), closed at the height the proposal is made and covering at most 1,000
-// credits (a bigger range is split by heights), as withheld (the remainder stays booked, restorable) or as forged
+// NewVoidRequest voids credits by message id (comma separated, up to maxVoidIDs; a claim, or a sweep entry as forged)
+// or by a range of credits ("heights:<from>-<to>", every credit at those block heights; "since:<from>", every credit
+// the verifier made from that height on), closed at the block before the one the proposal is made in and covering at
+// most maxVoidCredits credits by this realm's tally (voids.gno: the round-6 realms audit's E6-RL1 — p/hlroute's own
+// bounds, 256 ids and 1,000 credits, outgrew gnoland-1's block; a bigger list or range is split into more decisions,
+// a range by heights), as withheld (the remainder stays booked, restorable) or as forged
 // (the remainder dropped, the paid part lost; a sweep entry's amount dropped from what is owed). A credit a
 // guardian's standing payouts flag names — by id, or by a range covering it — is voided the moment the proposal
 // executes; the rest wait 7 days. The unpause option takes the unpause builder's parameters — the functions whose
@@ -710,12 +714,25 @@ func NewVoidRequest(cur realm, ids string, forged bool, unpauseFns, removeSeats 
 	mustBeASCII("ids", ids)
 	mustBeASCII("unpause functions", unpauseFns)
 	mustBeASCII("seats", removeSeats)
-	return propose(cur, st.DraftVoid(ids, forged, unpauseFns, removeSeats, runtime.ChainHeight(), hlmailbox.Seat))
+	before := runtime.ChainHeight() - 1 // a range closes at the block before this one (voids.gno)
+	if before < 1 {
+		before = 1 // never 0: a since range closed at 0 would be p/hlroute's open one
+	}
+	if r, ranged := hlroute.ParseRange(ids); ranged {
+		if why := rangeRefusal(closedAt(r, before)); why != "" {
+			panic("hlgnot: " + why) // echo-ok(why): rangeRefusal's ASCII words and numbers: a count, p/hlroute's Range in words (its heights)
+		}
+	}
+	d := st.DraftVoid(ids, forged, unpauseFns, removeSeats, before, hlmailbox.Seat)
+	if p := d.Params.(hlroute.VoidParams); len(p.IDs) > maxVoidIDs {
+		panic("hlgnot: a void names " + strconv.Itoa(len(p.IDs)) + " ids, " + strconv.Itoa(maxVoidIDs) + " at most: void them by more than one decision")
+	}
+	return propose(cur, d)
 }
 
-// NewRestoreRequest restores voided claims by message id: a withheld one at once, a forged one after 7 days; 128 ids
-// at most (maxRestoreIDs, waiting.gno: the waiting index's new places of a restore at once must fit one transaction
-// with the rest of it, E5-RL2) — a 256-id void is restored by two decisions.
+// NewRestoreRequest restores voided claims by message id: a withheld one at once, a forged one after 7 days; 40 ids at
+// most (maxRestoreIDs, waiting.gno: a restore at once — p/hlroute's checks and restores, and the waiting index's new
+// places — must fit a third of the block, E5-RL2, the void gate) — a void of 64 ids is restored by two decisions.
 func NewRestoreRequest(cur realm, ids string) Request {
 	mustBeLive()
 	mustBeASCII("ids", ids)
@@ -828,6 +845,9 @@ func Execute(cur realm, id int64) {
 	}
 	mustStillBePayable(id)
 	dec := st.Execute(now(), id, env(cur))
+	if dec.Kind == hlroute.KindCredit {
+		countCredit(runtime.ChainHeight()) // the credit by vote p/hlroute queued at this height (voids.gno, E6-RL1)
+	}
 	// a decision that re-opens claims (a forged claim's restore, a credit by vote) moves them in the waiting index to a
 	// new place, those open now (waiting.gno, E4-RL1): the ids its closure kept, not the ones it entered (E5-RL2)
 	reopenNow(reopened(id))
@@ -838,8 +858,8 @@ func Execute(cur realm, id int64) {
 
 // Pull is the successor's: once a migrate decision names it, the realm at that pkgpath calls Pull from its own
 // code, page by page from 0, and receives the lock (paid to its address, with page 0) and the records to import,
-// up to 50 a page (pullPage, waiting.gno: a page of 500 outgrew gnoland-1's block, E5-RL1; the snapshot's More says
-// whether a page follows); a page pulled already hands over nothing.
+// up to 25 a page (pullPage, waiting.gno: a page of 500 outgrew gnoland-1's block, E5-RL1, and one of 50 a third of it
+// at 10,000 claims, E6-RL3; the snapshot's More says whether a page follows); a page pulled already hands over nothing.
 // Page 0 moves the lock, so under a standing payouts flag it waits for the unpause like a sweep payment (R27, R16:
 // nothing paid under a suspect verifier); the flag follows the claims to the successor (hlmailbox.AddRoute).
 func Pull(cur realm, page int) *hlroute.Snapshot {

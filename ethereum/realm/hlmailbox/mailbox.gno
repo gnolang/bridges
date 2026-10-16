@@ -520,7 +520,7 @@ func Reemit(cur realm, nonce uint32) {
 	raw := []byte(v.(*sentMsg).raw)
 	m, err := hl.ParseMessage(raw)
 	if err != nil {
-		// echo-ok(err): p/hyperlane's fixed text for a message this mailbox wrote itself
+		// echo-ok(err): p/hyperlane's fixed ASCII text for a message this mailbox wrote itself
 		panic(err.Error())
 	}
 	emitDispatch(m, raw, hl.ID(raw))
@@ -546,7 +546,7 @@ func Process(cur realm, metadata, message []byte) (origin uint32, sender [32]byt
 	}
 	m, err := hl.ParseMessage(message)
 	if err != nil {
-		panic(err.Error()) // echo-ok(err): p/hyperlane's ParseMessage refuses with one fixed text (hyperlane.gno:73)
+		panic(err.Error()) // echo-ok(err): p/hyperlane's ParseMessage refuses with one fixed ASCII text (hyperlane.gno:73)
 	}
 	if m.Version != hl.Version {
 		panic("hlmailbox: message version " + strconv.Itoa(int(m.Version)) + ", not " + strconv.Itoa(hl.Version))
