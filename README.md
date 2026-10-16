@@ -1,7 +1,8 @@
 # bridges
 
-gno.land's bridges to other chains. There is one today, in [`solana/`](solana/): it moves GNOT and BUBBLE between
-gno.land and Solana.
+gno.land's bridges to other chains: [`solana/`](solana/) moves GNOT and BUBBLE between gno.land and Solana (live),
+and [`ethereum/`](ethereum/) between gno.land and Ethereum (built and audited, not yet deployed). The Ethereum bridge
+is the Solana bridge's design carried to Ethereum rule by rule; its plan says where Ethereum changes a rule and why.
 
 The site is **[bridge.gno.world](https://bridge.gno.world)**. It sends, claims, and shows the bridge's state live.
 
@@ -22,6 +23,28 @@ can hold any change. A pause stops minting, never burning.
 every decision, under the same delays. The lock is kept small until then, so bridge small amounts only.
 [`PLAN.md` §1](solana/bridge/PLAN.md) states who is trusted at each step, and every review and audit finding is in
 [`REVIEWS.md`](solana/bridge/REVIEWS.md) and [`AUDIT.md`](solana/bridge/AUDIT.md).
+
+## The Ethereum bridge
+
+**gno.land to Ethereum is checked by Ethereum itself.** A light-client contract on Ethereum accepts a transfer only
+when more than 2/3 of gno.land's validator power signed the block that holds it — the same rule as Solana's client,
+with gno.land's ed25519 signatures checked in the contract itself (Ethereum has no ed25519 precompile; the verifier
+agrees with Go's `crypto/ed25519`, which gno.land's nodes use, on every input tested: over a million and a half
+differential cases, the RFC 8032, Wycheproof and edge-case suites).
+
+**Ethereum to gno.land is vouched for by three signer machines**, two of three signing each burn, and only a burn in
+a block Ethereum has finalized. A zero-knowledge proof of Ethereum's sync committee is the planned replacement
+(Proposal 2), with the signers kept as a slow fallback.
+
+**The same limits and brakes as Solana's:** a day's payout capped at a tenth of the lock, 7-day delays on anything
+that loosens a limit or swaps a key, four guardians who can pause and hold, an immutable admin contract on Ethereum
+that acts only on decisions proven from gno.land, and one governor until he yields to GovDAO.
+
+**Status: a draft — built, under audit (six rounds so far), not deployed.** [`ethereum/bridge/PLAN.md`](ethereum/bridge/PLAN.md)
+is the design and its trust statement (§1). The audit records (`AUDIT.md` and `audits/`) are held back for now: several
+findings also apply to the live Solana bridge, and they will be published once its machines run the fixes. On Ethereum it uses
+Hyperlane's own `Mailbox` and `HypERC20` (release 12.2.0, unchanged) beside three contracts of its own: the light
+client (with its ed25519 verifier), a pausable gate and the admin contract.
 
 ## How it works, in seven pictures
 
@@ -81,6 +104,15 @@ The realms here are written under the development namespace `g1leu8d2vsplhehcfkj
 [`solana/bridge/launch/stage.sh`](solana/bridge/launch/stage.sh) rewrites it to the deployer's before upload, so
 the deployed source is this tree with that one substitution. `hlsol audit` reads the Solana side back.
 
+## What is here (Ethereum)
+
+| Directory | What |
+|---|---|
+| [`ethereum/bridge/`](ethereum/bridge/) | The plan, the build and audit records, and the Go side: `hlethbridge` (signer, updater, relayer, monitor), `hleth` (setup, audit, the members' decision commands), `hlwatch` (the guardians' watch). |
+| [`ethereum/bridge/contracts/`](ethereum/bridge/contracts/) | The Foundry project: `GnoLightClient`, `Ed25519Verifier`, `PausableGate`, `HlAdmin` and `HlAdminExec`, with Hyperlane 12.2.0 and OpenZeppelin 4.9.3 vendored at their release bytes. |
+| [`ethereum/realm/`](ethereum/realm/) | The Ethereum deployment's gno.land realms (they import the Solana tree's three pure packages unchanged). |
+| [`ethereum/scripts/`](ethereum/scripts/) | The realm test runner. |
+
 ## What is here
 
 | Directory | What |
@@ -92,6 +124,15 @@ the deployed source is this tree with that one substitution. `hlsol audit` reads
 | [`solana/scripts/`](solana/scripts/) | The realm test runner and the interrealm checker. |
 
 Start with [`solana/bridge/README.md`](solana/bridge/README.md), the code map.
+
+## Build and test (Ethereum)
+
+```sh
+cd ethereum/bridge/contracts && forge test --hardfork osaka   # the contracts (Foundry; the ed25519 differential set: see M2a-NOTES.md)
+cd ethereum/bridge && go vet ./... && go test ./...            # the Go side
+ethereum/scripts/gnotest.sh                                    # the realms (gno v1.2.0)
+ethereum/bridge/local/e2e.sh                                   # both chains on one machine (anvil + gnodev): its header lists what it needs
+```
 
 ## Build and test
 

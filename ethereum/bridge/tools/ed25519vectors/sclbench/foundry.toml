@@ -1,0 +1,15 @@
+# The SCL comparison project (Bench.t.sol has the setup). The default profile is this lane's settings.
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.33"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 10000
+auto_detect_remappings = false
+remappings = ["@solidity/=src/", "forge-std/=lib/forge-std/src/"]
+gas_limit = 9223372036854775807
+[profile.sclown]
+optimizer_runs = 1000000

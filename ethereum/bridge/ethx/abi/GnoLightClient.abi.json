@@ -1,0 +1,974 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "mailboxPkgPathHash_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "ed25519_",
+        "type": "address",
+        "internalType": "contract IEd25519Verifier"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "ED25519",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IEd25519Verifier"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "admin",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "chainId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "clockFactor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "entry",
+    "inputs": [
+      {
+        "name": "headerHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IGnoLightClient.Entry",
+        "components": [
+          {
+            "name": "epoch",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "height",
+            "type": "int64",
+            "internalType": "int64"
+          },
+          {
+            "name": "lastResultsHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "epoch",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "history",
+    "inputs": [
+      {
+        "name": "i",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IGnoLightClient.SetEntry",
+        "components": [
+          {
+            "name": "fromHeight",
+            "type": "int64",
+            "internalType": "int64"
+          },
+          {
+            "name": "setHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "announcedBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "announcedTime",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "quarantineEnd",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "historyLength",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "chainId_",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "originDomain_",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "headerLeaves",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
+      },
+      {
+        "name": "validators",
+        "type": "tuple[]",
+        "internalType": "struct IGnoLightClient.Validator[]",
+        "components": [
+          {
+            "name": "pubkey",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "power",
+            "type": "int64",
+            "internalType": "int64"
+          }
+        ]
+      },
+      {
+        "name": "admin_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "mailboxPkgPathHash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "moduleType",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "nextSetHash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "originDomain",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "proveHeader",
+    "inputs": [
+      {
+        "name": "headerLeaves",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
+      },
+      {
+        "name": "commit",
+        "type": "tuple",
+        "internalType": "struct IGnoLightClient.Commit",
+        "components": [
+          {
+            "name": "partsTotal",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "partsHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "round",
+            "type": "int64",
+            "internalType": "int64"
+          },
+          {
+            "name": "precommits",
+            "type": "tuple[]",
+            "internalType": "struct IGnoLightClient.Precommit[]",
+            "components": [
+              {
+                "name": "index",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "timeSecs",
+                "type": "int64",
+                "internalType": "int64"
+              },
+              {
+                "name": "timeNanos",
+                "type": "int32",
+                "internalType": "int32"
+              },
+              {
+                "name": "r",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "s",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "set",
+        "type": "tuple[]",
+        "internalType": "struct IGnoLightClient.Validator[]",
+        "components": [
+          {
+            "name": "pubkey",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "power",
+            "type": "int64",
+            "internalType": "int64"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "finished",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "quarantineEnd",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "records",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "runningHash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setAdmin",
+    "inputs": [
+      {
+        "name": "newAdmin",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setHash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "stageKey",
+    "inputs": [
+      {
+        "name": "submitter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "headerHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "partsTotal",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "partsHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "round",
+        "type": "int64",
+        "internalType": "int64"
+      },
+      {
+        "name": "epoch_",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "setHash_",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "stagePower",
+    "inputs": [
+      {
+        "name": "key",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "int64",
+        "internalType": "int64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "trustedHash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "trustedHeight",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "int64",
+        "internalType": "int64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "trustedTime",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "update",
+    "inputs": [
+      {
+        "name": "headerLeaves",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
+      },
+      {
+        "name": "commit",
+        "type": "tuple",
+        "internalType": "struct IGnoLightClient.Commit",
+        "components": [
+          {
+            "name": "partsTotal",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "partsHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "round",
+            "type": "int64",
+            "internalType": "int64"
+          },
+          {
+            "name": "precommits",
+            "type": "tuple[]",
+            "internalType": "struct IGnoLightClient.Precommit[]",
+            "components": [
+              {
+                "name": "index",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "timeSecs",
+                "type": "int64",
+                "internalType": "int64"
+              },
+              {
+                "name": "timeNanos",
+                "type": "int32",
+                "internalType": "int32"
+              },
+              {
+                "name": "r",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              },
+              {
+                "name": "s",
+                "type": "bytes32",
+                "internalType": "bytes32"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "set",
+        "type": "tuple[]",
+        "internalType": "struct IGnoLightClient.Validator[]",
+        "components": [
+          {
+            "name": "pubkey",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "power",
+            "type": "int64",
+            "internalType": "int64"
+          }
+        ]
+      },
+      {
+        "name": "nextSet",
+        "type": "tuple[]",
+        "internalType": "struct IGnoLightClient.Validator[]",
+        "components": [
+          {
+            "name": "pubkey",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "power",
+            "type": "int64",
+            "internalType": "int64"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "finished",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "verify",
+    "inputs": [
+      {
+        "name": "metadata",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "message",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "AdminChanged",
+    "inputs": [
+      {
+        "name": "admin",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "HeaderRecorded",
+    "inputs": [
+      {
+        "name": "hash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "height",
+        "type": "int64",
+        "indexed": true,
+        "internalType": "int64"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "record",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "runningHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "proven",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Initialized",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SetAnnounced",
+    "inputs": [
+      {
+        "name": "fromHeight",
+        "type": "int64",
+        "indexed": false,
+        "internalType": "int64"
+      },
+      {
+        "name": "setHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "quarantineEnd",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SetChanged",
+    "inputs": [
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "setHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "StageProgress",
+    "inputs": [
+      {
+        "name": "key",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "submitter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "headerHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "height",
+        "type": "int64",
+        "indexed": false,
+        "internalType": "int64"
+      },
+      {
+        "name": "tallied",
+        "type": "int64",
+        "indexed": false,
+        "internalType": "int64"
+      },
+      {
+        "name": "total",
+        "type": "int64",
+        "indexed": false,
+        "internalType": "int64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "BadCommit",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadDispatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadHeader",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadLeaf",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadMessage",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadProof",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadValidatorSet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ChainId",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DispatchMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Encoding",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "HeightAboveTrusted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "HeightNotAboveTrusted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NextSetMissing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NextSetUnexpected",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NextValidatorsHash",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoDispatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoNewSignature",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoResultsHash",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoVerifier",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotAdmin",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OriginMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ProofMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SignatureMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SlotOutOfRange",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SlotsUnsorted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TrustedTime",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnknownHeader",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ValidatorsHash",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WrongSet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAdmin",
+    "inputs": []
+  }
+]

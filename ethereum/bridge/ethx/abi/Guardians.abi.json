@@ -1,0 +1,37 @@
+[
+  {
+    "type": "error",
+    "name": "BadSeat",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CurrentKey",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DuplicateKey",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Hold",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TooManyGuardians",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TooManyWatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnknownKey",
+    "inputs": []
+  }
+]

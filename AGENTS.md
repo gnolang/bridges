@@ -4,8 +4,8 @@ These hold for every change, review and audit here.
 
 ## gno realms: check against the specifications, every time
 
-Before changing, reviewing or auditing any gno code under `solana/realm/`, read these and check the code against
-them rule by rule:
+Before changing, reviewing or auditing any gno code under `solana/realm/` or `ethereum/realm/`, read these and check
+the code against them rule by rule:
 
 - `solana/docs/gno-specs/gno-interrealm-v2.md`: the Interrealm Specification v2. Realm context and storage context,
   real and unreal objects, storage as authority, `/p/` immutability, the three borrow rules, `cur` as a capability
@@ -23,8 +23,15 @@ report names the sections it checked. The copies are dated in `solana/docs/gno-s
 
 ## The plan wins
 
-`solana/bridge/PLAN.md` is the design. Where code and plan differ, the plan wins until a reviewed change to the plan
-says otherwise; every finding and its answer goes into `REVIEWS.md` or `AUDIT.md`.
+`solana/bridge/PLAN.md` is the Solana bridge's design and `ethereum/bridge/PLAN.md` the Ethereum bridge's (written
+over the Solana plan). Where code and plan differ, the plan wins until a reviewed change to the plan says otherwise;
+every finding and its answer goes into the bridge's `REVIEWS.md` or `AUDIT.md`.
+
+## The Ethereum contracts
+
+Before changing, reviewing or auditing `ethereum/bridge/contracts/`, read `ethereum/bridge/PLAN.md` §5.8, §6 and §13
+and the build notes (`M2-NOTES.md`, `M2a-NOTES.md`); `Ed25519.sol` must keep agreeing with Go's `crypto/ed25519` on
+every input — run its whole gate (the vectors, the differential set, the mutants) after any change to it.
 
 ## Commits
 

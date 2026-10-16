@@ -1,0 +1,232 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "s",
+        "type": "tuple",
+        "internalType": "struct HlAdminExec.Settings",
+        "components": [
+          {
+            "name": "mailbox",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "client",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "gate",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "token0",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "token1",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "proxyAdmin",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "merkleTreeHook",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "protocolFee",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "ed25519",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "ed25519CodeHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "localDomain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "origin",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "route0",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "route1",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "mailboxPkgPathHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "maxPerMessage",
+            "type": "uint64[2]",
+            "internalType": "uint64[2]"
+          },
+          {
+            "name": "dayCap",
+            "type": "uint64[2]",
+            "internalType": "uint64[2]"
+          },
+          {
+            "name": "launch",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "checkSetup",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "run",
+    "inputs": [
+      {
+        "name": "kind",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "p",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "deliveredBlock",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "HoldEnded",
+    "inputs": [
+      {
+        "name": "start",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "end",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Retired",
+    "inputs": [
+      {
+        "name": "successor",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AuthorityLost",
+    "inputs": [
+      {
+        "name": "proxy",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "CallStarved",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Hold",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ImplementationMoved",
+    "inputs": [
+      {
+        "name": "proxy",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NoCodeYet",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotDelegated",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SetupIncomplete",
+    "inputs": [
+      {
+        "name": "check",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  }
+]

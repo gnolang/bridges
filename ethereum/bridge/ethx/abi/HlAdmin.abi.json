@@ -1,0 +1,1032 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "c",
+        "type": "tuple",
+        "internalType": "struct HlAdmin.Config",
+        "components": [
+          {
+            "name": "mailbox",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "client",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "gate",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "token0",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "token1",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "proxyAdmin",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "merkleTreeHook",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "protocolFee",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "ed25519",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "ed25519CodeHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "localDomain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "origin",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "hlgov",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "route0",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "route1",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "mailboxPkgPathHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "seats",
+            "type": "address[4]",
+            "internalType": "address[4]"
+          },
+          {
+            "name": "watch",
+            "type": "address[2]",
+            "internalType": "address[2]"
+          },
+          {
+            "name": "maxPerMessage",
+            "type": "uint64[2]",
+            "internalType": "uint64[2]"
+          },
+          {
+            "name": "dayCap",
+            "type": "uint64[2]",
+            "internalType": "uint64[2]"
+          },
+          {
+            "name": "startSequence",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "predecessor",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "cancelledRanges",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64[2][]",
+        "internalType": "uint64[2][]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "clearFlag",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "client",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "clockFactor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "decision",
+    "inputs": [
+      {
+        "name": "number",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "r",
+        "type": "tuple",
+        "internalType": "struct IHlAdmin.Decision",
+        "components": [
+          {
+            "name": "number",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "kind",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "deliveredBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "deliveredTime",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "deliverer",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "params",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ed25519",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ed25519CodeHash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "exec",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract HlAdminExec"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "execute",
+    "inputs": [
+      {
+        "name": "number",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "finishSetup",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "flags",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[6]",
+        "internalType": "struct IPausableGate.Flag[6]",
+        "components": [
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "time",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "gate",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "handle",
+    "inputs": [
+      {
+        "name": "origin_",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "sender",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "body",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "hlgov",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "hold",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IPausableGate.Flag",
+        "components": [
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "time",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "holds",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct IHlAdmin.Hold[]",
+        "components": [
+          {
+            "name": "start",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "end",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "inherited",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "interchainSecurityModule",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isCancelled",
+    "inputs": [
+      {
+        "name": "number",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "keys",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[6]",
+        "internalType": "address[6]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastSeq",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "launchNonce",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "localDomain",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "mailbox",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "mailboxPkgPathHash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "merkleTreeHook",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "origin",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pending",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "predecessor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "protocolFee",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "proxyAdmin",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "route",
+    "inputs": [
+      {
+        "name": "i",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setFlag",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setupDone",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "successor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "successorInit",
+    "inputs": [
+      {
+        "name": "lastSeq_",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "keys_",
+        "type": "address[6]",
+        "internalType": "address[6]"
+      },
+      {
+        "name": "holds_",
+        "type": "tuple[]",
+        "internalType": "struct IHlAdmin.Hold[]",
+        "components": [
+          {
+            "name": "start",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "end",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "token",
+    "inputs": [
+      {
+        "name": "i",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "DecisionCancelled",
+    "inputs": [
+      {
+        "name": "number",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DecisionExecuted",
+    "inputs": [
+      {
+        "name": "number",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DecisionIgnored",
+    "inputs": [
+      {
+        "name": "number",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DecisionRecorded",
+    "inputs": [
+      {
+        "name": "number",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "matureAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DecisionSpent",
+    "inputs": [
+      {
+        "name": "number",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "why",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FlagCleared",
+    "inputs": [
+      {
+        "name": "key",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "slot",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FlagSet",
+    "inputs": [
+      {
+        "name": "key",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "slot",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "HoldEnded",
+    "inputs": [
+      {
+        "name": "start",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "end",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Inherited",
+    "inputs": [
+      {
+        "name": "predecessor",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "lastSeq",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RangeCancelled",
+    "inputs": [
+      {
+        "name": "from",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "to",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Retired",
+    "inputs": [
+      {
+        "name": "successor",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SetupDone",
+    "inputs": [],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "BadSeat",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Deferred",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DuplicateKey",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ForeignExec",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotInherited",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotMature",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotTheMailbox",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OutOfOrder",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ProxyAdminNotHeld",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RetiredAdmin",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SetupAlreadyDone",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SetupIncomplete",
+    "inputs": [
+      {
+        "name": "check",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ShortBody",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnknownKey",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Value",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WrongAuthority",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WrongDecision",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WrongOrigin",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WrongSender",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroSetting",
+    "inputs": []
+  }
+]
