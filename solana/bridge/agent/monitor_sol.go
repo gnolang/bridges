@@ -37,6 +37,7 @@ func (m *Monitor) readClientBoth(ctx context.Context) (*clientState, error) {
 	if a.Head.TrustedHeight != b.Head.TrustedHeight || a.Head.TrustedHash != b.Head.TrustedHash || a.Body.Records != b.Body.Records || a.Body.RunningHash != b.Body.RunningHash {
 		return nil, fmt.Errorf("%w on the client (trusted %d/%d, records %d/%d)", errProviders, a.Head.TrustedHeight, b.Head.TrustedHeight, a.Body.Records, b.Body.Records)
 	}
+	a.Slot = min(a.Slot, b.Slot) // the lower of the two answers, as the pair takes it (E3-GT9: the poll holds it to the supplies' slot)
 	return a, nil
 }
 

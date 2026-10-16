@@ -6,6 +6,11 @@
 // from the mock's figures, an event playing as it arrives, the walkthrough through every step both ways with the
 // machine playing each, the replay of the last real transfer, reduced motion (nothing moves, the same figures),
 // the labels inside their parts. The mock's world moves only when the suite steps it (POST /api/mock/step).
+// E-M4: the Ethereum deployment beside Solana's (?chain=ethereum) — the picker, gno.land → Ethereum through Adena
+// with ER10's refusals before Adena is asked, Ethereum → gno.land through a fake EIP-1193 wallet found by EIP-6963
+// (and once as window.ethereum), the tracking both ways, Status, Help, How it works and the machine in Ethereum's
+// words, no text spilling its box — and keccak-256 and EIP-55 checked in node against Foundry's answers. The value
+// locked over time (chart.js) and each token's address on the other chain, on both deployments' pages.
 // Runs on the devbox (node 22, playwright from /root/src/node_modules): `make -C bridge site-qa`. Exit 0 on a pass.
 'use strict';
 const { chromium } = require('playwright');
@@ -34,16 +39,35 @@ async function waitFor(fn, what, timeout = 30000, every = 300) {
   }
 }
 
-// mockWallets is injected before every page: Adena, and a Solana wallet in one of two shapes.
-function mockWallets(mock, standard) {
+// mockWallets is injected before every page: Adena, a Solana wallet in one of two shapes, and — when eth names one
+// — an Ethereum wallet: announced by EIP-6963 ('eip6963') or as window.ethereum ('legacy'), on mainnet at first so
+// the page must switch it to the bridge's chain.
+function mockWallets(mock, standard, eth) {
   return `(() => {
     const mock = ${JSON.stringify(mock)};
     window.__calls = [];
     window.adena = {
       AddEstablish: async () => ({ code: 0, status: 'success' }),
       GetAccount: async () => ({ code: 0, status: 'success', data: { address: mock.sender, chainId: 'dev' } }),
-      DoContract: async (req) => { window.__calls.push({ adena: req }); return { code: 0, status: 'success', data: { hash: mock.gnoTx } }; },
+      DoContract: async (req) => { window.__calls.push({ adena: req }); return { code: 0, status: 'success', data: { hash: req.messages.some((m) => m.value.pkg_path.includes('/eth/')) ? mock.ethGnoTx : mock.gnoTx } }; },
     };
+    const ethMode = ${JSON.stringify(eth || '')};
+    if (ethMode) {
+      const provider = { isMetaMask: ethMode === 'legacy', chain: '0x1',
+        request: async ({ method, params }) => {
+          window.__calls.push({ eth: method, params: params || [] });
+          switch (method) {
+            case 'eth_requestAccounts': return [mock.ethSender.toLowerCase()];
+            case 'eth_chainId': return provider.chain;
+            case 'wallet_switchEthereumChain': provider.chain = params[0].chainId; return null;
+            case 'eth_sendTransaction': return mock.ethBurnTx;
+          }
+          throw Object.assign(new Error('unsupported ' + method), { code: 4200 });
+        } };
+      if (ethMode === 'legacy') window.ethereum = provider;
+      else window.addEventListener('eip6963:requestProvider', () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider',
+        { detail: Object.freeze({ info: { uuid: 'mock-eth-1', name: 'MockEth', icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>', rdns: 'test.mocketh' }, provider }) })));
+    }
     if (${standard ? 'true' : 'false'}) {
       const wallet = { name: 'MockStandard', features: {
         'standard:connect': { connect: async () => ({ accounts: [{ address: mock.alice, publicKey: new Uint8Array(32), chains: ['solana:devnet'] }] }) },
@@ -77,9 +101,9 @@ async function startBackend() {
   return { proc, base };
 }
 
-// step moves the mock's world: out, in, down, reset
-async function step(base, flow) {
-  const r = await fetch(base + '/api/mock/step?flow=' + flow, { method: 'POST' });
+// step moves the mock's world: out, in, down, reset — Solana's, or with chain 'ethereum' the Ethereum deployment's
+async function step(base, flow, chain) {
+  const r = await fetch(base + '/api/mock/step?flow=' + flow + (chain ? '&chain=' + chain : ''), { method: 'POST' });
   if (!r.ok) throw new Error('step ' + flow + ': ' + r.status);
   return r.json();
 }
@@ -103,6 +127,18 @@ async function run() {
     await darkCase(browser, base, mock);
     await step(base, 'reset');
     await lockedCase(browser, base);
+    await axisCase(browser, base);
+    console.log(`the Solana pages: ${passed} checks passed, ${failures.length} failed`);
+    await ethHashes();
+    ethWords();
+    for (const vp of WIDTHS) {
+      await step(base, 'reset');
+      await ethCases(browser, base, mock, vp);
+    }
+    await step(base, 'reset');
+    await ethLegacyCase(browser, base, mock);
+    await step(base, 'reset');
+    await lockedCase(browser, base, ETH_LOCKED);
   } finally {
     await browser.close();
     proc.kill();
@@ -112,16 +148,21 @@ async function run() {
 // lockedCase: the value locked over time (chart.js, history.go) on Home and Status at both widths — both tokens
 // drawn from the history, each line ending at the machine's lock and its figure above it, a pointer reading a
 // level, the burn in flight paid out dropping BUBBLE's line one step when the page reads again, every label
-// inside its chart, nothing wider than the page
-async function lockedCase(browser, base) {
+// inside its chart, nothing wider than the page. c is the deployment: Solana's by default, ETH_LOCKED for the
+// Ethereum deployment's own locks (its pages carry ?chain=ethereum).
+const SOL_LOCKED = { q: '', chain: '', at: '', gnot: 1000000, bubble: 2500200, paid: 2500000, steps: 5 };
+const ETH_LOCKED = { q: '?chain=ethereum', chain: 'ethereum', at: ' on Ethereum', gnot: 500000, bubble: 1202500, paid: 1200000, steps: 6 };
+async function lockedCase(browser, base, c = SOL_LOCKED) {
   const chart = (sym) => `#locked svg.lchart[data-token="${sym}"]`;
-  for (const vp of WIDTHS) {
+  const n = (v) => v.toLocaleString('en-US');
+  for (const vp0 of WIDTHS) {
+    const vp = { ...vp0, name: vp0.name + c.at };
     const { context, page } = await newPage(browser, base, null, vp);
-    await page.goto(base + '/');
+    await page.goto(base + '/' + c.q);
     if (!await waitFor(() => page.$(chart('BUBBLE')), `the charts on Home at ${vp.name}`)) { await context.close(); continue; }
-    check(await page.$eval(chart('GNOT'), (s) => s.getAttribute('data-last')) === String(1000000 * 1e6), `GNOT's line ends at the lock at ${vp.name}`);
-    check(await page.$eval(chart('BUBBLE'), (s) => s.getAttribute('data-last')) === String(2500200 * 1e6), `BUBBLE's line ends at the lock at ${vp.name}`);
-    check(await page.$eval('#locked .lchart-wrap[data-token="GNOT"] .lchart-val', (e) => e.textContent) === '1,000,000 GNOT', `GNOT's figure above its chart at ${vp.name}`);
+    check(await page.$eval(chart('GNOT'), (s) => s.getAttribute('data-last')) === String(c.gnot * 1e6), `GNOT's line ends at the lock at ${vp.name}`);
+    check(await page.$eval(chart('BUBBLE'), (s) => s.getAttribute('data-last')) === String(c.bubble * 1e6), `BUBBLE's line ends at the lock at ${vp.name}`);
+    check(await page.$eval('#locked .lchart-wrap[data-token="GNOT"] .lchart-val', (e) => e.textContent) === n(c.gnot) + ' GNOT', `GNOT's figure above its chart at ${vp.name}`);
     check(await page.$eval(chart('GNOT') + ' .lchart-line', (p) => /^M[\d.]+,[\d.]+(H[\d.]+V[\d.]+)*H[\d.]+$/.test(p.getAttribute('d'))), `GNOT's line is a step line at ${vp.name}`);
     check((await page.$$(chart('GNOT') + ' text.xlab')).length >= 2 && (await page.$$(chart('GNOT') + ' text.ylab')).length >= 2, `both axes are labelled at ${vp.name}`);
     const box = await (await page.$(chart('BUBBLE'))).boundingBox();
@@ -130,25 +171,55 @@ async function lockedCase(browser, base) {
     check(/^[\d,.]+ BUBBLE · \d{4}-\d\d-\d\d \d\d:\d\d UTC$/.test(await page.$eval(chart('BUBBLE') + ' text.tip', (t) => t.textContent)), `the level read says amount and time at ${vp.name}: ` + await page.$eval(chart('BUBBLE') + ' text.tip', (t) => t.textContent));
     await svgFits(page, 'locked-hover', vp);
     const n0 = Number(await page.$eval(chart('BUBBLE'), (s) => s.getAttribute('data-points')));
-    for (let i = 0; i < 5; i++) await step(base, 'in');
+    for (let i = 0; i < c.steps; i++) await step(base, 'in', c.chain);
     await readNow(page);
-    await waitFor(() => page.$eval(chart('BUBBLE'), (s) => s.getAttribute('data-last') === String(2500000 * 1e6)), `BUBBLE's line drops at the payout at ${vp.name}`);
+    await waitFor(() => page.$eval(chart('BUBBLE'), (s, want) => s.getAttribute('data-last') === want, String(c.paid * 1e6)), `BUBBLE's line drops at the payout at ${vp.name}`);
     check(Number(await page.$eval(chart('BUBBLE'), (s) => s.getAttribute('data-points'))) === n0 + 1, `the payout is one step more at ${vp.name}`);
-    check(await page.$eval('#locked .lchart-wrap[data-token="BUBBLE"] .lchart-val', (e) => e.textContent) === '2,500,000 BUBBLE', `BUBBLE's figure follows at ${vp.name}`);
+    check(await page.$eval('#locked .lchart-wrap[data-token="BUBBLE"] .lchart-val', (e) => e.textContent) === n(c.paid) + ' BUBBLE', `BUBBLE's figure follows at ${vp.name}`);
     await page.mouse.move(1, 1);
-    await fits(page, 'home-locked', vp);
-    await page.goto(base + '/status');
+    await fits(page, 'home-locked' + (c.chain ? '-eth' : ''), vp0);
+    await page.goto(base + '/status' + c.q);
     await waitFor(() => page.$(chart('GNOT')), `the chart on Status at ${vp.name}`);
-    await fits(page, 'status-locked', vp);
+    await fits(page, 'status-locked' + (c.chain ? '-eth' : ''), vp0);
     check(page.errors.length === 0, `no page error with the charts at ${vp.name}: ${page.errors.join(' | ')}`);
     await context.close();
     await step(base, 'reset');
   }
 }
 
-async function newPage(browser, base, mock, vp, standard = false, extra = {}) {
+// axisCase: the locked chart's time axis drawn in the page (chart.js's drawLockChart) over fixed spans at a phone's
+// and a desktop's chart width — whatever the hour, between two labels and the width's budget (one label a seventy-five
+// pixels): a span just over a day once kept one label on a phone when a half-day mark fell near an end, where a label
+// is dropped (the suite's own mock span, a day and its minutes, failed so at 23:42 UTC)
+async function axisCase(browser, base) {
+  const { context, page } = await newPage(browser, base, null, WIDTHS[0]);
+  await page.goto(base + '/status');
+  const day = 86400, at = (iso) => Date.parse(iso) / 1000;
+  const spans = [
+    ['a day and ten minutes, a half-day mark at the start', at('2026-10-14T23:42:00Z') - day - 600, at('2026-10-14T23:42:00Z')],
+    ['a day and ten minutes, a half-day mark at the end', at('2026-10-15T00:16:00Z') - day - 600, at('2026-10-15T00:16:00Z')],
+    ['a day and an hour', at('2026-10-15T12:40:00Z') - day - 3600, at('2026-10-15T12:40:00Z')],
+    ['eleven hours', at('2026-10-15T05:20:00Z') - 11 * 3600, at('2026-10-15T05:20:00Z')],
+    ['three days', at('2026-10-15T00:30:00Z') - 3 * day, at('2026-10-15T00:30:00Z')],
+    ['thirty days', at('2026-10-15T23:50:00Z') - 30 * day, at('2026-10-15T23:50:00Z')],
+  ];
+  for (const width of [358, 900]) {
+    for (const [what, from, now] of spans) {
+      const n = await page.evaluate(async ([from, now, width]) => {
+        const { drawLockChart } = await import('/chart.js');
+        const svg = drawLockChart({ symbol: 'GNOT', lock: 5e12, points: [[from, 0], [from + (now - from) / 2, 5e12]] }, { from, now }, width);
+        return svg.querySelectorAll('text.xlab').length;
+      }, [from, now, width]);
+      const most = Math.max(2, Math.floor((width - 56) / 75));
+      check(n >= 2 && n <= most, `the time axis over ${what} at ${width} px: ${n} labels (2 to ${most})`);
+    }
+  }
+  await context.close();
+}
+
+async function newPage(browser, base, mock, vp, standard = false, extra = {}, eth = '') {
   const context = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: !!vp.isMobile, hasTouch: !!vp.isMobile, ...extra });
-  if (mock) await context.addInitScript(mockWallets(mock, standard));
+  if (mock) await context.addInitScript(mockWallets(mock, standard, eth));
   const page = await context.newPage();
   page.errors = [];
   page.on('pageerror', (e) => page.errors.push(String(e)));
@@ -487,6 +558,272 @@ async function darkCase(browser, base, mock) {
     check(page.errors.length === 0, `no page errors in the dark at ${vp.name}: ` + page.errors.join(' | '));
     await context.close();
   }
+}
+
+// ------------------------------------------------------------------------------------------------ Ethereum --
+
+// ethHashes: the page's keccak-256 and EIP-55 (eth.js), run in node against Foundry's answers (cast keccak, cast
+// to-check-sum-address, 2026-10-14): the empty input, a topic, three blocks of input, and both padding edges.
+async function ethHashes() {
+  const eth = await import('data:text/javascript;base64,' + fs.readFileSync(path.join(SITE, 'eth.js')).toString('base64'));
+  const k = (b) => eth.hex(eth.keccak256(typeof b === 'string' ? new TextEncoder().encode(b) : b));
+  check(k('') === 'c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470', 'keccak-256 of nothing');
+  check(k('Dispatch(address,uint32,bytes32,bytes)') === '769f711d20c679153d382254f59892613b58a97cc876b249134ac25c80f9c814', 'keccak-256: the Dispatch topic');
+  check(k(Uint8Array.from({ length: 300 }, (_, i) => i & 255)) === 'a679e749a6af300c36e7ff2255d220864eab27b382f9cfdc5aa4d13563ba36ff', 'keccak-256 over three blocks');
+  check(k('a'.repeat(135)) === '34367dc248bbd832f4e3e69dfaac2f92638bd0bbd18f2912ba4ef454919cf446' && k('a'.repeat(136)) === 'a6c4d403279fe3e0af03729caada8374b5ca54d8065329a3ebcaeb4b60aa386e', 'keccak-256 at both padding edges');
+  for (const a of ['0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed', '0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359', '0xdbF03B407c01E7cD3CBea99509d93f8DDDC8C6FB', '0xD1220A0cf47c7B9Be7A2E6BA89F429762e7b9aDb']) {
+    check(eth.checksum(a.toLowerCase()) === a, 'EIP-55: ' + a);
+  }
+  // the recipient rule (§5.2): only the EIP-55 form is taken; one case is refused with no checksummed form in the
+  // answer to take (E3-CF6); an address with no letter is its own checksum
+  const cs = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed', bare = { name: 'Ethereum', contracts: {} };
+  for (const typed of [cs.toLowerCase(), '0x' + cs.slice(2).toUpperCase()]) {
+    const r = eth.recipient(typed, bare);
+    check(!r.ok && !('confirm' in r) && !JSON.stringify(r).includes(cs), 'one case is refused, no checksummed form offered: ' + JSON.stringify(r));
+  }
+  check(eth.recipient(cs, bare).ok && eth.recipient(cs, bare).addr === cs, 'the checksummed form is taken');
+  check(eth.recipient('0x1234567890123456789012345678901234567890', bare).ok, 'an address with no letter is its own checksum');
+}
+
+// ethWords: no page keeps a stale Ethereum figure or promise (round 3: E3-CF11's "about thirteen minutes" of finality,
+// 12.8 to 19 measured; E3-FC5's "as soon as a transfer waits, and every 6 hours" and the one-click checksum)
+function ethWords() {
+  for (const f of fs.readdirSync(SITE).filter((n) => /\.(js|html)$/.test(n))) {
+    const t = fs.readFileSync(path.join(SITE, f), 'utf8');
+    check(!/thirteen minutes|every 6 hours|confirmuse|checksummed form is/i.test(t), `no stale Ethereum words in ${f}`);
+  }
+}
+
+// flipCase changes the case of an address's first hex letter: mixed case that is not its checksum
+function flipCase(a) {
+  const i = a.slice(2).search(/[a-fA-F]/) + 2;
+  const c = a[i];
+  return a.slice(0, i) + (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()) + a.slice(i + 1);
+}
+
+// ethCases: the Ethereum deployment's pages at one width — Home's machine in Ethereum's words and figures, Status,
+// Help, How it works, and the Bridge page both ways with the wallets' exact requests, ER10's refusals before Adena
+// is asked, and the tracking through every step.
+async function ethCases(browser, base, mock, vp) {
+  const { context, page } = await newPage(browser, base, mock, vp, false, {}, 'eip6963');
+  const E = '?chain=ethereum';
+  const playingE = (pg) => playing(pg);
+  // Home: the machine draws Ethereum, its figures the mock's (the supplies at its finalized block)
+  await page.goto(base + '/' + E);
+  await waitFor(() => page.$eval('.machine-svg', (s) => Number(s.getAttribute('data-head')) >= 1300), 'the Ethereum machine shows gno.land’s head');
+  check(await page.$eval('.machine-svg', (s) => s.getAttribute('data-trusted')) === '1050', 'Ethereum’s light client trusts block 1,050');
+  check(await machineText(page, 'lockGNOT') === '500,000' && await machineText(page, 'lockBUBBLE') === '1,202,500', 'the Ethereum deployment’s own locks: ' + await machineText(page, 'lockGNOT'));
+  check(await machineText(page, 'mintGNOT') === '499,880' && await machineText(page, 'mintBUBBLE') === '1,202,500', 'the supplies at Ethereum’s finalized block: ' + await machineText(page, 'mintGNOT') + ' ' + await machineText(page, 'mintBUBBLE'));
+  const svgText = await page.$eval('.machine-svg', (s) => s.textContent);
+  check(svgText.includes('Ethereum') && svgText.includes(vp.width >= 700 ? 'a block ≈12 s' : '12 s/block') && !svgText.includes('slot'), 'the stream is Ethereum’s blocks, every twelve seconds');
+  check((await page.$eval('.machine-svg [data-node="admin"]', (n) => n.textContent)).includes('HlAdmin'), 'the admin part is HlAdmin');
+  check((await page.$$('.machine-svg [data-node="signers"] .lamp[data-state="up"]')).length === 3, 'three Ethereum signers up, none vouching (the burn is not final)');
+  check(await page.$eval('.machine-svg [data-node="balGNOT"] .balance', (b) => b.getAttribute('data-gap') === '120000000'), 'the GNOT balance tips while 120 GNOT are on the way to Ethereum');
+  await readNow(page);
+  await waitFor(async () => (await page.$$('.machine-svg [data-node="validators"] .seal')).length === 6, 'the six validators from the set the newest update carried', 15000);
+  check((await page.textContent('#events')).includes('120 GNOT locked on gno.land · block 1,293') && !(await page.textContent('#events')).includes('1,000,000'), 'the recent events, no stranger’s dispatch among them');
+  check((await page.textContent('#lede')).includes('Ethereum’s blocks along the bottom') && (await page.textContent('main')).includes('HlAdmin, the contract that carries out decisions'), 'the story is Ethereum’s');
+  check((await page.textContent('#story-check2')).includes('about 13 to 19 minutes after it was made'), 'the story says Ethereum’s finality: 13 to 19 minutes (E3-CF11)');
+  // when a header is bought on Ethereum, truly: only for transfers waiting, once their fees pay for it or after six
+  // hours; and nothing on the machine invites the reader to relay or carry headers — no self-delivery (E3-FC5)
+  await waitFor(async () => (await page.textContent('#caption')).startsWith('gno.land is at block'), 'the Ethereum caption says what stands', 20000, 100);
+  const capE = await page.textContent('#caption');
+  check(capE.includes('so the updater buys one only when transfers wait: once their fees pay for it, or after six hours from what earlier fees left over') && !capE.includes('as soon as a transfer waits'), 'the caption says when Ethereum’s updater buys a header: ' + capE);
+  check(!(await page.$eval('.machine-svg', (x) => x.textContent)).toLowerCase().includes('anyone may'), 'the Ethereum machine invites no one to relay or carry headers');
+  check(await page.$eval('header .chain a[aria-current]', (a) => a.textContent) === 'Ethereum' && (await page.$$('header .chain a')).length === 2, 'the header switches chains, Ethereum current');
+  check(await page.getAttribute('header nav a[href="/status?chain=ethereum"]', 'href') !== null, 'the nav keeps the chain');
+  await fits(page, 'home-eth', vp);
+
+  // Status: Ethereum's figures
+  await page.goto(base + '/status' + E);
+  await waitFor(() => page.$$('#tokens tbody tr').then((r) => r.length === 2), 'two Ethereum token rows');
+  check((await page.$$eval('#tokens tbody tr td:last-child', (t) => t.map((x) => x.textContent))).join() === 'holds,holds', 'both identities hold');
+  const head = await page.textContent('#head');
+  check(head.includes('Ethereum block') && head.includes('finalized block'), 'the head says Ethereum’s block and the finalized one: ' + head);
+  check((await page.textContent('#identity')).includes('holds; 120000000 in flight — GNOT: lock 500000000000 = supply 499880000000') && (await page.textContent('#identity')).includes('; block '), 'the identity at Ethereum’s finalized block');
+  check((await page.$$('#pending li')).length === 2 && (await page.textContent('#pending')).includes('Ethereum #1 set protocol fee: set the protocol fee to 0.0001 ETH'), 'the pending decisions: gno.land’s and HlAdmin’s');
+  check((await page.textContent('#client')).includes('gno.land on Ethereum') && (await page.textContent('#client')).includes('trusted height 1050') && (await page.textContent('#client')).includes('1 recorded on Ethereum'), 'the machinery on Ethereum');
+  check((await page.textContent('#flags')).includes('no flag, no hold') && (await page.textContent('#caps')).includes('Ethereum day cap'), 'no flag; the gate’s caps');
+  // each token's contract on Ethereum, as on Solana's page: whole, named, Etherscan's link (no cluster)
+  check((await page.$$eval('#addrs dd .addr code', (cs) => cs.map((x) => x.textContent))).join() === [mock.ethGnot, mock.ethBubble].join(), `both tokens' contracts on the Ethereum Status page at ${vp.name}`);
+  check((await page.$$eval('#addrs dt', (ds) => ds.map((d) => d.textContent))).join() === 'GNOT on Ethereum,BUBBLE on Ethereum', 'each contract named on Ethereum');
+  check((await page.$$eval('#addrs dd .addr a', (as) => as.map((x) => x.href))).join() === [mock.ethGnot, mock.ethBubble].map((x) => 'https://sepolia.etherscan.io/address/' + x).join(), 'Etherscan links the contracts');
+  await fits(page, 'status-eth', vp);
+
+  // Help: Ethereum's fees, delays, references and realms
+  await page.goto(base + '/help' + E);
+  await waitFor(() => page.textContent('#fees').then((t) => t.includes('50 GNOT or 1,000 BUBBLE')), 'the Ethereum routes’ fees');
+  const help = await page.textContent('main');
+  check(help.includes('Ethereum → gno.land:') && help.includes('Ethereum has finalized its block') && help.includes('your Ethereum transaction hash') && help.includes('protocol fee'), 'the help says Ethereum’s delays, gas and reference');
+  check(await page.$$eval('#realms a', (as) => as.some((a) => a.href.endsWith('/eth/hlmailbox')) && as.some((a) => a.href.endsWith('/eth/hlgov'))), 'the Ethereum deployment’s own realms are linked');
+  check((await page.$$eval('#tokenaddrs dd .addr code', (cs) => cs.map((x) => x.textContent))).join() === [mock.ethGnot, mock.ethBubble].join(), `both tokens' contracts on the Ethereum Help at ${vp.name}`);
+  check((await page.textContent('#addhead')) === 'Adding GNOT or BUBBLE to an Ethereum wallet' && help.includes('import it by its contract address on Ethereum') && help.includes('Only the token at this address is backed by the lock'), 'Help says how an Ethereum wallet adds the token');
+  check(!(await page.textContent('main')).includes('Solana'), 'the Ethereum Help never says Solana');
+  check(help.includes('gno.land → Ethereum: minutes to hours') && help.includes('the updater buys one as soon as the fees of the sends waiting pay for it and their deliveries; otherwise the oldest send waits six hours') && !help.includes('as soon as a transfer waits'), 'Help says how long a send to Ethereum waits for its header (E3-FC5)');
+  check(help.includes('about 13 to 19 minutes') && !help.includes('thirteen'), 'Help says Ethereum’s finality: 13 to 19 minutes (E3-CF11)');
+  await fits(page, 'help-eth', vp);
+  // with the status unread the launch figures stand — the Ethereum routes' own, 20 GNOT or 400 BUBBLE each way and
+  // at least twice that (eth PLAN.md §5.5), never Solana's
+  await page.route('**/api/ethereum/status', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"down"}' }));
+  const statusRead = page.waitForResponse((r) => r.url().includes('/api/ethereum/status'));
+  await page.goto(base + '/help' + E);
+  await statusRead;
+  await waitFor(() => page.$$('#realms a').then((r) => r.length >= 4), 'the Ethereum Help with its status down');
+  check((await page.textContent('#fees')) === '20 GNOT or 400 BUBBLE at launch' && (await page.textContent('#min')) === '40 GNOT or 800 BUBBLE', 'Ethereum’s launch figures stand while its status is down: ' + (await page.textContent('#fees')) + ' / ' + (await page.textContent('#min')));
+  await page.unroute('**/api/ethereum/status');
+
+  // How it works: the same scenes in Ethereum's words
+  await page.goto(base + '/how' + E);
+  await waitFor(() => page.$$('figure.scene svg').then((r) => r.length === 11), 'eleven scenes for Ethereum');
+  check((await page.textContent('figure.scene[data-scene="0"]')).includes('Ethereum one every 12') && (await page.textContent('figure.scene[data-scene="0"] svg')).includes('≈12 s a block'), 'the scenes say Ethereum’s pace');
+  check((await page.textContent('figure.scene[data-scene="6"]')).includes('mailbox') && (await page.textContent('figure.scene[data-scene="7"]')).includes('signs only a final burn'), 'the burn and the signers in Ethereum’s words');
+  const s3 = await page.textContent('figure.scene[data-scene="3"]');
+  check(s3.includes('so it buys one only when transfers wait — once their fees pay for it, or after six hours') && !s3.includes('Anyone may'), 'the header scene says when Ethereum’s updater buys one and invites no one: ' + s3);
+  check((await page.textContent('figure.scene[data-scene="6"]')).includes('about 13 to 19 minutes'), 'the burn scene says Ethereum’s finality: 13 to 19 minutes');
+  await fits(page, 'how-eth', vp);
+
+  // the Bridge page: the picker, then gno.land → Ethereum, GNOT
+  await page.goto(base + '/bridge' + E);
+  await waitFor(() => page.textContent('#fees').then((t) => t.includes('fee 50 GNOT')), 'the Ethereum GNOT fee line');
+  check(await page.$$eval('#chain option', (o) => o.map((x) => x.value).join()) === 'solana,ethereum' && await page.$eval('#chain', (s) => s.value) === 'ethereum', 'the picker lists both chains, Ethereum chosen');
+  check((await page.textContent('#out')) === 'gno.land → Ethereum' && (await page.getAttribute('#trackref', 'placeholder')).includes('an Ethereum transaction hash'), 'the toggles and the track box say Ethereum');
+  check(await page.$eval('#tokenaddr .addr code', (x) => x.textContent) === mock.ethGnot && (await page.textContent('#tokenaddr')).startsWith('GNOT on Ethereum: '), `the GNOT contract under the Ethereum form at ${vp.name}`);
+  check(await page.$eval('#tokenaddr .addr a', (x) => x.href) === 'https://sepolia.etherscan.io/address/' + mock.ethGnot, 'its Etherscan link');
+  await page.selectOption('#token', 'BUBBLE');
+  check(await page.$eval('#tokenaddr .addr code', (x) => x.textContent) === mock.ethBubble, 'the contract follows the token on Ethereum');
+  await page.selectOption('#token', 'GNOT');
+  await page.fill('#amount', '100');
+  const refuse = async (to, want, what) => {
+    await page.fill('#recipient', to);
+    await page.evaluate(() => { document.getElementById('result').textContent = ''; }); // two refusals may say the same
+    await page.click('#send');
+    await waitFor(() => page.textContent('#result').then((t) => t.includes(want)), what);
+  };
+  await refuse(flipCase(mock.ethRecipient), 'not its checksum', 'a mixed case that is no checksum is refused');
+  await refuse('0x' + '0'.repeat(40), 'zero address', 'the zero address is refused');
+  await refuse('0x' + '0'.repeat(39) + '1', 'precompile', 'a precompile is refused');
+  await refuse('0x' + '0'.repeat(36) + 'ffff', 'precompile', '0x…ffff is a precompile');
+  await refuse(mock.ethGnot, 'GNOT token contract', 'the GNOT token (the route’s router) is refused');
+  await refuse(mock.ethMailbox.toLowerCase(), 'mailbox', 'the bridge’s mailbox is refused, whatever its case');
+  // all sixteen of the deployment, as the realm refuses them (E3-CF6): an implementation and the verifier too
+  await refuse(mock.ethClientImpl, 'light client’s implementation', 'the light client’s implementation is refused');
+  await refuse(mock.ethVerifierImpl, 'signature verifier (Ed25519Verifier)', 'the Ed25519Verifier is refused');
+  await refuse('0x' + '0'.repeat(24) + mock.ethRecipient.slice(2), 'as 20 bytes', 'the 32-byte form is refused on the page');
+  // an address in one case carries no checksum: refused, its checksummed form never shown nor offered — that form
+  // would be a typo's checksum too (§5.2: only EIP-55 checksummed input; round 3's E3-CF6)
+  await refuse(mock.ethRecipient.toLowerCase(), 'all in one case', 'an address in lower case is refused');
+  check(!(await page.textContent('main')).includes(mock.ethRecipient) && !(await page.$('#confirm, #confirmuse')), 'no checksummed form is shown or offered for a lower-case address');
+  await refuse('0x' + mock.ethRecipient.slice(2).toUpperCase(), 'all in one case', 'an address in upper case is refused');
+  check(!(await page.textContent('main')).includes(mock.ethRecipient), 'nor for an upper-case one');
+  check(!(await page.evaluate(() => window.__calls.some((c) => c.adena))), 'Adena was not asked for any refused recipient');
+  await page.fill('#recipient', mock.ethRecipient);
+  await page.click('#send');
+  await waitFor(() => page.evaluate(() => window.__calls.some((c) => c.adena)), 'Adena was asked for the Ethereum send');
+  const req = (await page.evaluate(() => window.__calls)).find((c) => c.adena).adena;
+  const m0 = req.messages[0].value;
+  check(req.messages.length === 1 && req.gasWanted === 60000000 && m0.send === '150000000ugnot' && m0.func === 'TransferRemote' && m0.pkg_path.endsWith('/eth/hlgnot'), 'GNOT to Ethereum: amount + fee in ugnot to the Ethereum route: ' + JSON.stringify(m0));
+  check(m0.args.join() === ['11155111', mock.ethRecipient, '100000000'].join(), 'the TransferRemote arguments: Ethereum’s domain, the checksummed address: ' + JSON.stringify(m0.args));
+  // the walkthrough: locked, final; then the header of 1,294; then the delivery with its proof
+  const done = () => page.$$eval('#track ol.walk li.done', (l) => l.map((x) => x.dataset.key).join(' '));
+  await waitFor(async () => (await page.textContent('#track')).includes('message id ' + mock.ethOutId) && (await done()) === 'lock final', 'the Ethereum send is locked and final');
+  const hdr = await page.textContent('#track li[data-key="header"]');
+  check(hdr.includes('so the updater buys one once the fees of the sends waiting pay for it and their deliveries, or after six hours') && !hdr.includes('Anyone may') && !hdr.includes('as soon as a transfer waits'), 'the waiting header step says when Ethereum’s updater buys one, inviting no one: ' + hdr);
+  for (const want of ['lock final header', 'lock final header proof mint']) {
+    await step(base, 'out', 'ethereum');
+    await page.click('#trackgo');
+    await waitFor(async () => (await done()) === want, 'the Ethereum walkthrough reaches ' + want.split(' ').pop(), 15000);
+  }
+  check((await page.textContent('#track li[data-key="header"]')).includes('block 1,294') && (await page.textContent('#track li[data-key="proof"]')).includes('leaf 2 of 3') && (await page.textContent('#track')).includes('delivered'), 'delivered on Ethereum, proven under the header of 1,294');
+  await waitFor(async () => ['mint', 'header', ''].includes(await playingE(page)), 'the machine plays the step', 8000, 50);
+  // BUBBLE to Ethereum: approve amount + fee to the Ethereum route, then TransferRemote without coins
+  await page.selectOption('#token', 'BUBBLE');
+  await waitFor(() => page.textContent('#fees').then((t) => t.includes('fee 1,000 BUBBLE')), 'the Ethereum BUBBLE fee line');
+  await page.fill('#amount', '2000');
+  await page.click('#send');
+  await waitFor(() => page.evaluate(() => window.__calls.filter((c) => c.adena).length >= 2), 'Adena was asked for BUBBLE');
+  const req2 = (await page.evaluate(() => window.__calls)).filter((c) => c.adena)[1].adena;
+  const [ap, tr] = req2.messages.map((m) => m.value);
+  check(ap.func === 'Approve' && ap.args[0] === mock.ethBubbleRealm && ap.args[1] === '3000000000' && tr.pkg_path.endsWith('/eth/hlbubble') && tr.send === '' && tr.args[1] === mock.ethRecipient, 'BUBBLE to Ethereum: approve 3,000 to the Ethereum route, then TransferRemote: ' + JSON.stringify(ap));
+
+  // Ethereum → gno.land: the burn built here, the wallet put on the chain, signed and sent, walked to the payout
+  await page.click('#in');
+  await waitFor(() => page.textContent('#fees').then((t) => t.includes('taken from the claim first')), 'the Ethereum inbound fee line');
+  check((await page.textContent('#connect')).includes('MockEth'), 'the wallet EIP-6963 announced is named');
+  await page.fill('#amount', '500');
+  await page.fill('#recipient', mock.recipient);
+  await page.click('#send');
+  await waitFor(() => page.textContent('#result').then((t) => t.includes('more than the fee')), 'a burn under the fee is refused');
+  await page.fill('#amount', '2500');
+  await page.fill('#recipient', mock.ethBubbleRealm);
+  await page.click('#send');
+  await waitFor(() => page.textContent('#result').then((t) => t.includes('bridge realm')), 'the Ethereum route’s address is refused by the backend');
+  check(!(await page.evaluate(() => window.__calls.some((c) => c.eth === 'eth_sendTransaction'))), 'no transaction was sent for a refused burn');
+  await page.fill('#recipient', mock.recipient);
+  await page.click('#send');
+  await waitFor(() => page.evaluate(() => window.__calls.some((c) => c.eth === 'eth_sendTransaction')), 'the Ethereum wallet sent the burn');
+  const ec = (await page.evaluate(() => window.__calls)).filter((c) => c.eth);
+  const sw = ec.find((c) => c.eth === 'wallet_switchEthereumChain'), sent = ec.find((c) => c.eth === 'eth_sendTransaction').params[0];
+  check(ec[0].eth === 'eth_requestAccounts' && sw && sw.params[0].chainId === mock.ethChainId, 'the wallet was asked for its account, then switched to the bridge’s chain: ' + ec.map((c) => c.eth).join(' '));
+  check(ec.indexOf(sw) < ec.findIndex((c) => c.eth === 'eth_sendTransaction'), 'the chain was switched before anything was sent');
+  check(sent.from === mock.ethSender && sent.to === mock.ethBubble && sent.value === mock.ethFee && sent.data.startsWith('0x81b4e8b4') && sent.data.length === 2 + 8 + 3 * 64 && sent.data.includes('476e6f54') && sent.data.endsWith('9502f900'), 'eth_sendTransaction: transferRemote(gno.land, the recipient, 2,500) to the BUBBLE token with the quote’s exact value: ' + JSON.stringify(sent));
+  check((await page.textContent('#result')).includes('fee of 0.0001 ETH') && (await page.textContent('#result')).includes(mock.ethBurnTx.slice(0, 8)), 'the result names the fee and the hash');
+  const doneIn = () => page.$$eval('#track ol.walk li.done', (l) => l.map((x) => x.dataset.key).join(' '));
+  const lit = () => page.$$eval('#track li[data-key="vouch"] .lamp[data-state="vouching"]', (l) => l.length);
+  await waitFor(async () => (await page.textContent('#track')).includes('Burned on Ethereum') && (await doneIn()) === 'burn', 'the Ethereum burn is the first step done');
+  check((await page.textContent('#track li[data-key="vouch"]')).includes('Waiting for Ethereum to finalize block'), 'the signers wait for Ethereum’s finality');
+  check((await page.textContent('#track li[data-key="burn"]')).includes('about 13 to 19 minutes'), 'the burn step says Ethereum’s finality: 13 to 19 minutes');
+  await step(base, 'in', 'ethereum');
+  await page.click('#trackgo');
+  await waitFor(async () => (await page.textContent('#track li[data-key="vouch"]')).includes('0 of 3 signers'), 'the burn is final: the signers may sign', 15000);
+  for (const [n, want] of [[1, 'burn'], [2, 'burn vouch']]) {
+    await step(base, 'in', 'ethereum');
+    await page.click('#trackgo');
+    await waitFor(async () => (await lit()) === n && (await doneIn()) === want, n + ' Ethereum signer(s) vouch', 15000);
+  }
+  await step(base, 'in', 'ethereum');
+  await page.click('#trackgo');
+  await waitFor(async () => (await doneIn()) === 'burn vouch deliver credit', 'the Ethereum burn is credited', 15000);
+  await step(base, 'in', 'ethereum');
+  await page.click('#trackgo');
+  await waitFor(() => page.textContent('#track li[data-key="pay"]').then((t) => t.includes('Paid 1,250 of 2,500')), 'paid in installments, half so far', 15000);
+  await step(base, 'in', 'ethereum');
+  await page.click('#trackgo');
+  await waitFor(async () => (await doneIn()) === 'burn vouch deliver credit pay' && (await page.textContent('#track')).includes('Paid in full'), 'the Ethereum claim is paid', 15000);
+  // the track box by hand: the history's burn by its hash, a stranger's dispatch, a message id
+  await page.fill('#trackref', mock.ethQBurnTx);
+  await page.click('#trackgo');
+  await waitFor(() => page.textContent('#track').then((t) => t.includes('message id ' + mock.ethQId) && t.includes('Paid in full')), 'the history’s burn by its Ethereum hash');
+  await page.fill('#trackref', mock.ethStrangerTx);
+  await page.click('#trackgo');
+  await waitFor(() => page.textContent('#track').then((t) => t.includes('made no burn toward gno.land')), 'a stranger’s dispatch is no burn (ER5)');
+  await page.fill('#trackref', '0x' + mock.ethInId.toUpperCase());
+  await page.click('#trackgo');
+  await waitFor(() => page.textContent('#track').then((t) => t.includes('message id ' + mock.ethInId)), 'a message id with 0x is read as an id');
+  await page.fill('#trackref', 'nothing-here'); // as the Solana flow leaves it: a hash longer than the box scrolls inside it
+  await page.click('#trackgo');
+  await waitFor(() => page.textContent('#track').then((t) => t.includes('not seen yet')), 'an unknown reference says so on Ethereum');
+  await fits(page, 'bridge-eth', vp);
+  check(page.errors.length === 0, `no page errors on Ethereum at ${vp.name}: ${page.errors.join(' | ')}`);
+  await context.close();
+}
+
+// ethLegacyCase: no wallet answers EIP-6963, so window.ethereum is the wallet: the same burn through it.
+async function ethLegacyCase(browser, base, mock) {
+  const { context, page } = await newPage(browser, base, mock, WIDTHS[0], false, {}, 'legacy');
+  await page.goto(base + '/bridge?chain=ethereum');
+  await waitFor(() => page.textContent('#fees').then((t) => t.includes('fee')), 'the fee line');
+  await page.click('#in');
+  check((await page.textContent('#connect')).includes('MetaMask'), 'window.ethereum is the wallet: MetaMask');
+  await page.selectOption('#token', 'BUBBLE');
+  await page.fill('#amount', '2500');
+  await page.fill('#recipient', mock.recipient);
+  await page.click('#send');
+  await waitFor(() => page.evaluate(() => window.__calls.some((c) => c.eth === 'eth_sendTransaction')), 'window.ethereum sent the burn');
+  const sent = (await page.evaluate(() => window.__calls)).find((c) => c.eth === 'eth_sendTransaction').params[0];
+  check(sent.to === mock.ethBubble && sent.value === mock.ethFee, 'the call went to window.ethereum: ' + JSON.stringify(sent));
+  await waitFor(() => page.textContent('#track').then((t) => t.includes('Burned on Ethereum')), 'the hash window.ethereum answered tracks');
+  check(page.errors.length === 0, 'no page errors with window.ethereum: ' + page.errors.join(' | '));
+  await context.close();
 }
 
 run().then(() => {

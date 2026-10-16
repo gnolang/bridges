@@ -98,9 +98,10 @@ type tokenStatus struct {
 	Slot         uint64     `json:"slot"`
 }
 
-// identityLine says the numbers of §5.9's identity in one line, for the page and for a grep.
-func identityLine(id agent.Identity, verdict string) string {
-	line := fmt.Sprintf("%s: lock %d = supply %d + owed %d + voided %d − lost %d (right side %d; slot %d, height %d)", id.Symbol, id.Lock, id.Supply, id.Owed, id.Voided, id.Lost, id.Right(), id.Slot, id.Height)
+// identityLine says the numbers of §5.9's identity in one line, for the page and for a grep; unit is the far
+// side's word for where its supply was read ("slot" on Solana, "block" on Ethereum).
+func identityLine(id agent.Identity, verdict, unit string) string {
+	line := fmt.Sprintf("%s: lock %d = supply %d + owed %d + voided %d − lost %d (right side %d; %s %d, height %d)", id.Symbol, id.Lock, id.Supply, id.Owed, id.Voided, id.Lost, id.Right(), unit, id.Slot, id.Height)
 	switch {
 	case verdict == "BROKEN":
 		return fmt.Sprintf("BROKEN: the right side exceeds the lock by %d — %s", -id.Gap(), line)
@@ -121,11 +122,12 @@ func (s *server) status(ctx context.Context, ch *ChainConfig, other Other) (*sta
 	H := head.Height
 	st := &statusJSON{Chain: ch.ID, Name: ch.Name, At: now.Unix(), Other: snap, Errors: append([]string{}, snap.Errors...), Tokens: []tokenStatus{}, Decisions: []pendingGnoDec{}}
 	st.Gno = gnoStatus{Height: H, Time: head.Time.Unix(), Seats: []string{}, Flags: []flagView{}}
-	mb, err := agent.ReadMailbox(ctx, s.gno, s.cfg.Gno.Mailbox, H)
+	realms := ch.Realms()
+	mb, err := agent.ReadMailbox(ctx, s.gno, realms.Mailbox, H)
 	if err != nil {
-		return nil, fmt.Errorf("gno.land: %s: %w", s.cfg.Gno.Mailbox, err)
+		return nil, fmt.Errorf("gno.land: %s: %w", realms.Mailbox, err)
 	}
-	s.rememberMailbox(mb)
+	s.rememberMailbox(ch, mb)
 	st.Gno.Live, st.Gno.LaunchedAt, st.Gno.Governor, st.Gno.Yielded = mb.Live, mb.LaunchedAt, mb.Governor, mb.Yielded
 	st.Gno.GovernorLine, st.Gno.DAOGoverns = mb.GovernorLine(), mb.DAOGoverns()
 	st.Gno.Verifier, st.Gno.Rule, st.Gno.Signers = mb.ActiveVerifier, mb.Rule, len(mb.SignerKeys)
@@ -164,25 +166,44 @@ func (s *server) status(ctx context.Context, ch *ChainConfig, other Other) (*sta
 			if id.SignerStops() {
 				ts.Identity = "BROKEN"
 			}
-			ts.IdentityLine = identityLine(id, ts.Identity)
+			ts.IdentityLine = identityLine(id, ts.Identity, kindWords(ch).unit)
 		}
 		st.Tokens = append(st.Tokens, ts)
 	}
-	if pend, err := agent.ReadPending(ctx, s.gno, ac, H); err != nil {
-		st.Errors = append(st.Errors, "the pending decisions: "+err.Error())
-	} else {
-		for _, d := range pend {
-			st.Decisions = append(st.Decisions, pendingGnoDec{Realm: d.Realm, ID: d.ID, Kind: d.Kind, Text: d.Text, Recorded: d.Recorded, Due: d.Due})
-		}
+	// the Ethereum deployment's realms render their ledgers by page (eth PLAN.md §5.3): read so — read whole, one realm
+	// past ≈360 decisions put the chain's every pending decision out of reach (E4-TL7) — and each realm that does not
+	// read is an error of its own beside the ones that did; the Solana deployment's realms have no pages and are read
+	// as they always were
+	readPending := agent.ReadPending
+	if ch.Kind == "ethereum" {
+		readPending = agent.ReadPendingByPage
 	}
-	if s.cfg.Gno.Gov != "" {
-		if gv, err := agent.ReadGov(ctx, s.gno, s.cfg.Gno.Gov, H); err != nil {
+	pend, err := readPending(ctx, s.gno, ac, H)
+	for _, d := range pend {
+		st.Decisions = append(st.Decisions, pendingGnoDec{Realm: d.Realm, ID: d.ID, Kind: d.Kind, Text: d.Text, Recorded: d.Recorded, Due: d.Due})
+	}
+	for _, e := range eachError(err) {
+		st.Errors = append(st.Errors, "the pending decisions: "+e.Error())
+	}
+	if realms.Gov != "" {
+		if gv, err := agent.ReadGov(ctx, s.gno, realms.Gov, H); err != nil {
 			st.Errors = append(st.Errors, "r/hlgov: "+err.Error())
 		} else {
 			st.Gno.Gov = &govStatus{Last: gv.Last, Next: gv.Next, Recipient: gv.Recipient}
 		}
 	}
 	return st, nil
+}
+
+// eachError is an error's parts: those an errors.Join holds, else itself (none for nil).
+func eachError(err error) []error {
+	if err == nil {
+		return nil
+	}
+	if j, ok := err.(interface{ Unwrap() []error }); ok {
+		return j.Unwrap()
+	}
+	return []error{err}
 }
 
 // statusTTL is how long a status is served from the cache: ten seconds, the monitors' own poll (§5.9).

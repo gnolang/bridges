@@ -1,11 +1,11 @@
 // Command hlsite serves bridge.gno.world (bridge/SITE.md): the static pages under bridge/site and a read-only
-// JSON API over the chains its config lists — gno.land on one side, Solana on the other for now — proxying every
-// chain read itself (the page never calls an RPC; its policy is connect-src 'self'), plus one builder that
-// returns an unsigned Solana transaction for a burn back to gno.land, which the user's wallet signs and sends.
-// It holds no key, rate-limits the API and logs nothing personal.
+// JSON API over the chains its config lists — gno.land on one side, Solana and (once its config lists it) Ethereum
+// on the other — proxying every chain read itself (the page never calls an RPC; its policy is connect-src 'self'),
+// plus one builder that returns an unsigned burn back to gno.land (a Solana transaction, or an Ethereum call),
+// which the user's wallet signs and sends. It holds no key, rate-limits the API and logs nothing personal.
 //
 //	hlsite -config site.json -site bridge/site [-listen 127.0.0.1:8095]
-//	hlsite -mock -site bridge/site [-listen 127.0.0.1:0]      the canned deployment (the browser suite, a look)
+//	hlsite -mock -site bridge/site [-listen 127.0.0.1:0]      the canned deployments, Solana's and Ethereum's (the browser suite, a look)
 //	hlsite -preview -site bridge/site [-listen …]             the canned deployment as a public preview: a banner,
 //	                                                          example figures, the builder refusing (no chain read)
 //
@@ -16,7 +16,7 @@
 //	                                      and fees, the flags on both sides, the pending decisions, who governs
 //	GET  /api/<chain>/transfer/<ref>      one transfer by message id, gno.land transaction hash or <chain> signature
 //	GET  /api/<chain>/history             each token's lock on gno.land over time, from the launch (history.go)
-//	POST /api/<chain>/burn-tx             {token, sender, recipient, amount} → an unsigned transfer_remote
+//	POST /api/<chain>/burn-tx             {token, sender, recipient, amount} → an unsigned transfer_remote / transferRemote
 package main
 
 import (
@@ -51,8 +51,8 @@ func main() {
 		s.preview, s.mockInfo = true, nil
 		log.Print("hlsite: PREVIEW — the canned deployment as examples, sending refused, no chain is read")
 	} else if *mock {
-		s, _, _ = mockServer(true, *site, time.Now)
-		log.Print("hlsite: MOCK — the canned deployment, no chain is read")
+		s, _, _, _ = mockBoth(true, *site, time.Now)
+		log.Print("hlsite: MOCK — the canned deployments, no chain is read")
 	} else {
 		if *configPath == "" {
 			log.Fatal("hlsite: -config is required (or -mock, or -preview)")
@@ -63,9 +63,13 @@ func main() {
 		}
 		g := newGno(cfg.Gno.RPC, cfg.Gno.ChainID)
 		others := map[string]Other{}
+		realms := func() []string { return s.realmAddresses() }
 		for _, ch := range cfg.Chains {
-			ch := ch
-			others[ch.ID] = newSolana(ch, sol.NewRPC(ch.RPC), domainOf(cfg), func() []string { return s.realmAddresses() })
+			if ch.Kind == "ethereum" {
+				others[ch.ID] = newEthereum(ch, newEthHTTP(ch.RPC), domainOf(cfg), realms)
+				continue
+			}
+			others[ch.ID] = newSolana(ch, sol.NewRPC(ch.RPC), domainOf(cfg), realms)
 		}
 		s = newServer(cfg, g, others, *site)
 		if *state != "" {

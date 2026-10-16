@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-// Other is the far side of every route, what the site asks of a chain (bridge/SITE.md): Solana is the one
-// implementation (solana.go); a second chain implements this and is listed in the config. The site never
-// sends anything itself: it reads, and builds one unsigned transaction for a wallet to sign.
+// Other is the far side of every route, what the site asks of a chain (bridge/SITE.md): Solana (solana.go) and
+// Ethereum (ethereum.go, E-M4) implement it, each listed in the config. The site never sends anything itself: it
+// reads, and builds one unsigned transaction for a wallet to sign.
 type Other interface {
 	// Snapshot reads the chain's side at once: the supplies at a slot, the flags, the limits, the client, the
 	// pending decisions. A section that cannot be read is named in Errors; the rest is served.
@@ -24,6 +24,8 @@ type Other interface {
 	AccountLink(k string) string
 	// Address is one of this chain's addresses from the 32 bytes a token message carries.
 	Address(b [32]byte) string
+	// KindName is a decision kind's name on this chain (the admin program's or HlAdmin's table).
+	KindName(kind byte) string
 	// Activity folds what is new in the chain's own records into a (M7): the headers its light client accepted,
 	// the proofs staged under them, the deliveries of gno.land's messages and the burns toward gno.land. pending
 	// says a send from gno.land waits for its delivery, so the client's staging is read every time.
@@ -50,6 +52,7 @@ type OtherActivity struct {
 	again      map[string]bool          // the listings to read again whatever the counters say (a read left work)
 	failed     map[string]*failure      // this read's failures by kind, summarized into Errors
 	failOrder  []string
+	eth        *ethProgress // Ethereum's read positions and its unfinalized tail (ethereum_activity.go); nil for Solana
 }
 
 // HeaderEvent is one header the light client accepted (an update's finish).
@@ -135,7 +138,8 @@ type ClientJSON struct {
 
 // OtherSnapshot is one reading of the far side.
 type OtherSnapshot struct {
-	Slot      uint64               `json:"slot"`
+	Slot      uint64               `json:"slot"`           // the cut: Solana's slot; Ethereum's finalized block, where the supplies are read
+	Head      uint64               `json:"head,omitempty"` // Ethereum: the newest block at the reading (Solana's slot is its head)
 	At        int64                `json:"at"`
 	Supplies  map[string]int64     `json:"supplies"` // by symbol, base units
 	Pausable  *GuardiansJSON       `json:"pausable"`
@@ -167,13 +171,23 @@ type Burn struct {
 	Slot   uint64 `json:"slot"`
 	Time   int64  `json:"time"`
 	Sig    string `json:"sig"`
+	// Finalized is Ethereum's finalized block when the burn was read: the burn is final once it is at or above the
+	// burn's block, and the signers sign nothing before (0 for Solana, whose burns are read at finalized).
+	Finalized uint64 `json:"-"`
 }
 
-// BurnTx is an unsigned burn transaction for a wallet.
+// BurnTx is an unsigned burn transaction for a wallet: Solana's serialized transaction, or Ethereum's call.
 type BurnTx struct {
-	Tx                   string `json:"tx"`                   // the serialized transaction, base64, the wallet's signature slot empty
-	Unique               string `json:"unique"`               // the throwaway key that names the dispatch record (signed already)
-	MessageAccount       string `json:"messageAccount"`       // the dispatch record the burn will write
-	Blockhash            string `json:"blockhash"`            //
-	LastValidBlockHeight uint64 `json:"lastValidBlockHeight"` // the transaction lapses past it
+	Tx                   string `json:"tx,omitempty"`                   // Solana: the serialized transaction, base64, the wallet's signature slot empty
+	Unique               string `json:"unique,omitempty"`               // the throwaway key that names the dispatch record (signed already)
+	MessageAccount       string `json:"messageAccount,omitempty"`       // the dispatch record the burn will write
+	Blockhash            string `json:"blockhash,omitempty"`            //
+	LastValidBlockHeight uint64 `json:"lastValidBlockHeight,omitempty"` // the transaction lapses past it
+	// Ethereum: the call the wallet sends with eth_sendTransaction — the token's transferRemote toward gno.land,
+	// with the native value its quote asks (the mailbox's protocol fee) — and the chain it must be sent on.
+	From    string `json:"from,omitempty"`
+	To      string `json:"to,omitempty"`
+	Data    string `json:"data,omitempty"`
+	Value   string `json:"value,omitempty"`   // wei, a hex quantity
+	ChainID string `json:"chainId,omitempty"` // EIP-155, a hex quantity (wallet_switchEthereumChain's form)
 }

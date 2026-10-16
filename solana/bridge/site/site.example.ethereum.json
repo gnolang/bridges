@@ -1,0 +1,73 @@
+{
+  "gno": {
+    "rpc": "https://rpc.gno.land:443",
+    "chainId": "gnoland-1",
+    "bubble": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/bubble",
+    "realmLink": "https://gno.land/%s",
+    "txLink": "",
+    "gasWanted": 60000000
+  },
+  "chains": [
+    {
+      "id": "solana",
+      "name": "Solana",
+      "rpc": "FILL: the backend's Solana provider URL",
+      "domain": 1399811149,
+      "explorer": "https://explorer.solana.com",
+      "cluster": "",
+      "gno": {
+        "mailbox": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/hlmailbox",
+        "fees": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/hlfees",
+        "gov": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/hlgov"
+      },
+      "tokens": [
+        { "symbol": "GNOT", "program": "FILL: the GNOT token program id from hlsol setup", "realm": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/hlgnot" },
+        { "symbol": "BUBBLE", "program": "FILL: the BUBBLE token program id", "realm": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/hlbubble" }
+      ],
+      "programs": {
+        "mailbox": "FILL: our mailbox program id",
+        "pausable": "FILL: the pausable ISM program id",
+        "admin": "FILL: the admin program id",
+        "client": "FILL: the light-client ISM program id"
+      },
+      "signers": ["https://bridge.gno.world/signer/1", "https://bridge.gno.world/signer/2", "https://bridge.gno.world/signer/3"]
+    },
+    {
+      "id": "ethereum",
+      "kind": "ethereum",
+      "name": "Ethereum",
+      "rpc": "FILL: the backend's Ethereum provider URL",
+      "domain": 1,
+      "chainId": 1,
+      "explorer": "https://etherscan.io",
+      "fromBlock": 0,
+      "logRange": 1000,
+      "gno": {
+        "mailbox": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/eth/hlmailbox",
+        "fees": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/eth/hlfees",
+        "gov": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/eth/hlgov"
+      },
+      "tokens": [
+        { "symbol": "GNOT", "program": "FILL: 0x address of the GNOT HypERC20 proxy from hleth setup", "realm": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/eth/hlgnot" },
+        { "symbol": "BUBBLE", "program": "FILL: 0x address of the BUBBLE HypERC20 proxy", "realm": "gno.land/r/g1leu8d2vsplhehcfkjg50mwgdpxdkt8tztu95wr/eth/hlbubble" }
+      ],
+      "programs": {
+        "mailbox": "FILL: 0x address of the Mailbox proxy",
+        "pausable": "FILL: 0x address of the PausableGate proxy",
+        "admin": "FILL: 0x address of HlAdmin",
+        "client": "FILL: 0x address of the GnoLightClient proxy",
+        "proxyAdmin": "FILL: 0x address of the ProxyAdmin",
+        "merkleTreeHook": "FILL: 0x address of the MerkleTreeHook",
+        "protocolFee": "FILL: 0x address of the ProtocolFee hook",
+        "mailboxImpl": "FILL: 0x address of the mailbox's launch implementation (hleth's deployment.json: mailboxImpl)",
+        "token0Impl": "FILL: 0x address of the GNOT token's launch implementation (token0Impl)",
+        "token1Impl": "FILL: 0x address of the BUBBLE token's launch implementation (token1Impl)",
+        "clientImpl": "FILL: 0x address of the light client's launch implementation (clientImpl)",
+        "gateImpl": "FILL: 0x address of the gate's launch implementation (gateImpl)",
+        "ed25519Verifier": "FILL: 0x address of the Ed25519Verifier (ed25519Verifier)",
+        "hlAdminExec": "FILL: 0x address of HlAdminExec (hlAdminExec)"
+      },
+      "signers": ["FILL: the first Ethereum signer's public endpoint (it serves /v1/eth/<nonce>)", "FILL: the second's", "FILL: the third's"]
+    }
+  ]
+}

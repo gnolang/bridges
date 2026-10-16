@@ -8,11 +8,13 @@
 // mailbox → the gate → the mint), a burn comes up the lane on the right (mint → outbox → the signers vouch →
 // relayer → hlmailbox → a claim → the meter → paid), headers go down the left (gno.land → updater → light client).
 // prefers-reduced-motion: nothing moves — the path a packet takes is lit instead, and the caption says the same.
+// opts.kind "ethereum" (E-M4) draws Ethereum on the far side in its own words: blocks every twelve seconds, its
+// tokens, HlAdmin, and the signers waiting on its finality.
 
 import { s, g, text, fit, seal, server, vault, coin, coinStack, envelope, block, person, keyIcon, flag, eye, lamp, gauge, gate, merkle, balance, along, pathLen, polyline, compact } from './draw.js';
+import { WORDS } from './common.js';
 
 const BLOCK_S = 3.43; // gno.land's block time (PLAN.md: ≈3.4 s)
-const SLOT_S = 0.4; // Solana's slot
 const reducedQuery = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false, addEventListener() {} };
 
 // ------------------------------------------------------------------ layouts --
@@ -112,6 +114,8 @@ function plate(b, cls) { return s('rect', { class: 'plate ' + (cls || ''), x: b.
 // ------------------------------------------------------------------ the machine --
 
 export function createMachine(host, opts = {}) {
+  const kind = opts.kind === 'ethereum' ? 'ethereum' : 'solana', eth = kind === 'ethereum';
+  const W = WORDS[kind]; // the far chain's words: its stream's unit and pace, its admin's name (E-M4)
   const m = {
     compact: !!opts.compact, chain: opts.chain || 'Solana', onCaption: opts.onCaption || (() => {}), onMode: opts.onMode || (() => {}),
     data: null, st: null, seen: new Set(), first: true, queue: [], cur: null, mode: 'live', L: null, r: {}, svg: null,
@@ -120,7 +124,9 @@ export function createMachine(host, opts = {}) {
 
   function layoutFor() {
     const w = host.clientWidth || 840;
-    return w >= 700 ? wide(m.compact) : narrow(m.compact);
+    const L = w >= 700 ? wide(m.compact) : narrow(m.compact);
+    if (eth) Object.assign(L.sol, L.kind === 'wide' ? { sw: 12, pitch: 18 } : { sw: 9, pitch: 14 }); // a block every twelve seconds: wider marks
+    return L;
   }
 
   // build draws the static machine for the host's width and keeps the parts the data moves.
@@ -237,7 +243,9 @@ export function createMachine(host, opts = {}) {
     mid.append(bar(N.mbSol, 'mbSol', `the mailbox on ${m.chain}: processes a proven message once; records each burn toward gno.land`, nar ? 'mailbox ⇣' : m.chain + ' mailbox ⇣', '⇡ burns'));
     {
       const b = N.updater, hh = Math.min(34, b.h - (nar ? 18 : 30));
-      mid.append(node('updater', 'updater', 'the updater carries gno.land’s headers to the light client — anyone may; a forged header fails the check', server(b.x + (nar ? 2 : 6), b.y + 4, b.w - (nar ? 4 : 12), hh, 'carrier'),
+      // on Ethereum a header costs millions of gas: the updater buys one only when transfers wait (E3-FC5: the words
+      // say when, and invite no one to carry headers or deliver — the site offers no self-delivery)
+      mid.append(node('updater', 'updater', eth ? 'the updater buys gno.land’s headers for the light client only when transfers wait — once their fees pay for one, or after six hours from what earlier fees left over; a forged header fails the check' : 'the updater carries gno.land’s headers to the light client — anyone may; a forged header fails the check', server(b.x + (nar ? 2 : 6), b.y + 4, b.w - (nar ? 4 : 12), hh, 'carrier'),
         nar ? text(cx(b), b.y + b.h - 4, 'updater', 'tiny') : null, nar ? null : text(cx(b), b.y + b.h - 16, 'updater', 'lbl'), nar ? null : text(cx(b), b.y + b.h - 4, 'carries headers', 'sub')));
     }
     {
@@ -247,12 +255,12 @@ export function createMachine(host, opts = {}) {
       rel.append(s('rect', { class: 'door', x: b.x + 12, y: fy + 4, width: split - b.x - 22, height: hh - d - 8, rx: 2 }), s('rect', { class: 'door', x: split + 6, y: fy + 4, width: b.x + b.w - split - 18 - d, height: hh - d - 8, rx: 2 }));
       if (!nar) rel.append(text(b.x + 18, fy + (hh - d) / 2 + 3.5, 'proves sends ⇣', 'barl', 'start'), text(split + 12, fy + (hh - d) / 2 + 3.5, '⇡ vouched burns', 'barl', 'start'));
       else rel.append(text(b.x + 22, fy + (hh - d) / 2 + 4, 'proofs ⇣', 'barl', 'start'), text(split + 10, fy + (hh - d) / 2 + 4, '⇡ burns', 'barl', 'start'));
-      rel.append(text(nar ? cx(b) : b.x + 6, b.y + b.h - 5, nar ? 'relayer' : 'relayer · anyone may relay', 'lbl', nar ? 'middle' : 'start'));
+      rel.append(text(nar ? cx(b) : b.x + 6, b.y + b.h - 5, nar ? 'relayer' : eth ? 'relayer · cannot forge' : 'relayer · anyone may relay', 'lbl', nar ? 'middle' : 'start'));
       mid.append(rel);
     }
     {
       const b = N.signers;
-      const sg = node('signers', 'signers', 'three signer machines, each reading ' + m.chain + ' through two providers: a burn is credited on gno.land only when 2 of the 3 vouch for it, and each stops signing if the supply would pass the lock');
+      const sg = node('signers', 'signers', 'three signer machines, each reading ' + m.chain + ' through two providers' + (eth ? ' and signing only a final burn' : '') + ': a burn is credited on gno.land only when 2 of the 3 vouch for it, and each stops signing if the supply would pass the lock');
       r.lamps = [];
       // the label on top, so a path arriving from below crosses nothing; each machine's word under its lamp
       if (!nar) sg.append(r.sigL = text(b.x + 6, b.y + 10, 'signers · 2 of 3 must vouch for a burn', 'lbl', 'start'));
@@ -292,10 +300,10 @@ export function createMachine(host, opts = {}) {
     for (const sym of ['GNOT', 'BUBBLE']) {
       const b = N['mint' + sym];
       if (!b) continue;
-      const [l, sb] = lines(b, '—', m.compact ? null : nar ? sym : sym + ' on ' + m.chain);
+      const [l, sb] = lines(b, '—', m.compact ? null : nar ? sym : eth ? sym + ' ERC-20' : sym + ' on ' + m.chain);
       l.setAttribute('class', 'val');
       r['mintV' + sym] = l;
-      nodes.append(node('mint' + sym, 'mint', `the ${sym} mint on ${m.chain}: it mints only what a proven delivery carries, and burns what goes back`, plate(b), coinStack(cx(b), b.y + 8, Math.min(28, b.w - 30), m.compact ? 2 : 3), l, sb));
+      nodes.append(node('mint' + sym, 'mint', eth ? `the ${sym} token on ${m.chain}, an ERC-20: it mints only what a proven delivery carries, and burns what goes back` : `the ${sym} mint on ${m.chain}: it mints only what a proven delivery carries, and burns what goes back`, plate(b), coinStack(cx(b), b.y + 8, Math.min(28, b.w - 30), m.compact ? 2 : 3), l, sb));
     }
     if (N.room) {
       const b = N.room;
@@ -306,9 +314,9 @@ export function createMachine(host, opts = {}) {
     }
     if (N.admin) {
       const b = N.admin;
-      nodes.append(node('admin', 'admin', 'the admin program holds every authority on ' + m.chain + '; it has no key and acts only on a decision proven from a gno.land block, after its delay', plate(b, 'brake'),
+      nodes.append(node('admin', 'admin', eth ? 'HlAdmin, the admin contract, holds every authority on ' + m.chain + '; it has no key, can never be changed, and acts only on a decision proven from a gno.land block, after its delay' : 'the admin program holds every authority on ' + m.chain + '; it has no key and acts only on a decision proven from a gno.land block, after its delay', plate(b, 'brake'),
         vault(nar ? cx(b) : b.x + 34, b.y + (nar ? 24 : 30), nar ? 34 : 40, nar ? 26 : 30),
-        nar ? text(cx(b), b.y + 52, 'admin program', 'lbl') : text(b.x + 64, b.y + 22, 'admin program', 'lbl', 'start'),
+        nar ? text(cx(b), b.y + 52, W.adminShort, 'lbl') : text(b.x + 64, b.y + 22, W.adminShort, 'lbl', 'start'),
         nar ? text(cx(b), b.y + 64, 'no key', 'sub') : text(b.x + 64, b.y + 36, 'no key: acts only on decisions', 'sub', 'start'),
         nar ? null : text(b.x + 64, b.y + 48, 'proven from a gno.land block', 'sub', 'start'),
         r.adminS = text(nar ? cx(b) : b.x + 10, b.y + b.h - 8, '', 'sub', nar ? 'middle' : 'start')));
@@ -347,7 +355,7 @@ export function createMachine(host, opts = {}) {
     out.append(s('rect', { class: 'band gnoband', x: 0, y: G.y, width: L.W, height: G.h, rx: 6 }), s('rect', { class: 'band solband', x: 0, y: S.y, width: L.W, height: S.h, rx: 6 }));
     const nar = L.kind === 'narrow';
     out.append(text(6, G.y + 17, 'gno.land', 'chain', 'start'), text(6, G.y + 30, nar ? '3.4 s/block' : 'a block ≈3.4 s', 'sub', 'start'), r.headT = text(6, G.y + 43, '', 'val', 'start'));
-    out.append(text(6, S.y + 17, m.chain, 'chain', 'start'), text(6, S.y + 30, nar ? '0.4 s/slot' : 'a slot ≈0.4 s', 'sub', 'start'), r.slotT = text(6, S.y + 43, '', 'tiny', 'start'));
+    out.append(text(6, S.y + 17, m.chain, 'chain', 'start'), text(6, S.y + 30, nar ? W.everyShort : W.every, 'sub', 'start'), r.slotT = text(6, S.y + 43, '', 'tiny', 'start'));
     const gs = g({ 'clip-path': `url(#clip-gno-${uid})` });
     r.blocks = [];
     const count = Math.ceil((G.x1 - G.x0) / G.pitch) + 2;
@@ -526,7 +534,7 @@ export function createMachine(host, opts = {}) {
     const st = m.st;
     if (!st || !st.gno) return null;
     const o = st.other || {};
-    return { h: n0(st.gno.height), ht: n0(st.gno.time) * 1000, slot: n0(o.slot), st: n0(o.at || st.at) * 1000, trusted: n0(o.client && o.client.trustedHeight) };
+    return { h: n0(st.gno.height), ht: n0(st.gno.time) * 1000, slot: n0(o.head || o.slot), st: n0(o.at || st.at) * 1000, trusted: n0(o.client && o.client.trustedHeight) };
   }
 
   function frame(now, force) {
@@ -541,9 +549,9 @@ export function createMachine(host, opts = {}) {
       const target = f.h + Math.min(4, Math.max(0, (Date.now() - f.ht) / 1000 / BLOCK_S));
       if (!m.H || target - m.H > 12 || m.reduced) m.H = target;
       else if (m.H < target) m.H = Math.min(target, m.H + dt / BLOCK_S * 1.6);
-      const S = f.slot + Math.min(60, Math.max(0, (Date.now() - f.st) / 1000 / SLOT_S));
+      const S = f.slot + Math.min(60, Math.max(0, (Date.now() - f.st) / 1000 / W.period));
       if (!m.S || S - m.S > 80 || m.reduced) m.S = S;
-      else if (m.S < S) m.S = Math.min(S, m.S + dt / SLOT_S * 1.6);
+      else if (m.S < S) m.S = Math.min(S, m.S + dt / W.period * 1.6);
       drawStreams(f);
     }
     if (m.cur) stepAnim(now);
@@ -745,7 +753,7 @@ export function createMachine(host, opts = {}) {
         ];
       }
       case 'burn': {
-        const steps = [{ pts: P['burn' + sym], carry: 'coin', pulse: ['mbSol'], caption: T(`${fmtAmt(e)} burned on ${m.chain}${e.nonce !== undefined ? ' (burn #' + e.nonce + ')' : ''}: the burn is final, and the three signers read it next.`) }];
+        const steps = [{ pts: P['burn' + sym], carry: 'coin', pulse: ['mbSol'], caption: T(`${fmtAmt(e)} burned on ${m.chain}${e.nonce !== undefined ? ' (burn #' + e.nonce + ')' : ''}: ` + (eth ? `the three signers read it once ${m.chain} finalizes its block, about 13 to 19 minutes on.` : 'the burn is final, and the three signers read it next.')) }];
         if (P.vouch) steps.push({ pts: P.vouch, carry: 'seal', dur: 1300, pulse: ['signers'], caption: T(vouchSentence(e)) });
         return steps;
       }
@@ -754,9 +762,9 @@ export function createMachine(host, opts = {}) {
       case 'payout':
         return [{ pts: P['pay' + sym], carry: 'coin', dur: 1600, pulse: ['meter', 'lock' + sym], caption: T(`Paid under the meter: ${fmtAmt(e)} left the lock for ${shortAddr(e.to)}${e.full ? '' : ' (an installment)'} — a tenth of the lock a day at most for everyone, a quarter of that per recipient.`) }];
       case 'decision':
-        return P.decision ? [{ pts: P.decision, carry: 'doc', caption: T(`A decision was sent to ${m.chain}${e.what ? ' (' + e.what + ')' : ''}: the admin program will act on it only once the light client proves it came from gno.land.`) }] : [];
+        return P.decision ? [{ pts: P.decision, carry: 'doc', caption: T(`A decision was sent to ${m.chain}${e.what ? ' (' + e.what + ')' : ''}: ${eth ? 'HlAdmin' : 'the admin program'} will act on it only once the light client proves it came from gno.land.`) }] : [];
       case 'enact':
-        return P.enact ? [{ pts: P.enact, carry: 'doc', dur: 1700, pulse: ['admin'], caption: T(`A decision reached the admin program, proven from a gno.land block; a 7-day kind waits out its week before it acts.`) }] : [];
+        return P.enact ? [{ pts: P.enact, carry: 'doc', dur: 1700, pulse: ['admin'], caption: T(`A decision reached ${eth ? 'HlAdmin' : 'the admin program'}, proven from a gno.land block; a 7-day kind waits out its week before it acts.`) }] : [];
     }
     return [];
   }
@@ -764,7 +772,7 @@ export function createMachine(host, opts = {}) {
   function vouchSentence(e) {
     const n = (e.signers || []).length;
     const who = n ? `${n} of 3 signers vouch` : 'The signers check it';
-    return `${who}${e.nonce !== undefined ? ' for burn #' + e.nonce : ''}: each reads it on ${m.chain} through two providers and signs only while the supply stays within the lock; 2 are needed.`;
+    return `${who}${e.nonce !== undefined ? ' for burn #' + e.nonce : ''}: each reads it on ${m.chain} through two providers${eth ? ', once its block is final,' : ''} and signs only while the supply stays within the lock; 2 are needed.`;
   }
 
   function play(e, opts = {}) {
@@ -832,7 +840,7 @@ export function createMachine(host, opts = {}) {
     const f = headFigures();
     if (!f) return;
     const lag = f.h - f.trusted;
-    m.onCaption(`gno.land is at block ${f.h.toLocaleString('en-US')}; ${m.chain}'s light client trusts block ${f.trusted.toLocaleString('en-US')}, ${lag.toLocaleString('en-US')} behind — the updater brings a header every 10 minutes, or as soon as a transfer waits.`, 'idle');
+    m.onCaption(`gno.land is at block ${f.h.toLocaleString('en-US')}; ${m.chain}'s light client trusts block ${f.trusted.toLocaleString('en-US')}, ${lag.toLocaleString('en-US')} behind — ` + (eth ? `a header costs millions of gas on ${m.chain}, so the updater buys one only when transfers wait: once their fees pay for it, or after six hours from what earlier fees left over.` : 'the updater brings a header every 10 minutes, or as soon as a transfer waits.'), 'idle');
   }
 
   // ------------------------------------------------------------------ the API --

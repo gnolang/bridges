@@ -27,11 +27,16 @@ function niceStep(range, n) {
   const raw = range / n, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
   return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p;
 }
-// timeStep is the axis's step for a span over a width: labels about seventy-five pixels apart at the most (a
-// phone's chart keeps three or four)
-function timeStep(span, width) {
-  const most = Math.max(2, Math.floor(width / 75));
-  for (const s of [HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, DAY, 2 * DAY, 7 * DAY, 14 * DAY]) if (span / s <= most) return s;
+// EDGE is how near either end of the plot a time label may sit (pixels): one nearer is dropped, half outside.
+const EDGE = 16;
+// timeStep is the axis's step from t0 to t1 over a width: the finest whose labels drawn — those EDGE pixels or more
+// from either end — number a label a seventy-five pixels at the most (a phone's chart keeps three or four). The
+// labels drawn are counted, not the span's steps: a span just over a day took half-day steps on a phone, and one of
+// its two half-day marks fell at an end whenever the hour put it there, leaving one label.
+function timeStep(t0, t1, width) {
+  const most = Math.max(2, Math.floor(width / 75)), pad = ((t1 - t0) * EDGE) / width;
+  const drawn = (s) => Math.floor((t1 - pad) / s) - Math.ceil((t0 + pad) / s) + 1;
+  for (const s of [HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, DAY, 2 * DAY, 7 * DAY, 14 * DAY]) if (drawn(s) <= most) return s;
   return 30 * DAY;
 }
 function timeLabel(t, step) {
@@ -63,10 +68,10 @@ export function drawLockChart(tok, hist, width) {
     const yy = y(v * UNIT);
     svg.append(svgEl('line', { class: 'grid', x1: m.l, x2: m.l + w, y1: yy, y2: yy }), label('ylab', m.l - 6, yy + 3.5, 'end', compact.format(v)));
   }
-  const step = timeStep(t1 - t0, w);
+  const step = timeStep(t0, t1, w);
   for (let t = Math.ceil(t0 / step) * step; t <= t1; t += step) {
     const xx = x(t);
-    if (xx < m.l + 16 || xx > m.l + w - 16) continue; // a label half outside the plot is dropped
+    if (xx < m.l + EDGE || xx > m.l + w - EDGE) continue; // a label half outside the plot is dropped
     svg.append(svgEl('line', { class: 'tick', x1: xx, x2: xx, y1: m.t + h, y2: m.t + h + 4 }), label('xlab', xx, H - 6, 'middle', timeLabel(t, step)));
   }
   let d = `M${x(pts[0].t).toFixed(1)},${y(pts[0].v).toFixed(1)}`;

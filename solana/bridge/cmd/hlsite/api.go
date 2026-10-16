@@ -38,8 +38,7 @@ type server struct {
 	good      map[string]*cached // a chain's last good status, served marked stale while a read fails (M7)
 	chains    *cached
 	transfer  map[string]*cached
-	mailbox   *agent.MailboxView // the last mailbox view, for the realm addresses a burn may not name
-	mailboxAt time.Time
+	mailboxes map[string]*mailboxRead // each chain's last mailbox view, for the realm addresses a burn may not name
 	// the activity (M7): one index per chain, the signers' lamps and how they are asked
 	actsMu sync.Mutex
 	acts   map[string]*chainActivity
@@ -70,9 +69,15 @@ type cached struct {
 	body []byte
 }
 
+// mailboxRead is a chain's hlmailbox as last read, and when.
+type mailboxRead struct {
+	v  agent.MailboxView
+	at time.Time
+}
+
 func newServer(cfg *Config, g gnoNode, others map[string]Other, site string) *server {
 	s := &server{cfg: cfg, gno: g, others: others, site: site, now: time.Now, statuses: map[string]*cached{}, good: map[string]*cached{}, transfer: map[string]*cached{},
-		acts: map[string]*chainActivity{}, prober: httpProber{&http.Client{Timeout: 5 * time.Second}}, statusTTL: statusTTL, transferTTL: transferTTL, activityTTL: activityTTL, lampsTTL: lampsTTL}
+		mailboxes: map[string]*mailboxRead{}, acts: map[string]*chainActivity{}, prober: httpProber{&http.Client{Timeout: 5 * time.Second}}, statusTTL: statusTTL, transferTTL: transferTTL, activityTTL: activityTTL, lampsTTL: lampsTTL}
 	s.lampc.m = map[string]lampEntry{}
 	s.lim = newLimiter(2, 30, func() time.Time { return s.now() }) // two requests a second, a burst of thirty, per client
 	s.hist = historyState{byID: map[string]*chainHistory{}, tries: map[string]int{}, saved: map[string]int64{}, said: map[string]string{}}
@@ -82,24 +87,34 @@ func newServer(cfg *Config, g gnoNode, others map[string]Other, site string) *se
 // activityTTL is how often a chain's index is refreshed at most: the status's ten seconds.
 const activityTTL = 10 * time.Second
 
-// rememberMailbox keeps the last mailbox view: a burn's recipient is checked against every route it registers.
-func (s *server) rememberMailbox(mb agent.MailboxView) {
+// rememberMailbox keeps a chain's last mailbox view: a burn's recipient is checked against every route it
+// registers.
+func (s *server) rememberMailbox(ch *ChainConfig, mb agent.MailboxView) {
 	s.mu.Lock()
-	s.mailbox, s.mailboxAt = &mb, s.now()
+	s.mailboxes[ch.ID] = &mailboxRead{v: mb, at: s.now()}
 	s.mu.Unlock()
 }
 
-// realmAddresses are the pkgpaths whose addresses a burn may not name (§5.2, K21): the configured realms and
-// every route the mailbox registers or dropped.
+// realmAddresses are the pkgpaths whose addresses a burn may not name (§5.2, K21): the configured realms of every
+// deployment (its launch hlverifier among them), and every route each deployment's mailbox registers or dropped and
+// the verifier it names as active now (a swap's) — a burn through one deployment to another's realm is refused as well.
 func (s *server) realmAddresses() []string {
 	out := s.cfg.Realms()
 	s.mu.Lock()
-	mb := s.mailbox
+	var views []agent.MailboxView
+	for _, ch := range s.cfg.Chains {
+		if mb := s.mailboxes[ch.ID]; mb != nil {
+			views = append(views, mb.v)
+		}
+	}
 	s.mu.Unlock()
-	if mb != nil {
+	for _, mb := range views {
 		out = append(out, mb.RoutePaths...)
 		for p := range mb.DroppedRoutes {
 			out = append(out, p)
+		}
+		if mb.ActiveVerifier != "" {
+			out = append(out, mb.ActiveVerifier)
 		}
 	}
 	return out
@@ -125,10 +140,12 @@ func (s *server) handler() http.Handler {
 		})
 		if s.world != nil {
 			// the browser suite moves the mock's transfers a step at a time: out (header, proof, mint), in (a
-			// signer, a signer, the credit, half paid, paid), down (signer 3 stops answering, or answers again)
+			// signer, a signer, the credit, half paid, paid), down (signer 3 stops answering, or answers again);
+			// chain=ethereum moves the Ethereum deployment's (out: the header, the delivery; in: final, a signer, a
+			// signer, the credit, half paid, paid)
 			mux.HandleFunc("POST /api/mock/step", func(w http.ResponseWriter, r *http.Request) {
 				flow := r.URL.Query().Get("flow")
-				if err := s.world.step(flow); err != nil {
+				if err := s.world.step(r.URL.Query().Get("chain"), flow); err != nil {
 					jsonError(w, 400, err.Error())
 					return
 				}
@@ -137,11 +154,16 @@ func (s *server) handler() http.Handler {
 					s.acts = map[string]*chainActivity{}
 					s.actsMu.Unlock()
 					s.mu.Lock()
-					s.statuses, s.good, s.transfer, s.mailbox = map[string]*cached{}, map[string]*cached{}, map[string]*cached{}, nil
+					s.statuses, s.good, s.transfer, s.mailboxes = map[string]*cached{}, map[string]*cached{}, map[string]*cached{}, map[string]*mailboxRead{}
 					s.mu.Unlock()
 					s.lampc.mu.Lock()
 					s.lampc.m = map[string]lampEntry{}
 					s.lampc.mu.Unlock()
+					for _, o := range s.others {
+						if e, ok := o.(*ethereumChain); ok {
+							e.resetCaches()
+						}
+					}
 				}
 				body, _ := json.Marshal(s.world.stages())
 				writeJSON(w, 200, body)
@@ -235,6 +257,14 @@ type chainInfo struct {
 	Explorer string      `json:"explorer"`
 	Cluster  string      `json:"cluster"`
 	Tokens   []tokenInfo `json:"tokens"`
+	// A chain of another kind than Solana says so, and what its pages need (E-M4; a Solana chain's entry is as it
+	// was): Ethereum's EIP-155 chain id (hex, the wallet's form) and every contract of its deployment by name, none
+	// of which a transfer may name as its recipient (ER10).
+	Kind      string            `json:"kind,omitempty"`
+	ChainID   string            `json:"chainId,omitempty"`
+	Contracts map[string]string `json:"contracts,omitempty"`
+	// Gno is the chain's own deployment on gno.land when it names one (the shared gno section's otherwise).
+	Gno *ChainRealms `json:"gno,omitempty"`
 }
 
 type tokenInfo struct {
@@ -266,7 +296,11 @@ func (s *server) chainsBody(ctx context.Context) []byte {
 	}
 	out.Gno.GasFee = int64(float64(s.cfg.Gno.GasWanted)*price + 0.999999)
 	for _, ch := range s.cfg.Chains {
-		ci := chainInfo{ID: ch.ID, Name: ch.Name, Domain: ch.Domain, Explorer: ch.Explorer, Cluster: ch.Cluster, Tokens: []tokenInfo{}}
+		ci := chainInfo{ID: ch.ID, Name: ch.Name, Domain: ch.Domain, Explorer: ch.Explorer, Cluster: ch.Cluster, Tokens: []tokenInfo{}, Gno: ch.Gno}
+		if ch.Kind == "ethereum" {
+			ci.Kind, ci.ChainID = ch.Kind, qty(ch.ChainID)
+			ci.Contracts = ch.EthContracts() // all sixteen: the realm refuses each as a send's recipient (E3-CF6)
+		}
 		for _, t := range ch.Tokens {
 			ci.Tokens = append(ci.Tokens, tokenInfo{Symbol: t.Symbol, Program: t.Program, Mint: t.Mint, Realm: t.Realm, RealmAddress: hl.GnoPackageAddress(t.Realm), Decimals: decimals})
 		}
@@ -387,7 +421,7 @@ func (s *server) handleTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	ref := strings.TrimSpace(r.PathValue("ref"))
 	if ref == "" || len(ref) > 128 {
-		jsonError(w, 400, "a message id, a gno.land transaction hash or a "+ch.Name+" signature")
+		jsonError(w, 400, "a message id, a gno.land transaction hash or "+article(ch.Name)+" "+ch.Name+" "+kindWords(ch).ref)
 		return
 	}
 	key := ch.ID + "/" + ref
@@ -458,8 +492,9 @@ func (s *server) handleBurnTx(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	tx, err := other.BurnTx(ctx, *t, req.Sender, req.Recipient, amount)
 	if err != nil {
-		if strings.HasPrefix(err.Error(), "a recent blockhash") {
-			jsonError(w, 503, err.Error())
+		var down unavailable
+		if strings.HasPrefix(err.Error(), "a recent blockhash") || errors.As(err, &down) {
+			jsonError(w, 503, agent.Redact(err.Error()))
 			return
 		}
 		jsonError(w, 400, err.Error())

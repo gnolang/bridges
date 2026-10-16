@@ -74,4 +74,15 @@ func TestGetMultipleChunked(t *testing.T) {
 			t.Fatalf("value %d out of order", i)
 		}
 	}
+	// each account with the slot of the chunk that read it (the fake answers its calls at 999, 998, 997)
+	f.calls = 0
+	_, slots, err := GetMultipleChunkedAt(context.Background(), f, keys, nil)
+	if err != nil || len(slots) != 23 {
+		t.Fatalf("chunked with slots: %v, %d slots", err, len(slots))
+	}
+	for i, s := range slots {
+		if want := uint64(999 - i/10); s != want {
+			t.Fatalf("account %d read at %d, its chunk answered at %d", i, s, want)
+		}
+	}
 }

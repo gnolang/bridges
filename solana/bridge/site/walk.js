@@ -13,7 +13,8 @@ const hms = (t) => (t ? new Date(t * 1000).toISOString().slice(11, 19) + ' UTC' 
 const num = (h) => Number(h || 0).toLocaleString('en-US');
 const short = (a) => { a = String(a || ''); return a.length > 13 ? a.slice(0, 6) + '…' + a.slice(-5) : a; };
 
-// STEPS: the walkthrough's words. what(tr, step) says what happened (or what waits); why says why it is safe.
+// STEPS: the walkthrough's words. what(tr, step) says what happened (or what waits); why says why it is safe;
+// whatEth and whyEth are Ethereum's where its words differ.
 export const STEPS = {
   out: [
     { key: 'lock', title: 'Locked in the realm',
@@ -24,7 +25,12 @@ export const STEPS = {
       why: 'gno.land does not reorganize: once more than 2/3 have signed a block it cannot be undone, so the lock stands.' },
     { key: 'header', title: 'Its header reaches the far chain',
       what: (tr, c, st) => st.done ? `The updater carried the header of block ${num(st.height || tr.height + 1)} to ${c}; its light client checked the signatures and now trusts it.` : `Waiting for a header at or past block ${num(tr.height + 1)} to reach ${c}: ${c}'s light client trusts block ${num(tr.trusted)} now. The updater brings one as soon as a transfer waits.`,
-      why: 'Anyone may carry headers and none is trusted: a forged header would need the keys of validators holding 2/3 of the power.' },
+      // Ethereum's (eth/bridge/PLAN.md §5.5, agent/due.go): a header costs millions of gas, so it is bought for waiting
+      // sends only once their fees pay for it and their deliveries, or at the oldest's six hours within what earlier
+      // fees left over (E3-FC5) — and nothing invites the reader to carry one (the site offers no self-delivery)
+      whatEth: (tr, c, st) => st.done ? `The updater carried the header of block ${num(st.height || tr.height + 1)} to ${c}; its light client checked the signatures and now trusts it.` : `Waiting for a header at or past block ${num(tr.height + 1)} to reach ${c}: ${c}'s light client trusts block ${num(tr.trusted)} now. A header costs millions of gas on ${c}, so the updater buys one once the fees of the sends waiting pay for it and their deliveries, or after six hours from what earlier fees left over — longer while that is not enough.`,
+      why: 'Anyone may carry headers and none is trusted: a forged header would need the keys of validators holding 2/3 of the power.',
+      whyEth: 'No header is taken on trust, whoever carries it: a forged header would need the keys of validators holding 2/3 of the power.' },
     { key: 'proof', title: 'The relayer proves the transfer',
       what: (tr, c, st) => {
         const p = tr.proof;
@@ -41,14 +47,20 @@ export const STEPS = {
   in: [
     { key: 'burn', title: 'Burned on the far chain',
       what: (tr, c) => `${tr.amount ? units(tr.amount) + ' ' + tr.token : 'The tokens'} burned on ${c}${tr.to ? ' toward ' + short(tr.to) : ''}${tr.nonce >= 0 ? ' (burn #' + tr.nonce + ')' : ''}.`,
-      why: 'A burn is final: the tokens are gone from the far chain, and its mailbox records the message for gno.land.' },
+      why: 'A burn is final: the tokens are gone from the far chain, and its mailbox records the message for gno.land.',
+      whyEth: 'The tokens are gone from Ethereum and its mailbox recorded the message for gno.land; once Ethereum finalizes the block — about 13 to 19 minutes — the burn cannot be undone.' },
     { key: 'vouch', title: '2 of 3 signers vouch',
       what: (tr, c, st) => {
-        const v = (tr.vouched || []).length;
+        const v = (tr.vouched || []).length, f = tr.finality;
+        if (!st.done && f && !f.final) { // Ethereum's: the signers sign nothing before the burn's block is final
+          const left = Math.max(1, f.block - f.finalized);
+          return `Waiting for ${c} to finalize block ${num(f.block)}: ${num(left)} block${left === 1 ? '' : 's'} to go, about ${Math.ceil(left * 12 / 60)} minute${left * 12 > 60 ? 's' : ''}. The signers sign only a final burn.`;
+        }
         if (st.done && !v) return 'Two of the three signers vouched for the burn: gno.land credited it.';
         return `${v} of ${tr.signers || 3} signers ${v === 1 ? 'has' : 'have'} signed the burn${st.done ? '' : '; ' + (tr.threshold || 2) + ' are needed'}.`;
       },
-      why: 'Each signer reads the burn through two providers and refuses while the supply would pass the lock: one bad machine credits nothing.' },
+      why: 'Each signer reads the burn through two providers and refuses while the supply would pass the lock: one bad machine credits nothing.',
+      whyEth: 'Each signer reads the burn through two providers, signs only once its block is final, and refuses while the supply would pass the lock: one bad machine credits nothing.' },
     { key: 'deliver', title: 'The relayer delivers it',
       what: (tr, c, st) => st.done ? 'The relayer took the burn and the signatures to hlmailbox on gno.land.' : 'Waiting for the relayer to carry the vouched burn to gno.land.',
       why: 'hlmailbox checks 2 of 3 signatures and marks the id done: a burn is credited once, never twice.' },
@@ -106,8 +118,9 @@ function picture(dir, key, tr, st, now) {
 }
 
 // render draws a transfer's walkthrough as an ordered list: done steps checked, the current one marked, the rest
-// waiting; onPick(key) when a step is chosen. It returns the list and the current step's key.
-export function render(tr, chain, onPick) {
+// waiting; onPick(key) when a step is chosen; kind the chain's ("ethereum" says Ethereum's words where they
+// differ). It returns the list and the current step's key.
+export function render(tr, chain, onPick, kind) {
   const dir = tr.direction === 'in' ? 'in' : 'out';
   const walk = tr.walk || [];
   const steps = STEPS[dir];
@@ -125,9 +138,9 @@ export function render(tr, chain, onPick) {
       el('span', { class: 'mark', 'aria-hidden': 'true' }, state === 'done' ? '✓' : state === 'now' ? '●' : '○'),
       el('div', { class: 'body' },
         el('div', { class: 'head' }, el('b', {}, st.title.replace('the far chain', chain)), when ? el('span', { class: 't' }, when) : '', w.link ? el('a', { href: w.link, target: '_blank', rel: 'noopener', onclick: (e) => e.stopPropagation() }, '↗') : ''),
-        el('div', { class: 'what' }, st.what(tr, chain, w)),
+        el('div', { class: 'what' }, (kind === 'ethereum' && st.whatEth ? st.whatEth : st.what)(tr, chain, w)),
         dir === 'in' && st.key === 'pay' && tr.meter && !w.done ? el('div', { class: 'what eta', 'data-eta': '1' }, '') : '',
-        el('div', { class: 'why' }, st.why)),
+        el('div', { class: 'why' }, kind === 'ethereum' && st.whyEth ? st.whyEth : st.why)),
       pic ? el('span', { class: 'pic' }, pic) : '');
     const pick = () => onPick && onPick(st.key);
     li.addEventListener('click', pick);

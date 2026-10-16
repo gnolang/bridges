@@ -23,6 +23,9 @@ type fakeChain struct {
 	head    gno.Head
 	calls   []string
 	height  int64
+	// onCall, when set, runs inside a call that went (under the lock: it may change renders directly), as the call's
+	// transaction changes the chain (lane s6: a Claim moving the route's paidTotal)
+	onCall func(pkg, fn string, args []string)
 }
 
 func newFake() *fakeChain {
@@ -57,6 +60,9 @@ func (f *fakeChain) Call(_ context.Context, pkg, fn string, _ int64, args ...str
 		return nil, err
 	}
 	f.height++
+	if f.onCall != nil {
+		f.onCall(pkg, fn, args)
+	}
 	return &gno.Result{Hash: fmt.Sprintf("tx%d", len(f.calls)), Height: f.height, Events: f.events[pkg+"."+fn]}, nil
 }
 
@@ -134,36 +140,64 @@ func TestRelayerClaims(t *testing.T) {
 		t.Fatalf("Claim called on an empty meter: %d", n)
 	}
 
-	f.renders[testRoute+":json"] = routeRender(1, 50, 0, "")
-	f.events[testRoute+".Claim"] = []gno.Event{{Type: "Claimed", Attrs: map[string]string{"count": "1"}}}
+	// a full batch of twenty claims, each paid a fee's worth at least (the fee 10, a token at the least: 1,000,000), with
+	// more open: called again at once
+	open, paidTotal, perClaim := int64(40), int64(0), int64(1_000_000)
+	f.renders[testRoute+":json"] = routeRender(open, 50, paidTotal, "")
+	f.events[testRoute+".Claim"] = []gno.Event{{Type: "Claimed", Attrs: map[string]string{"count": "20"}}}
+	f.onCall = func(pkg, fn string, args []string) {
+		if fn == "Claim" {
+			open, paidTotal = open-20, paidTotal+20*perClaim
+			f.renders[testRoute+":json"] = routeRender(open, 50, paidTotal, "")
+		}
+	}
 	_ = r.claims(ctx)
 	calls := f.callsOf(testRoute + ".Claim")
 	if len(calls) != 1 || calls[0] != testRoute+".Claim(20)" {
 		t.Fatalf("Claim(20) not called once: %v", calls)
 	}
 	cs := r.state.Claims["BUBBLE"]
-	if cs.Paid != 1 || cs.Backoff != 0 {
-		t.Fatalf("after a paying call: %+v", cs)
+	if cs.Paid != 20 || cs.Backoff != 0 {
+		t.Fatalf("after a full batch of a fee's worth a claim: %+v", cs)
 	}
-	// Still waiting, paid again at once.
-	_ = r.claims(ctx)
+	_ = r.claims(ctx) // more open: paid again at once
 	if n := len(f.callsOf(testRoute + ".Claim")); n != 2 {
 		t.Fatalf("a second call while claims wait: %d", n)
 	}
-	// Nothing paid: back off a minute, then two.
-	f.events[testRoute+".Claim"] = []gno.Event{{Type: "Claimed", Attrs: map[string]string{"count": "0"}}}
+	if cs.Backoff != time.Minute { // the second batch left none open: the loop waits
+		t.Fatalf("after the last full batch: %+v", cs)
+	}
+	// slivers (E5-GS1): one claim open, paid 2 a call, less than the fee — nothing for the backoff: two minutes, then four
+	open, perClaim = 1, 2
+	f.renders[testRoute+":json"] = routeRender(open, 50, paidTotal, "")
+	f.events[testRoute+".Claim"] = []gno.Event{{Type: "Claimed", Attrs: map[string]string{"count": "1"}}}
+	f.onCall = func(pkg, fn string, args []string) {
+		if fn == "Claim" {
+			paidTotal += perClaim
+			f.renders[testRoute+":json"] = routeRender(open, 50, paidTotal, "")
+		}
+	}
+	advance(r, 61*time.Second)
 	_ = r.claims(ctx)
-	if cs.Backoff != time.Minute {
-		t.Fatalf("backoff after nothing paid: %s", cs.Backoff)
+	if n := len(f.callsOf(testRoute + ".Claim")); n != 3 || cs.Backoff != 2*time.Minute || cs.Paid != 41 {
+		t.Fatalf("after a sliver: %d calls, %+v", n, cs)
 	}
 	_ = r.claims(ctx)
 	if n := len(f.callsOf(testRoute + ".Claim")); n != 3 {
 		t.Fatalf("called again inside the backoff: %d", n)
 	}
-	advance(r, 61*time.Second)
+	advance(r, 121*time.Second)
 	_ = r.claims(ctx)
-	if n := len(f.callsOf(testRoute + ".Claim")); n != 4 || cs.Backoff != 2*time.Minute {
+	if n := len(f.callsOf(testRoute + ".Claim")); n != 4 || cs.Backoff != 4*time.Minute {
 		t.Fatalf("after the backoff: %d calls, backoff %s", n, cs.Backoff)
+	}
+	// nothing paid: the same
+	f.events[testRoute+".Claim"] = []gno.Event{{Type: "Claimed", Attrs: map[string]string{"count": "0"}}}
+	f.onCall = nil
+	advance(r, 241*time.Second)
+	_ = r.claims(ctx)
+	if n := len(f.callsOf(testRoute + ".Claim")); n != 5 || cs.Backoff != 8*time.Minute {
+		t.Fatalf("after nothing paid: %d calls, backoff %s", n, cs.Backoff)
 	}
 }
 

@@ -72,6 +72,14 @@ while genesis skips the lazy loader, so the example packages the realms import �
 walking imports — are staged beside them. The launch values a run cannot know (the signers' keys, the BUBBLE
 router) are swapped into the staged source, as BUBBLE's premine is.
 
+## Solana providers
+
+Every signer, monitor and `hlwatch` holds its dispatch index's listings to the supplies' slot with `minContextSlot` on
+`getSignaturesForAddress`, which a listing's answer cannot show was honoured: each provider is asked at start and hourly
+for a listing past its view, and one that answers it (Alchemy, measured 2026-10-15; api.mainnet-beta, publicnode and
+Helius refuse it as they must) is alarmed `solana:min-context-ignored:<i>` and refused — no identity, signer verdict or
+forged-credit judgement rests on the index while the config names it (E5-SF2). Pick providers that honour it.
+
 ## Before mainnet
 
 `PLAN.md` §5 (what changes), §5.9 (the acceptance list) and §11 (what is Jae's to decide).

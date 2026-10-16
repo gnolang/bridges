@@ -59,8 +59,10 @@ written and reviewed, not run (the DNS record is Jae's hand, §How to deploy).
     a 400,000-CU budget, then the token program's `transfer_remote` toward gno.land, the sender paying. The
     throwaway keypair that names the dispatch record is made per request, signs that one transaction and is
     forgotten; the wallet's signature slot is left empty for the wallet. It can move nothing. A bridge realm's
-    address as the recipient is refused (§5.2, K21: the realm would sweep it) — the configured realms and every
-    route the mailbox registers or dropped, case-insensitively.
+    address as the recipient is refused (§5.2, K21: the realm would sweep it) — the configured realms, each
+    deployment's launch hlverifier (beside its mailbox; since round 3's E3-CF6: on Solana's deployment a credit to it
+    is paid into the verifier's account, where no code moves it), and every route the mailbox registers or dropped
+    and the verifier it names as active, case-insensitively.
 - rate-limited per client (two requests a second, a burst of thirty; the client is the first `X-Forwarded-For`
   address nginx sets), the key kept in memory and never written; nothing personal is logged — no address, no
   amount, no client (the test greps the log for all three).
@@ -354,3 +356,222 @@ from it, the lamps say nothing (everything else works). Add the line the deploye
 - The quarantine and a hold drawn as events of their own (a flag raised, a hold's 21-day clock) when they happen.
 - Per-validator signatures on the header packet (the commit's signers, from the update's precommits), so the
   picture shows which validators signed each header.
+
+# E-M4 — Ethereum on bridge.gno.world (2026-10-14; branch eth-m4 from bridge-eth 27b32879)
+
+Jae, 2026-10-14: "make an ethereum <> gno.land bridge in the spirit (as close as reasonable) to the solana <>
+gno.land bridge". The site was written "to work for other chains in the future" behind `Other` (chain.go); Ethereum
+is now its second implementation, beside Solana, read by plain JSON-RPC (go-ethereum is no dependency of this module,
+the live Solana tools' module). The Ethereum design is `eth/bridge/PLAN.md`; the contracts' functions and events are
+`eth/bridge/contracts/src/interfaces/*.sol` and Hyperlane 12.2.0's.
+
+**Nothing on the live site changes when this ships.** Until a real Ethereum deployment exists the live `site.json`
+does not list Ethereum, and the live shape (one shared gno section, Solana alone) loads exactly as before:
+`TestSolanaUnchanged` asks the Solana API every question its pages and its tracker ask — the chains, the status, the
+activity, every transfer by every kind of reference, the builder and its refusals, in the done world and after each
+step of the staged one: 70 answers — and compares them byte for byte with answers written by the code of 27b32879
+(`cmd/hlsite/testdata/solana-golden.json`), Solana served alone and served beside Ethereum. The pages show Ethereum
+(the picker's second entry, a chain switch in every header) only when `/api/chains` lists it. `-preview` stays
+Solana's alone.
+
+## The config's second shape
+
+The first shape still loads: the gno section names the one deployment's `mailbox`, `fees` and `gov`, and every chain
+uses them. In the second, each chain names its own deployment's realms in its own `gno` section (the routes are its
+tokens' realms, as before), and the shared gno section keeps the node, the chain id, the BUBBLE token realm, the links
+and the gas. Two chains on one mailbox are refused. `site.example.ethereum.json` is the full example; Ethereum's chain:
+
+```
+{ "id": "ethereum", "kind": "ethereum", "name": "Ethereum", "rpc": "<provider URL>", "domain": 1, "chainId": 1,
+  "explorer": "https://etherscan.io", "fromBlock": <the deployment's first block>, "logRange": 1000,
+  "gno": { "mailbox": "gno.land/r/<ns>/eth/hlmailbox", "fees": "…/eth/hlfees", "gov": "…/eth/hlgov" },
+  "tokens": [ { "symbol": "GNOT", "program": "<HypERC20 proxy 0x…>", "realm": "…/eth/hlgnot" },
+              { "symbol": "BUBBLE", "program": "<HypERC20 proxy 0x…>", "realm": "…/eth/hlbubble" } ],
+  "programs": { "mailbox": "0x…", "pausable": "<PausableGate 0x…>", "admin": "<HlAdmin 0x…>", "client": "<GnoLightClient 0x…>",
+                "proxyAdmin": "0x…", "merkleTreeHook": "0x…", "protocolFee": "0x…", "mailboxImpl": "0x…", "token0Impl": "0x…",
+                "token1Impl": "0x…", "clientImpl": "0x…", "gateImpl": "0x…", "ed25519Verifier": "0x…", "hlAdminExec": "0x…" },
+  "signers": [ "<each Ethereum signer's public endpoint>", … ] }
+```
+
+Every address is checked — 0x and 40 hex digits in its EIP-55 case (one case carries no checksum and is refused, its
+checksummed form not named: eth PLAN.md §5.2, round 3's E3-CF6), never zero — and the sixteen contracts (hleth's
+deployment record's names: the five proxies, the ProxyAdmin, the two hooks, HlAdmin, the five launch implementations
+with token 0 GNOT's, the Ed25519Verifier and HlAdminExec) are all named and distinct; a token's mint is its own
+contract; only GNOT and BUBBLE are routes (the gate keeps limits by index);
+`chainId` defaults to the domain (Hyperlane's Ethereum and Sepolia domains are their chain ids), `logRange` to 1,000.
+The signers' lamps ask `<url>/v1/eth/<nonce>` (Solana's ask `/v1/sol/<nonce>`): the path the Ethereum signer serves
+(`eth/bridge/agent/signer.go`, its Handler).
+
+## The backend (`ethereum.go`, `ethereum_activity.go`, `ethrpc.go`)
+
+- **The provider**: JSON-RPC 2.0 over HTTP POST. No error carries its URL or a part that may be a key: a transport
+  error names the operation alone, and anything the provider answers is scrubbed of the URL's long path segments and
+  query values, then redacted as the Solana side's are (`agent.Redact`); an HTTP error's body is never shown (it may
+  echo the key). Its `eth_chainId` must be the configured chain's before anything is read.
+- **The status** (the cut's first step, PLAN.md §5.9): each token's `totalSupply` at the `finalized` block, every call
+  pinned to that block's hash (EIP-1898), so the supplies are never read at two blocks; at the newest block, as Solana
+  reads these at confirmed: the client (trusted height and header time, the quarantine, the clock factor; the set
+  drawn from the newest update's own calldata, which the client checked against its stored hash), the gate's seats,
+  flags, hold and mint limits (the bucket's level now; the gate's `token(i)` checked against the config once), and
+  HlAdmin's seats, flags, hold, last number, setup flag and pending decisions — read from the last number down until
+  `pending()` records are found — each with its kind in §13's names, its parameters in words, when it matures and
+  what defers it. The parts are read side by side; the compiled clock factors once.
+- **Burns (ER5)**: a burn is a `Dispatch` of our mailbox whose sender topic is one of our token routers, toward
+  gno.land's domain, to that token's route realm — and whose message says the same (version 3, Ethereum's domain as
+  origin). Anyone may dispatch on the mailbox toward anything; a stranger's dispatch is no burn, in the tracker and
+  in the activity alike. A burn tracked by its hash is read from the receipt at the newest block; its block must
+  still be the one the provider holds at that number, else a reorganization took it back and it is read again; it
+  carries the finalized block, and the walk says how long Ethereum's finality still takes (the signers sign nothing
+  before).
+- **Deliveries**: the mailbox's own record, `processedAt(id)` at the newest block, and that block's `ProcessId` log
+  for the transaction; a log whose block hash the provider contradicts is not shown (the delivery stands by the
+  record). **The builder**: `transferRemote(gno.land's domain, the recipient, the amount)` to the token, with the
+  native value the token's own `quoteTransferRemote` asks (12.2.0: index 0 the dispatch fee in ETH — the protocol fee —
+  index 1 the tokens burned, index 2 an external fee; the value must be exact: the mailbox's default hook refuses any
+  excess). A token that asks more than the amount in tokens, its gas in tokens or an external fee is refused, as is a
+  sender who does not hold the amount; the realm-address refusals (K21) cover both deployments' realms, each one's
+  hlverifier among them. The sender is the wallet's own account, taken in the case the wallet answers it (wallets
+  often answer in lower case; no one typed it). A provider
+  failure is a 503. Nothing signs: the answer is `{from, to, data, value, chainId}`.
+- **The tracker**: an Ethereum hash has a message id's form (0x and 64 hex digits, as a gno hash in hex has), so such
+  a reference is tried as a message id first, then as Ethereum's transaction, then as gno.land's; a transaction
+  Ethereum holds that burned nothing says so and stops there. Solana's references resolve exactly as before.
+- **The activity**: one `eth_getLogs` a window asks for every event of ours at once (`Dispatch`, `Process`,
+  `ProcessId`, the tokens' `ReceivedTransferRemote`, the client's `HeaderRecorded`), within the provider's limits:
+  1,000 blocks unless the config says otherwise, halved whenever the provider refuses a range or a result's size.
+  The first read covers the newest windows; each later read goes forward over what was finalized since and back over
+  the history a few windows at a time, to `fromBlock`, thirty days, or full lists — six windows a read at most. Blocks
+  at or below the finalized one are read once and kept; the blocks past it (the tail) are read again at every read,
+  so a reorganization takes back what it held. A window whose logs name a block hash the provider does not hold at
+  that number is folded not at all and read again. Each delivering call is read once (`eth_getTransactionByHash`) for
+  its message (its sha256 is the key the walk finds the proof by) and its proof (`process(metadata, message)`: the
+  header's hash — its height from the client's logs, else `entry(hash)` — the tree's total, index and aunts); a final
+  one the provider no longer indexes is told by its logs alone. The burns' count is one past the newest burn's nonce,
+  so the lamps ask about burns alone; the mailbox keeps no count of what it processed (0).
+
+## The pages
+
+The Bridge page's picker lists every chain; every header switches between them and every link keeps the chain shown.
+On Ethereum: **gno.land → Ethereum** goes through Adena with the same envelopes as Solana's (GNOT's amount + fee in
+ugnot with the call; BUBBLE's `Approve` of amount + fee to the Ethereum route, then `TransferRemote`), the recipient an
+Ethereum address (ER10, before Adena is asked: 0x and 40 hex digits in its checksum case — an address in one case
+carries no checksum and is refused, its checksummed form never shown nor offered, since it would be a typo's checksum
+too (eth PLAN.md §5.2: only EIP-55 checksummed input; round 3's E3-CF6); mixed case that is not its checksum, the zero address, a
+precompile (≤ 0xffff), the 32-byte form, and every contract of the deployment — all sixteen, which `/api/chains`
+lists — are refused, each saying why; the realm refuses them too). `eth.js` holds keccak-256 and EIP-55, written here (no CDN). **Ethereum →
+gno.land** goes through an EIP-1193 wallet found by EIP-6963 (`eip6963:requestProvider` / `announceProvider`; a picker
+when several answer), `window.ethereum` the fallback: `eth_requestAccounts`, the backend's call, `eth_chainId` and
+`wallet_switchEthereumChain` to the call's chain (checked after), `eth_sendTransaction`; the hash is tracked. The page
+never calls an Ethereum RPC (`connect-src 'self'` stands); the wallet uses its own. Status (the newest block and the
+finalized one the supplies are read at, PausableGate and HlAdmin), Help (Ethereum's gas and protocol fee, its launch
+figures, its delays: a send's header bought once the waiting sends' fees pay for it or at six hours, finality — about
+13 to 19 minutes — before the signers, deliveries waiting out a gas spike; its reference), Home's story (PLAN.md §1
+for Ethereum), How it works and the machine (Ethereum's blocks every twelve seconds, its ERC-20 tokens, HlAdmin, the
+signers waiting for finality, a header bought only for transfers waiting — once their fees pay for it, or after six
+hours from what earlier fees left over) speak Ethereum's words where the chains differ; Solana's are untouched. No
+page offers or invites a send's own delivery (round 3: the lead's decision, E3-CF6 (a) / E3-FC5).
+
+## The mock
+
+`-mock` serves a canned Ethereum deployment beside Solana's (`fixtures_eth.go`), in the same world: the Ethereum
+deployment's realms under `…/eth/` and a JSON-RPC provider from canned blocks (one every twelve seconds, the finalized
+one 64 behind), logs, receipts, transactions and calls, the calldata built by encoders the tests pin against Foundry's.
+History: r/hlgov's decision #1 (set the protocol fee) delivered and pending on HlAdmin; 100 GNOT out with its header
+and proven delivery; 3,000 BUBBLE back, final, credited, paid; a stranger's dispatch toward gno.land that is no burn;
+the heartbeat header of 1,050. In flight, moved by `POST /api/mock/step?chain=ethereum&flow=out|in|down`: 120 GNOT out
+(the header of 1,294, then the delivery proven under it), 2,500 BUBBLE back (final, signer 1, signer 2, credited, half
+paid, paid). `flow=reset` resets both worlds.
+
+## The locked chart and the token addresses on Ethereum (the merge of `bridge` 47ea0fee, F14)
+
+The value locked over time (`GET /api/<chain>/history`, `chart.js`) and each token's address on the other chain
+(`common.js tokenAddress`) came from `bridge` after E-M4; both are chain-blind and serve the Ethereum deployment as
+they serve Solana's: the history samples the Ethereum status (its own realms' locks) under `history-ethereum.json`,
+and a token's address on Ethereum is its HypERC20 proxy (the config's `mint`, which is its `program`), linked on the
+chain's explorer without Solana's `cluster`. Help's "Adding GNOT or BUBBLE to …" paragraph speaks of an Ethereum
+wallet on Ethereum's page (a wallet may not show a new ERC-20 until it is imported by its address).
+`TestHistoryAPIEthereum`; the browser suite's `lockedCase` runs on both deployments, and `ethCases` checks the
+contracts on Status, Help and the Bridge page.
+
+## Tests and verdicts (2026-10-14, the devbox: Go 1.27.1, node 22.23.3, Playwright 1.56.1)
+
+- **Go** (`go test ./cmd/hlsite/`, also `-race`; `go vet`, `gofmt` clean): 37 tests pass — the 18 there were, changed
+  only mechanically (a step and a probe name their chain, "an unknown kind" is now cosmos, the policy test reads
+  eth.js too), and 19 new: TestSolanaUnchanged (70 answers byte
+  for byte, alone and beside Ethereum), TestSolanaNotABurn, TestEthABI (every selector and topic, and every encoder
+  and decoder, against `cast` output kept verbatim in `testdata/eth-abi-vectors.txt`), TestEthAddress (EIP-55),
+  TestEthConfig (the live shape and its realms in order, the second shape, eleven refusals, both example files),
+  TestEthSnapshot (the supplies pinned to the finalized hash, the client, the set after the activity, the gate,
+  HlAdmin's pending decision, a hold, a provider on another chain), TestEthBurn (ER5 against seven forgeries, a failed
+  transaction, an unknown one, a reorganized receipt), TestEthDeliveryOf (a log of a block taken back),
+  TestEthBurnTx (the exact call and value; nine refusals; a fee recipient, a fee hook, an external fee; the provider
+  down), TestEthProviderHTTP (over HTTP: a 500, a refusal that echoes the key, garbage, nothing answering — no key in
+  any error, the status or the log), TestEthResolve (both ways through every stage, by id, hash and gno hash, the
+  finality, a hash that is nothing), TestEthAPI, TestEthKinds, and the activity's TestEthActivity (the world's events
+  and times, no stranger's dispatch, the proofs, the lamps through finality), TestEthActivityReads (the history in two
+  windows, each call once; a read where nothing moved: two blocks, the trusted height, the tail; eleven finalized
+  blocks read once), TestEthActivityTail (a reorganization takes a tail burn back and returns it),
+  TestEthActivityInconsistent, TestEthActivityRangeRefused (1,000 → 500 → 250 blocks, the history read all the same),
+  TestEthActivityNoTxIndex.
+- **Browser** (`site/e2e/run.js`): **PASS, 268 checks at desktop and phone width** — the Solana pages' 151, unchanged,
+  then 117 for Ethereum: keccak-256 and EIP-55 in node against cast; at both widths Home's machine (Ethereum's words
+  and figures: the trusted height, the locks, the supplies at the finalized block, HlAdmin, the lamps, the tipped
+  GNOT balance, six validators), the chain switch and the nav keeping the chain, Status, Help, How it works, the
+  picker, ER10's seven refusals and the checksum confirmation with no Adena call, the exact Adena envelopes for GNOT
+  and BUBBLE, the send's walk to its proven delivery, the burn's two refusals, the wallet's exact calls (the switch to
+  the bridge's chain before the send; `to`, `data` and the quote's `value`), the burn's walk through finality, the
+  signers, the credit, half and full payment, the track box by hash, by id and for a stranger's dispatch, no spill, no
+  page error; and the same burn through `window.ethereum`.
+
+```
+make -C bridge site-qa                         # vet, the Go tests, the browser suite (on the devbox)
+go test -race ./cmd/hlsite/                    # from bridge/
+HLSITE_GOLDEN_WRITE=1 go test -run TestSolanaGoldenWrite ./cmd/hlsite/   # rewrites the golden file: only on a commit before a change
+make -C bridge site-run                        # both canned deployments on 127.0.0.1:8095 (?chain=ethereum)
+```
+
+## What the first Ethereum deployment must confirm (Sepolia first)
+
+1. The contracts' interfaces as these reads assume them: `HeaderRecorded(bytes32 indexed hash, int64 indexed height,
+   uint64 epoch, uint64 record, bytes32 runningHash, bool proven)`, the client's `trustedTime()` in seconds, `hold()`
+   zero when no hold stands, `decision(n)` with number 0 for none, the gate's `token(i)` (E-M2b's).
+2. The signers' endpoint for Ethereum: `/v1/eth/<nonce>`, which the Ethereum signer serves (`eth/bridge/agent/signer.go`,
+   its Handler; round 3's E3-CF11 caught this line saying `/v1/sol/`): each deployed signer's public URL answers it.
+3. The provider: EIP-1898 block hashes on `eth_call`, the `finalized` tag, its `eth_getLogs` range (set `logRange`),
+   its transaction index for the deliveries' calls.
+4. The relayer's deliveries as direct `Mailbox.process(metadata, message)` calls (a batch would show no proof).
+5. The routes' fee: one figure for both ways, as the realms render it (p/hlroute keeps one fee; eth PLAN.md §5.5:
+   20 GNOT and 400 BUBBLE each way at launch, minimums 40 GNOT and 800 BUBBLE — what the realms compile,
+   `hlgnot.gno`/`hlbubble.gno`) — the pages read it from the realms; Help's launch figures stand only while the status
+   cannot be read.
+6. Wallets: MetaMask, Rabby and Coinbase Wallet through EIP-6963 and `window.ethereum`; a user's rejection (4001) and
+   an unknown chain (4902) answered in words; `eth_sendTransaction`'s value as a hex quantity.
+7. Etherscan's `/tx/` and `/address/` links (`explorer`).
+8. The config's sixteen contracts are the realm's: hleth's `deployment.json` fields, and the same as hlmailbox's
+   `json` render's `ethContracts` (the page refuses the config's sixteen; the realm refuses its own).
+
+## Round 3's fold on the site (F14, 2026-10-14)
+
+The third audit round's site findings (`audit-r3`: E3-CF6, E3-FC5, E3-CF11's site items), each with a test that
+failed before:
+
+- **Only EIP-55 input (§5.2; E3-CF6 b).** The page refuses an Ethereum recipient typed in one case and never shows or
+  offers its checksummed form (the one-click checksum is gone: it handed a typo a valid checksum, minting to a key
+  nobody holds); the config's Ethereum addresses are taken in their EIP-55 case only (`parseEthAddress`); a wallet's
+  own account, which wallets answer in lower case, and a provider's JSON are read in any case (`parseEthWire`). The
+  tools' `ethx.ParseAddress` refuses one case alike (hleth's -seats, -watch, -beneficiary, -token, -owner, a decision
+  body's addresses; hlwatch's; the machines' config). Tests: `TestEthConfigTakesOnlyTheChecksum`, `TestEthAddress`,
+  `TestParseAddressTakesOnlyTheChecksum` (eth/bridge/ethx), the browser suite's lower- and upper-case refusals and
+  `ethHashes`' recipient rule in node.
+- **Every realm and every contract (E3-CF6 c).** The burn builders refuse each deployment's launch hlverifier (its
+  mailbox's namespace's `hlverifier`) and the verifier each mailbox names as active (`TestBurnToAVerifierRefused`);
+  `/api/chains` lists all sixteen of the Ethereum deployment's contracts, the config names each (`programs`:
+  `mailboxImpl`, `token0Impl`, `token1Impl`, `clientImpl`, `gateImpl`, `ed25519Verifier`, `hlAdminExec` beside the
+  seven) and refuses one missing or two at one address (`TestEthContractsAllSixteen`); the page refuses each by name.
+- **No self-delivery (the lead's decision; E3-CF6 a, E3-FC5)** — nothing on the Ethereum pages offers or invites a
+  send's own delivery (the machine's "anyone may relay" and the header scene's "anyone may carry" are Solana's alone),
+  and the words say when a header is bought, as `eth/bridge/agent` buys it (`due.go`, `updater.go`, PLAN.md §5.5): only
+  for transfers waiting, once their own fees pay for the header and their deliveries, else at the oldest's six hours
+  from what earlier sends' fees left over (longer while that is short); a delivery parks above the base-fee cap and
+  resumes. Help's launch figures on Ethereum are its routes' (20 GNOT or 400 BUBBLE, at least 40 or 800).
+- **Finality** is "about 13 to 19 minutes" wherever the pages said thirteen (12.8 to 19; 17.6 measured — E3-CF11).

@@ -1,0 +1,918 @@
+{
+ "block": {
+  "block": {
+   "data": {
+    "txs": [
+     "CpMBCgovdm0ubV9jYWxsEoQBCihnMXF5ZmxlZDV1bGY2d211MnU0c21zdG44cmx6YXphbm1xdDBuOGtoIhlnbm8ubGFuZC9yL2dub2xhbmQvd3Vnbm90KgdBcHByb3ZlMihnMXZjODgzZ3NodTV6N3l0azVjZHluaGM4YzJkaDY3cGRwNGNzemtwMgozMDI0MDAwMDAwCm0KCi92bS5tX2NhbGwSXwooZzFxeWZsZWQ1dWxmNndtdTJ1NHNtc3RuOHJsemF6YW5tcXQwbjhraBIPMzAyNDAwMDAwMHVnbm90Ihlnbm8ubGFuZC9yL2dub2xhbmQvd3Vnbm90KgdEZXBvc2l0CpECCgovdm0ubV9jYWxsEoICCihnMXF5ZmxlZDV1bGY2d211MnU0c21zdG44cmx6YXphbm1xdDBuOGtoIhlnbm8ubGFuZC9yL2dub3N3YXAvcm91dGVyKhBFeGFjdEluU3dhcFJvdXRlMiBnbm8ubGFuZC9yL2dub2xhbmQvd3Vnbm90Lnd1Z25vdDIaZ25vLmxhbmQvci9nbm9zd2FwL2ducy5HTlMyCjMwMjQwMDAwMDAyQGduby5sYW5kL3IvZ25vbGFuZC93dWdub3Qud3Vnbm90Omduby5sYW5kL3IvZ25vc3dhcC9nbnMuR05TOjMwMDAyAzEwMDIKOTkzMzUwMDM5MzIKMTc4OTY1NTg5ODIACokBCgovdm0ubV9jYWxsEnsKKGcxcXlmbGVkNXVsZjZ3bXUydTRzbXN0bjhybHphemFubXF0MG44a2giGWduby5sYW5kL3IvZ25vbGFuZC93dWdub3QqB0FwcHJvdmUyKGcxdmM4ODNnc2h1NXo3eXRrNWNkeW5oYzhjMmRoNjdwZHA0Y3N6a3AyATASEwiQz9ioARILMTc2ODg3dWdub3Qafgo6ChMvdG0uUHViS2V5U2VjcDI1NmsxEiMKIQNDzr656RWVi2nvQfjPe3GR1ZXeMReIczjTcIyGU/kfXBJAksFL/QT7Bbp4YA6RYbzP0V5PgHBhSe7LXgw/OEZcPyccEsabb2DKM+xr9TNANkmjcOelBQwSuTI2LsjSwCtKDiIbRXhlY3V0ZWQgdGhyb3VnaCBnbm9zd2FwLmlv",
+     "CpABCgovdm0ubV9jYWxsEoEBCihnMWd1OTJ3M3drd2F3cTZxOGVwZHN5Y2U2eDdxNWd6dnY1M3FzZHp3Ihlnbm8ubGFuZC9yL2dub2xhbmQvd3Vnbm90KgdBcHByb3ZlMihnMWRleGFmNmFxa2t5cjl5Znk5ZDV1cDY5bHNuN3JhODBhZjM0ZzV2Mgc0MDAwMDAwCo0BCgovdm0ubV9jYWxsEn8KKGcxZ3U5Mnczd2t3YXdxNnE4ZXBkc3ljZTZ4N3E1Z3p2djUzcXNkenciFmduby5sYW5kL3IvZ25vc3dhcC9nbnMqB0FwcHJvdmUyKGcxZGV4YWY2YXFra3lyOXlmeTlkNXVwNjlsc243cmE4MGFmMzRnNXYyCDEzMjE0MTc0CmoKCi92bS5tX2NhbGwSXAooZzFndTkydzN3a3dhd3E2cThlcGRzeWNlNng3cTVnenZ2NTNxc2R6dxIMNDAwMDAwMHVnbm90Ihlnbm8ubGFuZC9yL2dub2xhbmQvd3Vnbm90KgdEZXBvc2l0CosCCgovdm0ubV9jYWxsEvwBCihnMWd1OTJ3M3drd2F3cTZxOGVwZHN5Y2U2eDdxNWd6dnY1M3FzZHp3Ihtnbm8ubGFuZC9yL2dub3N3YXAvcG9zaXRpb24qBE1pbnQyIGduby5sYW5kL3IvZ25vbGFuZC93dWdub3Qud3Vnbm90Mhpnbm8ubGFuZC9yL2dub3N3YXAvZ25zLkdOUzIEMzAwMDIENTEwMDIFMTg5NjAyBzQwMDAwMDAyCDEzMjE0MTc0MgczOTgwMDAwMggxMzE0ODEwMzIKNzI4MjU3MTE0MDIoZzFndTkydzN3a3dhd3E2cThlcGRzeWNlNng3cTVnenZ2NTNxc2R6dzIACokBCgovdm0ubV9jYWxsEnsKKGcxZ3U5Mnczd2t3YXdxNnE4ZXBkc3ljZTZ4N3E1Z3p2djUzcXNkenciGWduby5sYW5kL3IvZ25vbGFuZC93dWdub3QqB0FwcHJvdmUyKGcxZGV4YWY2YXFra3lyOXlmeTlkNXVwNjlsc243cmE4MGFmMzRnNXYyATAKhgEKCi92bS5tX2NhbGwSeAooZzFndTkydzN3a3dhd3E2cThlcGRzeWNlNng3cTVnenZ2NTNxc2R6dyIWZ25vLmxhbmQvci9nbm9zd2FwL2ducyoHQXBwcm92ZTIoZzFkZXhhZjZhcWtreXI5eWZ5OWQ1dXA2OWxzbjdyYTgwYWYzNGc1djIBMBITCPzknbYBEgsxOTEwODV1Z25vdBp+CjoKEy90bS5QdWJLZXlTZWNwMjU2azESIwohAoWVDnsIvM1mME6TpGfTKSV/WBEJ6ec4n+2xcvwKY6yQEkA2d6aFkDl6VCj9zOc2K6VJ3Ab0v42dqWxE+8UlWIqTA30TfjKLByeo0f75o730hOPUdZDbEyzSEyhmCPcwumWiIhtFeGVjdXRlZCB0aHJvdWdoIGdub3N3YXAuaW8="
+    ]
+   },
+   "header": {
+    "app_hash": "D9SDcLQoO82H/C5N2eAgxaUQMDb5Q/0xbCmRK/U6H5U=",
+    "app_version": "",
+    "chain_id": "gnoland-1",
+    "consensus_hash": "uJmaP/mPzdzmA1t3/6z5QWOFFzl4v14QsTCvjvJoZ7A=",
+    "data_hash": "WB6bU4bwHNnk57CaAqQuXbW22ZWSgZLyk5XdjCU3wc0=",
+    "height": "114147",
+    "last_block_id": {
+     "hash": "QHq+AflIu9FIsfm0GegLvq0RzULwwLIZWE7ATviTp3U=",
+     "parts": {
+      "hash": "xc5zpYsirecOWEw+Mvz5joslJNat/SD+IY5ieQRPOmk=",
+      "total": "1"
+     }
+    },
+    "last_commit_hash": "4IJMjhWv3omMKjCjkJanAcgguwNyVYQ+OunPPtmC6uI=",
+    "last_results_hash": null,
+    "next_validators_hash": "jsqr7nfq8QYaLfjdJPVY48czrhMWd+L3tiX6XbeaRLk=",
+    "num_txs": "2",
+    "proposer_address": "g1hqhetnnz0raw5hps6yxexl7q09a6f8w3anlptt",
+    "time": "2026-09-17T14:33:48.828113600Z",
+    "total_txs": "2559",
+    "validators_hash": "jsqr7nfq8QYaLfjdJPVY48czrhMWd+L3tiX6XbeaRLk=",
+    "version": "v1.0.0-rc.0"
+   },
+   "last_commit": {
+    "block_id": {
+     "hash": "QHq+AflIu9FIsfm0GegLvq0RzULwwLIZWE7ATviTp3U=",
+     "parts": {
+      "hash": "xc5zpYsirecOWEw+Mvz5joslJNat/SD+IY5ieQRPOmk=",
+      "total": "1"
+     }
+    },
+    "precommits": [
+     {
+      "block_id": {
+       "hash": "QHq+AflIu9FIsfm0GegLvq0RzULwwLIZWE7ATviTp3U=",
+       "parts": {
+        "hash": "xc5zpYsirecOWEw+Mvz5joslJNat/SD+IY5ieQRPOmk=",
+        "total": "1"
+       }
+      },
+      "height": "114146",
+      "round": "0",
+      "signature": "qSBXGvnYwj+BqaS2eMSbnfJEi5f5UdqgITSXtDnwaRFUaRINff0RJ+0nrXITrkWSUWjXfHKKBxEt6xXyG3ENCg==",
+      "timestamp": "2026-09-17T14:33:48.839978256Z",
+      "type": 2,
+      "validator_address": "g15t7f9q6km3ldt885duwl8xu5dncs98528amk4f",
+      "validator_index": "0"
+     },
+     {
+      "block_id": {
+       "hash": "QHq+AflIu9FIsfm0GegLvq0RzULwwLIZWE7ATviTp3U=",
+       "parts": {
+        "hash": "xc5zpYsirecOWEw+Mvz5joslJNat/SD+IY5ieQRPOmk=",
+        "total": "1"
+       }
+      },
+      "height": "114146",
+      "round": "0",
+      "signature": "hKRsWCNXf3fm0byJu9qkjNBDkjbpz5XxU3oFhtklS0wz2u03Rt9H2ffwFq4WszJB1ofjzpIGAJ0532lKoY30Bw==",
+      "timestamp": "2026-09-17T14:33:48.844937240Z",
+      "type": 2,
+      "validator_address": "g1hqhetnnz0raw5hps6yxexl7q09a6f8w3anlptt",
+      "validator_index": "1"
+     },
+     {
+      "block_id": {
+       "hash": "QHq+AflIu9FIsfm0GegLvq0RzULwwLIZWE7ATviTp3U=",
+       "parts": {
+        "hash": "xc5zpYsirecOWEw+Mvz5joslJNat/SD+IY5ieQRPOmk=",
+        "total": "1"
+       }
+      },
+      "height": "114146",
+      "round": "0",
+      "signature": "YsT5DofX2xU8+2ouKU3fb/Qnta/UVI5ik/Wd9KQfpc4KH0S8nKZUA38Zzr1fyVrUGEYcTavs0hIbtRBDI1fTDw==",
+      "timestamp": "2026-09-17T14:33:48.817725435Z",
+      "type": 2,
+      "validator_address": "g1mmgvcssjw6x4fzphupfg6mtxqt36v000c5rf2a",
+      "validator_index": "2"
+     },
+     {
+      "block_id": {
+       "hash": "QHq+AflIu9FIsfm0GegLvq0RzULwwLIZWE7ATviTp3U=",
+       "parts": {
+        "hash": "xc5zpYsirecOWEw+Mvz5joslJNat/SD+IY5ieQRPOmk=",
+        "total": "1"
+       }
+      },
+      "height": "114146",
+      "round": "0",
+      "signature": "gE1/ypzm0QHtKy1k8+QxfHg9HjkiqIoPfTf+colZI536Xb2zWImBB/CSbFdxoPShLBxywSx6UhF6hwgcn4V7Cg==",
+      "timestamp": "2026-09-17T14:33:48.828113600Z",
+      "type": 2,
+      "validator_address": "g1l983yy3kpmapyzcfy53y5charfxupa5czjalea",
+      "validator_index": "3"
+     }
+    ]
+   }
+  },
+  "block_meta": {
+   "block_id": {
+    "hash": "oSA28bBYH6aG+R4jl/sTRaDfNzexZkVxOKaZ3x9dJss=",
+    "parts": {
+     "hash": "apkVQp5/lLyukePeqE2RPWn7Ozk/UoJWJmfm/pCRpI4=",
+     "total": "1"
+    }
+   },
+   "header": {
+    "app_hash": "D9SDcLQoO82H/C5N2eAgxaUQMDb5Q/0xbCmRK/U6H5U=",
+    "app_version": "",
+    "chain_id": "gnoland-1",
+    "consensus_hash": "uJmaP/mPzdzmA1t3/6z5QWOFFzl4v14QsTCvjvJoZ7A=",
+    "data_hash": "WB6bU4bwHNnk57CaAqQuXbW22ZWSgZLyk5XdjCU3wc0=",
+    "height": "114147",
+    "last_block_id": {
+     "hash": "QHq+AflIu9FIsfm0GegLvq0RzULwwLIZWE7ATviTp3U=",
+     "parts": {
+      "hash": "xc5zpYsirecOWEw+Mvz5joslJNat/SD+IY5ieQRPOmk=",
+      "total": "1"
+     }
+    },
+    "last_commit_hash": "4IJMjhWv3omMKjCjkJanAcgguwNyVYQ+OunPPtmC6uI=",
+    "last_results_hash": null,
+    "next_validators_hash": "jsqr7nfq8QYaLfjdJPVY48czrhMWd+L3tiX6XbeaRLk=",
+    "num_txs": "2",
+    "proposer_address": "g1hqhetnnz0raw5hps6yxexl7q09a6f8w3anlptt",
+    "time": "2026-09-17T14:33:48.828113600Z",
+    "total_txs": "2559",
+    "validators_hash": "jsqr7nfq8QYaLfjdJPVY48czrhMWd+L3tiX6XbeaRLk=",
+    "version": "v1.0.0-rc.0"
+   }
+  }
+ },
+ "block_results": {
+  "height": "114147",
+  "results": {
+   "begin_block": {
+    "ResponseBase": {
+     "Data": null,
+     "Error": null,
+     "Events": null,
+     "Info": "",
+     "Log": ""
+    }
+   },
+   "deliver_tx": [
+    {
+     "GasUsed": "160824134",
+     "GasWanted": "176886728",
+     "ResponseBase": {
+      "Data": "CgoKCigiMzAyNDAwMDAwMCIgc3RyaW5nKQooIjk5OTg0MTUxMDQiIHN0cmluZykKCgoK",
+      "Error": null,
+      "Events": [
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoland/wugnot.wugnot.0000000"
+         },
+         {
+          "key": "owner",
+          "value": "g1qyfled5ulf6wmu2u4smstn8rlzazanmqt0n8kh"
+         },
+         {
+          "key": "spender",
+          "value": "g1vc883gshu5z7ytk5cdynhc8c2dh67pdp4cszkp"
+         },
+         {
+          "key": "value",
+          "value": "3024000000"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Approval"
+       },
+       {
+        "@type": "/bank.TransferEvent",
+        "coins": "3024000000ugnot",
+        "from": "g1qyfled5ulf6wmu2u4smstn8rlzazanmqt0n8kh",
+        "to": "g15vj5q08amlvyd0nx6zjgcvwq2d0gt9fcchrvum"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoland/wugnot.wugnot.0000000"
+         },
+         {
+          "key": "from",
+          "value": ""
+         },
+         {
+          "key": "to",
+          "value": "g1qyfled5ulf6wmu2u4smstn8rlzazanmqt0n8kh"
+         },
+         {
+          "key": "value",
+          "value": "3024000000"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Transfer"
+       },
+       {
+        "@type": "/tm.StorageDepositEvent",
+        "bytes_delta": "2067",
+        "fee_delta": "206700ugnot",
+        "pkg_path": "gno.land/r/gnoland/wugnot"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoswap/gns.GNS.0000000"
+         },
+         {
+          "key": "from",
+          "value": ""
+         },
+         {
+          "key": "to",
+          "value": "g177jkk4xx79uledh9xedqkq4ht4ef9t6amxwjeq"
+         },
+         {
+          "key": "value",
+          "value": "306792229"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Transfer"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "prevAddr",
+          "value": "g177jkk4xx79uledh9xedqkq4ht4ef9t6amxwjeq"
+         },
+         {
+          "key": "prevRealm",
+          "value": "gno.land/r/gnoswap/emission"
+         },
+         {
+          "key": "mintedBlockTime",
+          "value": "1789655628"
+         },
+         {
+          "key": "mintedGNSAmount",
+          "value": "306792229"
+         },
+         {
+          "key": "accumMintedGNSAmount",
+          "value": "648037938787"
+         },
+         {
+          "key": "accumLeftMintGNSAmount",
+          "value": "899351962061213"
+         }
+        ],
+        "pkg_path": "gno.land/r/gnoswap/gns",
+        "type": "MintGNS"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoswap/gns.GNS.0000000"
+         },
+         {
+          "key": "from",
+          "value": "g177jkk4xx79uledh9xedqkq4ht4ef9t6amxwjeq"
+         },
+         {
+          "key": "to",
+          "value": "g1q6d4ns7zkr492rgl0pcgf5ajaf2dlz0nnptky3"
+         },
+         {
+          "key": "value",
+          "value": "230094172"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Transfer"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoswap/gns.GNS.0000000"
+         },
+         {
+          "key": "from",
+          "value": "g177jkk4xx79uledh9xedqkq4ht4ef9t6amxwjeq"
+         },
+         {
+          "key": "to",
+          "value": "g1kg87wr06tmw7uvlyk4yrj3r2pzmt2j83d47nu7"
+         },
+         {
+          "key": "value",
+          "value": "61358446"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Transfer"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoswap/gns.GNS.0000000"
+         },
+         {
+          "key": "from",
+          "value": "g177jkk4xx79uledh9xedqkq4ht4ef9t6amxwjeq"
+         },
+         {
+          "key": "to",
+          "value": "g1uv80ae4csts8k6w78prvy8kp7aqe3rtl66k2dq"
+         },
+         {
+          "key": "value",
+          "value": "15339611"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Transfer"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "prevAddr",
+          "value": "g1vc883gshu5z7ytk5cdynhc8c2dh67pdp4cszkp"
+         },
+         {
+          "key": "prevRealm",
+          "value": "gno.land/r/gnoswap/router"
+         },
+         {
+          "key": "lastTimestamp",
+          "value": "1789655628"
+         },
+         {
+          "key": "currentTimestamp",
+          "value": "1789655628"
+         },
+         {
+          "key": "currentHeight",
+          "value": "114147"
+         },
+         {
+          "key": "mintedAmount",
+          "value": "306792229"
+         },
+         {
+          "key": "prevLeftAmount",
+          "value": "1"
+         },
+         {
+          "key": "distributedAmount",
+          "value": "306792229"
+         },
+         {
+          "key": "currentLeftAmount",
+          "value": "1"
+         },
+         {
+          "key": "gnsTotalSupply",
+          "value": "100648037938787"
+         },
+         {
+          "key": "stakerRewardPerSecond",
+          "value": "5351027"
+         },
+         {
+          "key": "govStakerRewardPerSecond",
+          "value": "0"
+         }
+        ],
+        "pkg_path": "gno.land/r/gnoswap/emission",
+        "type": "MintAndDistributeGns"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoswap/gns.GNS.0000000"
+         },
+         {
+          "key": "from",
+          "value": "g1dexaf6aqkkyr9yfy9d5up69lsn7ra80af34g5v"
+         },
+         {
+          "key": "to",
+          "value": "g1vc883gshu5z7ytk5cdynhc8c2dh67pdp4cszkp"
+         },
+         {
+          "key": "value",
+          "value": "10013435256"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Transfer"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoland/wugnot.wugnot.0000000"
+         },
+         {
+          "key": "from",
+          "value": "g1qyfled5ulf6wmu2u4smstn8rlzazanmqt0n8kh"
+         },
+         {
+          "key": "to",
+          "value": "g1dexaf6aqkkyr9yfy9d5up69lsn7ra80af34g5v"
+         },
+         {
+          "key": "value",
+          "value": "3024000000"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Transfer"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "prevAddr",
+          "value": "g1vc883gshu5z7ytk5cdynhc8c2dh67pdp4cszkp"
+         },
+         {
+          "key": "prevRealm",
+          "value": "gno.land/r/gnoswap/router"
+         },
+         {
+          "key": "poolPath",
+          "value": "gno.land/r/gnoland/wugnot.wugnot:gno.land/r/gnoswap/gns.GNS:3000"
+         },
+         {
+          "key": "zeroForOne",
+          "value": "true"
+         },
+         {
+          "key": "requestAmount",
+          "value": "3024000000"
+         },
+         {
+          "key": "sqrtPriceLimitX96",
+          "value": "4295128740"
+         },
+         {
+          "key": "recipient",
+          "value": "g1vc883gshu5z7ytk5cdynhc8c2dh67pdp4cszkp"
+         },
+         {
+          "key": "token0Amount",
+          "value": "3024000000"
+         },
+         {
+          "key": "token1Amount",
+          "value": "-10013435256"
+         },
+         {
+          "key": "protocolFee0",
+          "value": "0"
+         },
+         {
+          "key": "protocolFee1",
+          "value": "0"
+         },
+         {
+          "key": "sqrtPriceX96",
+          "value": "144369616710829287571052762118"
+         },
+         {
+          "key": "exactIn",
+          "value": "true"
+         },
+         {
+          "key": "currentTick",
+          "value": "12001"
+         },
+         {
+          "key": "liquidity",
+          "value": "20985401453746"
+         },
+         {
+          "key": "feeGrowthGlobal0X128",
+          "value": "51355956183224718461758860998002476"
+         },
+         {
+          "key": "feeGrowthGlobal1X128",
+          "value": "5144262615692164175683594556264658"
+         },
+         {
+          "key": "balanceToken0",
+          "value": "2772970014381"
+         },
+         {
+          "key": "balanceToken1",
+          "value": "11285739884049"
+         },
+         {
+          "key": "tickCumulative",
+          "value": "1383093641"
+         },
+         {
+          "key": "secondsPerLiquidityCumulativeX128",
+          "value": "3037081913182346816525739996990"
+         },
+         {
+          "key": "observationTimestamp",
+          "value": "1789655628"
+         }
+        ],
+        "pkg_path": "gno.land/r/gnoswap/pool/v1",
+        "type": "Swap"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoswap/gns.GNS.0000000"
+         },
+         {
+          "key": "owner",
+          "value": "g1vc883gshu5z7ytk5cdynhc8c2dh67pdp4cszkp"
+         },
+         {
+          "key": "spender",
+          "value": "g1r340tuven27z8wq50u8d20eqrsj470082682tp"
+         },
+         {
+          "key": "value",
+          "value": "15020152"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Approval"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoswap/gns.GNS.0000000"
+         },
+         {
+          "key": "from",
+          "value": "g1vc883gshu5z7ytk5cdynhc8c2dh67pdp4cszkp"
+         },
+         {
+          "key": "to",
+          "value": "g1r340tuven27z8wq50u8d20eqrsj470082682tp"
+         },
+         {
+          "key": "value",
+          "value": "15020152"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Transfer"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "prevAddr",
+          "value": "g1vc883gshu5z7ytk5cdynhc8c2dh67pdp4cszkp"
+         },
+         {
+          "key": "prevRealm",
+          "value": "gno.land/r/gnoswap/router"
+         },
+         {
+          "key": "tokenPath",
+          "value": "gno.land/r/gnoswap/gns.GNS"
+         },
+         {
+          "key": "amount",
+          "value": "15020152"
+         }
+        ],
+        "pkg_path": "gno.land/r/gnoswap/protocol_fee/v1",
+        "type": "AddToProtocolFee"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "prevAddr",
+          "value": "g1qyfled5ulf6wmu2u4smstn8rlzazanmqt0n8kh"
+         },
+         {
+          "key": "prevRealm",
+          "value": ""
+         },
+         {
+          "key": "tokenPath",
+          "value": "gno.land/r/gnoswap/gns.GNS"
+         },
+         {
+          "key": "amount",
+          "value": "15020152"
+         }
+        ],
+        "pkg_path": "gno.land/r/gnoswap/router/v1",
+        "type": "SwapRouteFee"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoswap/gns.GNS.0000000"
+         },
+         {
+          "key": "from",
+          "value": "g1vc883gshu5z7ytk5cdynhc8c2dh67pdp4cszkp"
+         },
+         {
+          "key": "to",
+          "value": "g1qyfled5ulf6wmu2u4smstn8rlzazanmqt0n8kh"
+         },
+         {
+          "key": "value",
+          "value": "9998415104"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Transfer"
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "prevAddr",
+          "value": "g1qyfled5ulf6wmu2u4smstn8rlzazanmqt0n8kh"
+         },
+         {
+          "key": "prevRealm",
+          "value": ""
+         },
+         {
+          "key": "input",
+          "value": "gno.land/r/gnoland/wugnot.wugnot"
+         },
+         {
+          "key": "output",
+          "value": "gno.land/r/gnoswap/gns.GNS"
+         },
+         {
+          "key": "exactAmount",
+          "value": "3024000000"
+         },
+         {
+          "key": "quote",
+          "value": "100"
+         },
+         {
+          "key": "resultInputAmount",
+          "value": "3024000000"
+         },
+         {
+          "key": "resultOutputAmount",
+          "value": "9998415104"
+         },
+         {
+          "key": "referrer",
+          "value": ""
+         },
+         {
+          "key": "routes[0]",
+          "value": "gno.land/r/gnoland/wugnot.wugnot:gno.land/r/gnoswap/gns.GNS:3000"
+         }
+        ],
+        "pkg_path": "gno.land/r/gnoswap/router/v1",
+        "type": "ExactInSwap"
+       },
+       {
+        "@type": "/tm.StorageUnlockEvent",
+        "bytes_delta": "-4211",
+        "fee_refund": "421100ugnot",
+        "pkg_path": "gno.land/r/gnoland/wugnot",
+        "refund_withheld": false
+       },
+       {
+        "@type": "/tm.Event",
+        "attrs": [
+         {
+          "key": "token",
+          "value": "gno.land/r/gnoland/wugnot.wugnot.0000000"
+         },
+         {
+          "key": "owner",
+          "value": "g1qyfled5ulf6wmu2u4smstn8rlzazanmqt0n8kh"
+         },
+         {
+          "key": "spender",
+          "value": "g1vc883gshu5z7ytk5cdynhc8c2dh67pdp4cszkp"
+         },
+         {
+          "key": "value",
+          "value": "0"
+         }
+        ],
+        "pkg_path": "gno.land/p/nt/grc20/v0",
+        "type": "Approval"
+       },
+       {
+        "@type": "/tm.StorageDepositEvent",
+        "bytes_delta": "2151",
+        "fee_delta": "215100ugnot",
+        "pkg_path": "gno.land/r/gnoland/wugnot"
+       }
+      ],
+      "Info": "\n\n\n",
+      "Log": "msg:0,success:true,log:,events:[]\nmsg:1,success:true,log:,events:[]\nmsg:2,success:true,log:,events:[]\nmsg:3,success:true,log:,events:[]"
+     }
+    },
+    {
+     "GasUsed": "17561457",
+     "GasWanted": "191084862",
+     "ResponseBase": {
+      "Data": "CgoKCg==",
+      "Error": {
+       "@type": "/std.VestingLockedCoinsError"
+      },
+      "Events": null,
+      "Info": "\n\nvm.version=heads/chain/mainnet.3431+f01063d9b",
+      "Log": "msg:0,success:true,log:,events:[]\nmsg:1,success:true,log:,events:[]\nmsg:2,success:false,log:--= Error =--\nData: std.VestingLockedCoinsError{abciError:std.abciError{}}\nMsg Traces:\n    0  /gnoroot/tm2/pkg/std/errors.go:169 - insufficient spendable coins; 3911107ugnot < 4000000ugnot (locked=211747284ugnot)\nStack Trace:\n    0  /gnoroot/tm2/pkg/errors/errors.go:93\n    1  /gnoroot/tm2/pkg/std/errors.go:169\n    2  /gnoroot/tm2/pkg/sdk/bank/keeper.go:288\n    3  /gnoroot/tm2/pkg/sdk/bank/keeper.go:181\n    4  /gnoroot/tm2/pkg/sdk/bank/keeper.go:158\n    5  /gnoroot/gno.land/pkg/sdk/vm/keeper.go:1322\n    6  /gnoroot/gno.land/pkg/sdk/vm/handler.go:55\n    7  /gnoroot/gno.land/pkg/sdk/vm/handler.go:31\n    8  /gnoroot/tm2/pkg/sdk/baseapp.go:719\n    9  /gnoroot/tm2/pkg/sdk/baseapp.go:963\n   10  /gnoroot/tm2/pkg/sdk/baseapp.go:650\n... 15 more lines elided,events:[]"
+     }
+    }
+   ],
+   "end_block": {
+    "ConsensusParams": null,
+    "Events": null,
+    "ResponseBase": {
+     "Data": null,
+     "Error": null,
+     "Events": null,
+     "Info": "",
+     "Log": ""
+    },
+    "ValidatorUpdates": null
+   }
+  }
+ },
+ "commit": {
+  "canonical": true,
+  "signed_header": {
+   "commit": {
+    "block_id": {
+     "hash": "oSA28bBYH6aG+R4jl/sTRaDfNzexZkVxOKaZ3x9dJss=",
+     "parts": {
+      "hash": "apkVQp5/lLyukePeqE2RPWn7Ozk/UoJWJmfm/pCRpI4=",
+      "total": "1"
+     }
+    },
+    "precommits": [
+     {
+      "block_id": {
+       "hash": "oSA28bBYH6aG+R4jl/sTRaDfNzexZkVxOKaZ3x9dJss=",
+       "parts": {
+        "hash": "apkVQp5/lLyukePeqE2RPWn7Ozk/UoJWJmfm/pCRpI4=",
+        "total": "1"
+       }
+      },
+      "height": "114147",
+      "round": "0",
+      "signature": "DTfY871Y+9k5p6zQ2qQPpQuTIIyFoMjsvGHELv1EwuCdM+MGOlajFrKq0X6GksB5ICW+zulRW4D9OR9rYQOcDQ==",
+      "timestamp": "2026-09-17T14:33:52.145305613Z",
+      "type": 2,
+      "validator_address": "g15t7f9q6km3ldt885duwl8xu5dncs98528amk4f",
+      "validator_index": "0"
+     },
+     {
+      "block_id": {
+       "hash": "oSA28bBYH6aG+R4jl/sTRaDfNzexZkVxOKaZ3x9dJss=",
+       "parts": {
+        "hash": "apkVQp5/lLyukePeqE2RPWn7Ozk/UoJWJmfm/pCRpI4=",
+        "total": "1"
+       }
+      },
+      "height": "114147",
+      "round": "0",
+      "signature": "7+FDYiqn7WQ0KpQ5KijHtw4IK+otyr1dLRJ2WLHgGYT4q6GODXxuYxiHOpS++bBqopKZ+I63KDPXiZtPbbnKCg==",
+      "timestamp": "2026-09-17T14:33:52.192112079Z",
+      "type": 2,
+      "validator_address": "g1hqhetnnz0raw5hps6yxexl7q09a6f8w3anlptt",
+      "validator_index": "1"
+     },
+     {
+      "block_id": {
+       "hash": "oSA28bBYH6aG+R4jl/sTRaDfNzexZkVxOKaZ3x9dJss=",
+       "parts": {
+        "hash": "apkVQp5/lLyukePeqE2RPWn7Ozk/UoJWJmfm/pCRpI4=",
+        "total": "1"
+       }
+      },
+      "height": "114147",
+      "round": "0",
+      "signature": "mte1fIMiqVQgxlXDHDhLH5Nz2Vy6gSrTTijrNkv0Y93clK4WzgYFypO0A2EdU4CiTY5lZQdjXBKGm3URoz7yBw==",
+      "timestamp": "2026-09-17T14:33:52.132300558Z",
+      "type": 2,
+      "validator_address": "g1mmgvcssjw6x4fzphupfg6mtxqt36v000c5rf2a",
+      "validator_index": "2"
+     },
+     {
+      "block_id": {
+       "hash": "oSA28bBYH6aG+R4jl/sTRaDfNzexZkVxOKaZ3x9dJss=",
+       "parts": {
+        "hash": "apkVQp5/lLyukePeqE2RPWn7Ozk/UoJWJmfm/pCRpI4=",
+        "total": "1"
+       }
+      },
+      "height": "114147",
+      "round": "0",
+      "signature": "WUnn+rwQvbkDAdy5XIUJxplNrzqa19oO3TPyCFGJr1c5qnLWdA6s0tDKtBFKx8K9UzUflkPFff5ObR8pITs1DA==",
+      "timestamp": "2026-09-17T14:33:52.131261997Z",
+      "type": 2,
+      "validator_address": "g1l983yy3kpmapyzcfy53y5charfxupa5czjalea",
+      "validator_index": "3"
+     }
+    ]
+   },
+   "header": {
+    "app_hash": "D9SDcLQoO82H/C5N2eAgxaUQMDb5Q/0xbCmRK/U6H5U=",
+    "app_version": "",
+    "chain_id": "gnoland-1",
+    "consensus_hash": "uJmaP/mPzdzmA1t3/6z5QWOFFzl4v14QsTCvjvJoZ7A=",
+    "data_hash": "WB6bU4bwHNnk57CaAqQuXbW22ZWSgZLyk5XdjCU3wc0=",
+    "height": "114147",
+    "last_block_id": {
+     "hash": "QHq+AflIu9FIsfm0GegLvq0RzULwwLIZWE7ATviTp3U=",
+     "parts": {
+      "hash": "xc5zpYsirecOWEw+Mvz5joslJNat/SD+IY5ieQRPOmk=",
+      "total": "1"
+     }
+    },
+    "last_commit_hash": "4IJMjhWv3omMKjCjkJanAcgguwNyVYQ+OunPPtmC6uI=",
+    "last_results_hash": null,
+    "next_validators_hash": "jsqr7nfq8QYaLfjdJPVY48czrhMWd+L3tiX6XbeaRLk=",
+    "num_txs": "2",
+    "proposer_address": "g1hqhetnnz0raw5hps6yxexl7q09a6f8w3anlptt",
+    "time": "2026-09-17T14:33:48.828113600Z",
+    "total_txs": "2559",
+    "validators_hash": "jsqr7nfq8QYaLfjdJPVY48czrhMWd+L3tiX6XbeaRLk=",
+    "version": "v1.0.0-rc.0"
+   }
+  }
+ },
+ "height": 114147,
+ "validators": {
+  "block_height": "114147",
+  "validators": [
+   {
+    "address": "g15t7f9q6km3ldt885duwl8xu5dncs98528amk4f",
+    "proposer_priority": "-120",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "ttILeghsqDTcV/ca746GTBxa/1sPVRG4i/z+hm3jINo="
+    },
+    "voting_power": "60"
+   },
+   {
+    "address": "g1hqhetnnz0raw5hps6yxexl7q09a6f8w3anlptt",
+    "proposer_priority": "-120",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "lp0lXyQoOH4DOsVComZIletIckwmt0n3AU+FWu/PwcA="
+    },
+    "voting_power": "60"
+   },
+   {
+    "address": "g1mmgvcssjw6x4fzphupfg6mtxqt36v000c5rf2a",
+    "proposer_priority": "120",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "C/ttNQ/pBO7jysLremYWNab6sJ0NpvaHMXuJxAR/ku8="
+    },
+    "voting_power": "60"
+   },
+   {
+    "address": "g1l983yy3kpmapyzcfy53y5charfxupa5czjalea",
+    "proposer_priority": "120",
+    "pub_key": {
+     "@type": "/tm.PubKeyEd25519",
+     "value": "TPzWMVagYuF4e4ls/sA2AX7Ypcp7xpNNIBkn3REiB6I="
+    },
+    "voting_power": "60"
+   }
+  ]
+ }
+}

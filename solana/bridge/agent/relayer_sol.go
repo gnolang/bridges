@@ -27,11 +27,13 @@ import (
 // nothing is staged (G2: a stage is rent the float pays; an unpause goes through the client, never the ISM).
 
 // leafInfo is what a block's results say about one message: the leaf's index and size, or why the block's leaves
-// cannot be rebuilt.
+// cannot be rebuilt; proven once the rebuilt leaves matched a trusted header's results root (resultsMatch passed for
+// them: leaves that merely parse may still be the node's JSON, not the chain's — E4-SF5).
 type leafInfo struct {
 	index     int
 	bytes     int
 	buildable bool
+	proven    bool
 	why       string
 }
 
@@ -67,9 +69,16 @@ func leafKey(height int64, id [32]byte) string {
 }
 
 // leafAt is the leaf of block height's results that carries the Dispatch of id, with the block's leaves (fetched:
-// the proof needs them), the leaf's facts cached for the Reemit rule.
+// the proof needs them), the leaf's facts cached for the Reemit rule. A block with a result of a type gnolight has
+// no schema for cannot be proven, its message re-emitted into a later one: the type is alarmed by name when a
+// block is found carrying it, since a chain upgrade that adds an error or event type would otherwise only show as
+// Reemits (each paid in GNOT) for every message beside one. A block found unbuildable — so, or by resultsMatch —
+// stays so (G8: a block's results do not change): no refetch each tick, no second alarm.
 func (r *Relayer) leafAt(ctx context.Context, height int64, id [32]byte) (leafInfo, [][]byte, error) {
 	key := leafKey(height, id)
+	if li, ok := r.leafs[key]; ok && !li.buildable {
+		return li, nil, nil
+	}
 	rs, err := r.light.BlockResults(ctx, height)
 	if err != nil {
 		return leafInfo{}, nil, err
@@ -78,6 +87,10 @@ func (r *Relayer) leafAt(ctx context.Context, height int64, id [32]byte) (leafIn
 	if err != nil {
 		li := leafInfo{index: -1, buildable: false, why: err.Error()}
 		r.leafs[key] = li
+		var se *gnolight.SchemaError
+		if errors.As(err, &se) {
+			r.Alarm.Alarm("results:schema:"+se.TypeURL, fmt.Sprintf("block %d cannot be proven: %v — a type gnolight (errortypes.go, rpcjson.go) has no schema for, so every message dispatched beside one is re-emitted into a later block; add the type", height, err))
+		}
 		return li, nil, nil
 	}
 	idx := findLeaf(leaves, id, r.Cfg.Gno.Mailbox)
@@ -85,24 +98,51 @@ func (r *Relayer) leafAt(ctx context.Context, height int64, id [32]byte) (leafIn
 		return leafInfo{}, leaves, fmt.Errorf("block %d carries no Dispatch of %x", height, id[:8])
 	}
 	li := leafInfo{index: idx, bytes: len(leaves[idx]), buildable: true}
+	if was, ok := r.leafs[key]; ok && was.proven {
+		li.proven = true // a block's results do not change (G8): proven once, proven
+	}
 	r.leafs[key] = li
 	return li, leaves, nil
 }
 
-// findLeaf is the index of the results leaf whose Dispatch event (of the mailbox realm) names the id, −1 if none.
-func findLeaf(leaves [][]byte, id [32]byte, mailboxPkgPath string) int {
-	for i, leaf := range leaves {
-		ds, err := gnolight.DispatchEvents(leaf, mailboxPkgPath)
-		if err != nil {
-			continue
-		}
-		for _, d := range ds {
-			if d.ID == id {
-				return i
-			}
-		}
+// resultsMatch checks block eventHeight's rebuilt leaves against header H's LastResultsHash. Leaves that are not the
+// chain's — a string the node's JSON cannot carry (bytes that are not UTF-8 read as U+FFFD, and anyone's event or
+// panic message can hold them), a type whose fields changed, or a node serving other results — give no proof from
+// that block: it is unbuildable, as a block with a type of no schema is, so the message is re-emitted into a later
+// block rather than parked for ever, and the mismatch is alarmed (the mark stands: leafAt reads an unbuildable
+// block no more).
+func (r *Relayer) resultsMatch(eventHeight int64, id [32]byte, leaves [][]byte, H int64, root [32]byte) error {
+	got, _ := gnolight.SimpleHash(leaves)
+	if got == root {
+		return nil
 	}
-	return -1
+	why := fmt.Sprintf("block %d's re-encoded results hash to %x, header %d says %x", eventHeight, got, H, root)
+	r.leafs[leafKey(eventHeight, id)] = leafInfo{index: -1, buildable: false, why: why}
+	r.Alarm.Alarm("results:mismatch", why+": a string the node's JSON cannot carry exactly (bytes that are not UTF-8 read as U+FFFD), a type whose fields changed, or a node serving other results; the message is re-emitted into a later block")
+	return fmt.Errorf("%w: %s; a Reemit is asked", errNotYet, why)
+}
+
+// markProven records that a block's rebuilt leaves for id matched a trusted header's results root (E4-SF5): the
+// block is provable, and only then does a run of Reemits into unbuildable blocks end.
+func (r *Relayer) markProven(height int64, id [32]byte) {
+	key := leafKey(height, id)
+	if li, ok := r.leafs[key]; ok && li.buildable {
+		li.proven = true
+		r.leafs[key] = li
+	}
+}
+
+// leafProven says whether a block's leaves for id were proven against a trusted header's results root.
+func (r *Relayer) leafProven(height int64, id [32]byte) bool {
+	li, ok := r.leafs[leafKey(height, id)]
+	return ok && li.proven
+}
+
+// findLeaf is the leaf a proof of the id stages: the smallest that carries the id's Dispatch event of the mailbox
+// realm, the lowest index among equals, −1 if none (gnolight.DispatchLeaf: a stranger's Reemit of the message,
+// with junk events beside it, may come first in the block).
+func findLeaf(leaves [][]byte, id [32]byte, mailboxPkgPath string) int {
+	return gnolight.DispatchLeaf(leaves, id, mailboxPkgPath)
 }
 
 // msgKind is what a hlmailbox message is to the relayer: a route's token message, r/hlgov's decision to an
@@ -299,8 +339,18 @@ func (r *Relayer) deliverUnderLightClient(ctx context.Context) error {
 		}
 		msg, err := gnoMessage(ctx, r.gno, r.Cfg.Gno.Mailbox, m.Domain, n)
 		if err != nil {
-			return err
+			// a page the node cannot render is judged from its header: a stranger's message is walked past, and
+			// anything else holds the walk as before (E3-RL1, unreadable.go)
+			if !r.pastUnreadable(ctx, m.Domain, n, err) {
+				return err
+			}
+			r.state.Done[nk] = "other"
+			if advance {
+				r.state.GnoNext = n + 1
+			}
+			continue
 		}
+		r.Alarm.Clear(unreadableKey(n))
 		kind, rt := r.classify(msg)
 		if kind == kindOther {
 			r.state.Done[nk] = "other"
@@ -894,9 +944,10 @@ func (r *Relayer) deliverOne(ctx context.Context, cs *clientState, mailbox sol.M
 	if !ok {
 		return fmt.Errorf("header %d carries no LastResultsHash although block %d had transactions", H, eventHeight)
 	}
-	if got, _ := gnolight.SimpleHash(leaves); got != root {
-		return fmt.Errorf("block %d's re-encoded results hash to %x, header %d says %x (an event type this relayer encodes differently)", eventHeight, got, H, root)
+	if err := r.resultsMatch(eventHeight, msg.ID, leaves, H, root); err != nil {
+		return err
 	}
+	r.markProven(eventHeight, msg.ID)
 	proof, err := gnolight.Proof(leaves, li.index)
 	if err != nil {
 		return err

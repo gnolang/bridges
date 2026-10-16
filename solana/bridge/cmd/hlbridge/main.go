@@ -70,23 +70,12 @@ func main() {
 	if cmd != "signer" && *listen != "" && !loopback(*listen) {
 		log.Fatalf("%s: -listen %s is not a loopback address: the status is served to the machine's operator only (G16)", cmd, *listen)
 	}
+	// every server within the limits of serve.go (E3-GT5): the signer's public endpoint faces strangers
 	serveAt := func(addr string, h http.Handler, tls bool) func() {
-		if addr == "" {
-			return func() {}
+		if tls && *tlsCert != "" {
+			return serveOn(addr, h, *tlsCert, *tlsKey)
 		}
-		srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 5 * time.Second}
-		go func() {
-			var err error
-			if tls && *tlsCert != "" {
-				err = srv.ListenAndServeTLS(*tlsCert, *tlsKey)
-			} else {
-				err = srv.ListenAndServe()
-			}
-			if err != nil && err != http.ErrServerClosed {
-				log.Fatal(err)
-			}
-		}()
-		return func() { _ = srv.Close() }
+		return serveOn(addr, h, "", "")
 	}
 	serve := func(h http.Handler) func() { return serveAt(*listen, h, true) }
 	switch cmd {

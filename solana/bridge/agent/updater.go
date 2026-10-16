@@ -62,6 +62,15 @@ type Updater struct {
 	state  updaterState
 	status map[string]any
 	box    statusBox
+	// newest is the newest message's nonce and height, read once (a message never changes; a page that cannot be
+	// rendered cost the node a query at its gas limit every tick, E3-RL1)
+	newest struct {
+		n uint32
+		h int64
+	}
+	// newestErrSince is when the newest message's height first went unread (E4-SF4: the tick weighs its other reasons
+	// all the same; updater:newest alarms once it has stood two minutes); zero while it reads.
+	newestErrSince time.Time
 }
 
 type updaterState struct {
@@ -110,7 +119,9 @@ func (u *Updater) Run(ctx context.Context) error {
 	u.sol = sol.NewClient(u.Cfg.Solana.RPCs[0], u.Key)
 	u.client = u.Cfg.Programs().LightClient()
 	log.Printf("updater: key %s, client %s, node %s, a header every %s", u.Key.PublicKey(), u.client.Program, u.Cfg.Gno.RPC, u.Interval)
+	var qc qevalCheck // E4-SF6: at the start and hourly
 	for {
+		qc.run(ctx, u.gno, u.Cfg.Gno.Mailbox, u.Alarm, u.now())
 		if err := u.tick(ctx); err != nil {
 			log.Printf("updater: %v", err)
 			u.set("lastErr", err.Error())
@@ -185,7 +196,15 @@ func (u *Updater) tick(ctx context.Context) error {
 	}
 	waits, err := u.dispatchWaits(ctx, T)
 	if err != nil {
-		return err
+		// the newest message's height unread — its page and the mailbox's record alike: a node that refuses or limits
+		// vm/qeval, a backend without the message yet, a timeout. The tick returned here, so no header went at all while
+		// it lasted, the announcing header of a validator change included (E4-SF4): it weighs the other reasons all the
+		// same, and the last newest height it read (a message of ours dispatched before it still waits on it)
+		waits = u.newest.h != 0 && u.newest.h+1 > T
+		u.newestUnread(err)
+	} else {
+		u.newestErrSince = time.Time{}
+		u.Alarm.Clear("updater:newest")
 	}
 	reason := ""
 	switch {
@@ -209,6 +228,18 @@ func (u *Updater) tick(ctx context.Context) error {
 	u.state.LastSubmit, u.state.LastSubmitAt, u.state.Submits = plan.Target, now, u.state.Submits+1
 	log.Printf("updater: header %d accepted (%s)", plan.Target, reason)
 	return nil
+}
+
+// newestUnread logs a tick whose newest message's height went unread, alarmed (updater:newest) once it has stood two
+// minutes: a dispatch of ours may wait on a header the tick cannot see it needs, until the interval's.
+func (u *Updater) newestUnread(err error) {
+	log.Printf("updater: the newest message's height: %v (the tick weighs the other reasons)", err)
+	if u.newestErrSince.IsZero() {
+		u.newestErrSince = u.now()
+	}
+	if since := u.now().Sub(u.newestErrSince); since >= cutFailAfter {
+		u.Alarm.Alarm("updater:newest", fmt.Sprintf("hlmailbox's newest message's height has not read for %s (%v): a header for it goes only with the announcing header, a validator-set event or the interval's (E4-SF4)", since.Round(time.Second), err))
+	}
 }
 
 func orNone(s string) string {
@@ -238,11 +269,34 @@ func (u *Updater) dispatchWaits(ctx context.Context, trusted int64) (bool, error
 	if mb.Count == 0 {
 		return false, nil
 	}
-	msg, err := gnoMessage(ctx, u.gno, u.Cfg.Gno.Mailbox, mb.Domain, mb.Count-1)
-	if err != nil {
-		return false, err
+	n := mb.Count - 1
+	if u.newest.h == 0 || u.newest.n != n {
+		h, err := u.messageHeight(ctx, mb.Domain, n)
+		if err != nil {
+			return false, err
+		}
+		u.newest.n, u.newest.h = n, h
 	}
-	return msg.Height+1 > trusted, nil
+	return u.newest.h+1 > trusted, nil
+}
+
+// messageHeight is the block message n was dispatched in: from its page, or — a page the node cannot render, a
+// stranger's big message as the newest failed every tick, so no header went at all (E3-RL1) — from the
+// mailbox's record.
+func (u *Updater) messageHeight(ctx context.Context, domain, n uint32) (int64, error) {
+	msg, err := gnoMessage(ctx, u.gno, u.Cfg.Gno.Mailbox, domain, n)
+	if err == nil {
+		return msg.Height, nil
+	}
+	hr, ok := u.gno.(headerReader)
+	if !ok {
+		return 0, err
+	}
+	_, h, _, herr := msgRecord(ctx, hr, u.Cfg.Gno.Mailbox, domain, n)
+	if herr != nil {
+		return 0, fmt.Errorf("%w (nor its record: %v)", err, herr)
+	}
+	return h, nil
 }
 
 // scanEvents looks at the blocks since the last scan (bounded) for r/sys/validators' events.

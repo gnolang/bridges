@@ -76,26 +76,35 @@ func (p pair) GetAccountInfoWithOpts(ctx context.Context, k solana.PublicKey, op
 }
 
 func (p pair) GetMultipleAccountsWithOpts(ctx context.Context, keys []solana.PublicKey, opts *rpc.GetMultipleAccountsOpts) (*rpc.GetMultipleAccountsResult, error) {
-	ra, err := sol.GetMultipleChunked(ctx, p.a, keys, opts) // ten at a time: a public provider blocks more
+	res, _, err := p.GetMultipleAccountsAt(ctx, keys, opts)
+	return res, err
+}
+
+// GetMultipleAccountsAt is GetMultipleAccountsWithOpts with the slot each account was read at: the lower of the two
+// providers' answers for the batch that held it (sol.GetMultipleChunkedAt: ten at a time, as a public provider
+// allows).
+func (p pair) GetMultipleAccountsAt(ctx context.Context, keys []solana.PublicKey, opts *rpc.GetMultipleAccountsOpts) (*rpc.GetMultipleAccountsResult, []uint64, error) {
+	ra, sa, err := sol.GetMultipleChunkedAt(ctx, p.a, keys, opts)
 	if err != nil {
-		return nil, fmt.Errorf("provider 1: %w", err)
+		return nil, nil, fmt.Errorf("provider 1: %w", err)
 	}
-	rb, err := sol.GetMultipleChunked(ctx, p.b, keys, opts)
+	rb, sb, err := sol.GetMultipleChunkedAt(ctx, p.b, keys, opts)
 	if err != nil {
-		return nil, fmt.Errorf("provider 2: %w", err)
+		return nil, nil, fmt.Errorf("provider 2: %w", err)
 	}
-	if len(ra.Value) != len(rb.Value) {
-		return nil, fmt.Errorf("%w on %d accounts (%d and %d answered)", errProviders, len(keys), len(ra.Value), len(rb.Value))
+	if len(ra.Value) != len(rb.Value) || len(sa) != len(sb) {
+		return nil, nil, fmt.Errorf("%w on %d accounts (%d and %d answered)", errProviders, len(keys), len(ra.Value), len(rb.Value))
 	}
 	for i := range ra.Value {
 		if !sameAccount(ra.Value[i], rb.Value[i]) {
-			return nil, fmt.Errorf("%w on account %s", errProviders, keys[i])
+			return nil, nil, fmt.Errorf("%w on account %s", errProviders, keys[i])
 		}
+		sa[i] = min(sa[i], sb[i])
 	}
 	if rb.Context.Slot < ra.Context.Slot {
 		ra.Context.Slot = rb.Context.Slot
 	}
-	return ra, nil
+	return ra, sa, nil
 }
 
 // GetProgramAccountsWithOpts lists a program's accounts as both providers give them: the same keys with the same

@@ -14,20 +14,20 @@
 </header>
 <main>
 <h2>Fees</h2>
-<p>A flat fee on top of the amount when you send from gno.land: <span id="fees">5 GNOT or 100 BUBBLE at launch</span>. The same fee is taken from a burn's claim as its first installment when it is paid, so a burn below the fee pays nobody: it goes to a sweep queue that only a governance decision pays out. The fee realm pays the machines that run the bridge; governance sets the fees above a floor. Gas is yours on both sides: the gno.land call is sent with the gas the node asks, the Solana burn pays its own rent for the record it writes.</p>
+<p>A flat fee on top of the amount when you send from gno.land: <span id="fees">5 GNOT or 100 BUBBLE at launch</span>. The same fee is taken from a burn's claim as its first installment when it is paid, so a burn below the fee pays nobody: it goes to a sweep queue that only a governance decision pays out. The fee realm pays the machines that run the bridge; governance sets the fees above a floor. Gas is yours on both sides: the gno.land call is sent with the gas the node asks, <span id="fargas">the Solana burn pays its own rent for the record it writes</span>.</p>
 
 <h2>Minimums and maximums</h2>
 <p>From gno.land: at least <span id="min">10 GNOT or 200 BUBBLE</span>, at most <span id="max">25,000</span> per transfer. To gno.land there is no minimum (a burn is final) and no maximum: a larger burn is credited whole and paid in installments.</p>
 
 <h2>Delays</h2>
-<p><b>gno.land → Solana:</b> minutes. Your send waits for a gno.land header past it to reach Solana and for the relayer's proof; after a validator change on gno.land every send waits seven days (the quarantine).</p>
-<p><b>Solana → gno.land:</b> the burn is credited as a claim within minutes, once two of the three signer machines confirm it. The claim is then paid under the meters: a tenth of the lock a day for everyone, a quarter of that for any one recipient, the fee first. A claim inside its meter is paid at once; a claim above it is <b>paid in installments</b> over the following days, oldest first, taking recipients in turns, so one large claim delays only its own recipient. The meters start empty at launch and after an unpause.</p>
+<p id="delayout"><b>gno.land → Solana:</b> minutes. Your send waits for a gno.land header past it to reach Solana and for the relayer's proof; after a validator change on gno.land every send waits seven days (the quarantine).</p>
+<p><b id="delayinhead">Solana → gno.land:</b> <span id="delayin">the burn is credited as a claim within minutes, once two of the three signer machines confirm it.</span> The claim is then paid under the meters: a tenth of the lock a day for everyone, a quarter of that for any one recipient, the fee first. A claim inside its meter is paid at once; a claim above it is <b>paid in installments</b> over the following days, oldest first, taking recipients in turns, so one large claim delays only its own recipient. The meters start empty at launch and after an unpause.</p>
 
 <h2>If a transfer is late</h2>
-<p>Nothing to do. A send that cannot be delivered is parked and retried every hour; a paused bridge delivers when the flag clears; a burn's claim waits its turn. Track it on the <a href="/bridge">Bridge</a> page by its message id, your gno.land transaction hash or your Solana signature. If the <a href="/status">Status</a> page shows a flag or a hold, the pause is on purpose and ends when the guardians lift it or governance replaces them. A send is never lost: it waits in the lock, and governance can refund one that a migration stranded.</p>
+<p>Nothing to do. A send that cannot be delivered is parked and retried every hour; a paused bridge delivers when the flag clears; a burn's claim waits its turn. Track it on the <a href="/bridge" id="bridgelink">Bridge</a> page by its message id, your gno.land transaction hash or <span id="farref">your Solana signature</span>. If the <a href="/status">Status</a> page shows a flag or a hold, the pause is on purpose and ends when the guardians lift it or governance replaces them. A send is never lost: it waits in the lock, and governance can refund one that a migration stranded.</p>
 
-<h2>Adding GNOT or BUBBLE to a Solana wallet</h2>
-<p>Most wallets show the token by themselves once some arrives. To add it by hand, or to check that what you hold is the bridge's, use its address on Solana. Only the token at this address is backed by the lock on gno.land; anything else with the same name is not.</p>
+<h2 id="addhead">Adding GNOT or BUBBLE to a Solana wallet</h2>
+<p><span id="addhow">Most wallets show the token by themselves once some arrives. To add it by hand, or to check that what you hold is the bridge's, use its address on Solana.</span> Only the token at this address is backed by the lock on gno.land; anything else with the same name is not.</p>
 <dl id="tokenaddrs" class="addrs"><dt class="mute">reading…</dt></dl>
 
 <h2>Pages on gno.land</h2>

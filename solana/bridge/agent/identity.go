@@ -96,6 +96,9 @@ type Cut struct {
 	// CreditedAfterSlot are burns credited in the gno state whose dispatch slot is above SolSlot: the snapshot
 	// predates them, so the supply still counts what gno.land already owes.
 	CreditedAfterSlot []string
+	// Unplaced says why credits in the gno state that no dispatch index holds yet may be burns above the snapshot's
+	// slot ("" when there are none, or they are older than the snapshot: E4-GT1, creditBook).
+	Unplaced string
 }
 
 // Holds says whether the order holds: the gno block is after the snapshot and no burn credited in it was
@@ -106,6 +109,9 @@ func (c Cut) Holds() (bool, string) {
 	}
 	if len(c.CreditedAfterSlot) > 0 {
 		return false, fmt.Sprintf("%d burns credited at height %d were dispatched after slot %d: %s", len(c.CreditedAfterSlot), c.GnoHeight, c.SolSlot, strings.Join(c.CreditedAfterSlot, ","))
+	}
+	if c.Unplaced != "" {
+		return false, c.Unplaced
 	}
 	return true, ""
 }

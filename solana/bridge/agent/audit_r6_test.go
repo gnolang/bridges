@@ -251,11 +251,14 @@ func TestM1iShapesAreRead(t *testing.T) {
 func TestCheckpointedIndexTrustsEarlierClaims(t *testing.T) {
 	f := newFake()
 	m := testMonitor(f)
+	m.own = &doneNode{fakeChain: f} // the credits are found by id in hlmailbox's done tree (E4-RL1)
 	ctx := context.Background()
 	mb := mailboxWith()
 	m.seat = 5
 	early, late := strings.Repeat("aa", 32), strings.Repeat("bb", 32)
-	f.renders[testRoute+":claims/0"] = fmt.Sprintf(`[{"id":%q,"to":"g1alice","amount":200,"paid":0,"state":"open","by":"signers","at":1,"height":90,"seq":1},{"id":%q,"to":"g1bob","amount":300,"paid":0,"state":"open","by":"signers","at":1,"height":150,"seq":2}]`, early, late)
+	f.renders[testMailbox+":delivered/"+early] = "90"
+	f.renders[testMailbox+":delivered/"+late] = "150"
+	mb.Delivered = 2
 	f.renders[testRoute+":claim/"+early] = fmt.Sprintf(`{"id":%q,"to":"g1alice","amount":200,"paid":0,"state":"open","by":"signers","at":1,"height":90,"seq":1}`, early)
 	f.renders[testRoute+":claim/"+late] = fmt.Sprintf(`{"id":%q,"to":"g1bob","amount":300,"paid":0,"state":"open","by":"signers","at":1,"height":150,"seq":2}`, late)
 	m.state.IndexFromHeight, m.state.IndexSeeded = 100, false

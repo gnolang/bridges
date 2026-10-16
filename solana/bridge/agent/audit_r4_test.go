@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -158,7 +157,7 @@ func TestRefundedSendNeverDelivers(t *testing.T) {
 	m := testMonitor(f)
 	m.state.Sends = sends
 	m.state.LastDelivery = now.Unix()
-	m.stalls()
+	m.stalls(nil)
 	if m.status.Waiting["gno→solana BUBBLE"] != 1 {
 		t.Fatalf("the refunded send counted as waiting: %v", m.status.Waiting)
 	}
@@ -813,99 +812,34 @@ func TestForgedCreditWaitsASecondPoll(t *testing.T) {
 	}
 }
 
-// G34: the claims walk reads ten pages from where the last poll stopped and wraps at the end, so every waiting
-// claim is visited within ⌈N/1,000⌉ polls; a short walk from 0 is complete.
-func TestClaimsWalkResumesAndWraps(t *testing.T) {
-	f := newFake()
-	ctx := context.Background()
-	const n = 1_250
-	page := func(from int) string {
-		var parts []string
-		for i := from; i < from+claimsPage && i < n; i++ {
-			parts = append(parts, fmt.Sprintf(`{"id":"%04x","to":"g1","amount":1,"paid":0,"state":"open","by":"signers","at":1,"height":1,"seq":%d}`, i, i))
-		}
-		return "[" + strings.Join(parts, ",") + "]"
-	}
-	for from := 0; from <= n; from += claimsPage {
-		f.renders[testRoute+":claims/"+strconv.Itoa(from)] = page(from)
-	}
-	visited := map[string]int{}
-	from := 0
-	for poll := 1; poll <= 2; poll++ {
-		claims, next, complete, err := openClaims(ctx, f, testRoute, 100, from)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, c := range claims {
-			visited[c.ID] = poll
-		}
-		if poll == 1 && (len(claims) != 1_000 || next != 1_000 || complete) {
-			t.Fatalf("the first poll: %d claims, next %d, complete %v", len(claims), next, complete)
-		}
-		if poll == 2 && (len(claims) != 950 || next != 700 || complete) {
-			t.Fatalf("the second poll: %d claims, next %d, complete %v (the 250 past 1,000 in three pages, then seven pages from 0)", len(claims), next, complete)
-		}
-		from = next
-	}
-	if len(visited) != n {
-		t.Fatalf("%d of %d claims visited within two polls", len(visited), n)
-	}
-	for i := 1_000; i < n; i++ {
-		if visited[fmt.Sprintf("%04x", i)] != 2 {
-			t.Fatalf("claim %d behind the first thousand was not visited on the second poll", i)
-		}
-	}
-	// a short list from 0 is read whole
-	for from := 0; from <= n; from += claimsPage {
-		delete(f.renders, testRoute+":claims/"+strconv.Itoa(from))
-	}
-	f.renders[testRoute+":claims/0"] = page(1_200)
-	claims, next, complete, err := openClaims(ctx, f, testRoute, 100, 0)
-	if err != nil || len(claims) != 50 || next != 0 || !complete {
-		t.Fatalf("a short list: %d %d %v %v", len(claims), next, complete, err)
-	}
-	// the monitor keeps the offset per realm
-	m := testMonitor(f)
-	m.state.Index["0000"] = &dispatchRec{Symbol: "BUBBLE"}
-	f.renders[testRoute+":claims/0"] = page(0)
-	f.renders[testRoute+":claims/100"] = "[]"
-	if err := m.unindexedCredits(ctx, mailboxWith(), 100); err != nil {
-		t.Fatal(err)
-	}
-	if m.state.ClaimsFrom[testRoute] != 0 {
-		t.Fatalf("the offset after a complete walk: %d", m.state.ClaimsFrom[testRoute])
-	}
-}
-
 // G35: the alarms that outlived their cure end with it — an unindexed credit's flag alarm once the claim is
 // voided or gone, a diverted credit's likewise, a Retired copy's once the decision is re-dispatched — and the
 // own node's lag is raised where it is cleared.
 func TestAlarmsClearWithTheirCure(t *testing.T) {
 	f := newFake()
 	m := testMonitor(f)
+	m.own = &doneNode{fakeChain: f} // the credits are found by id in hlmailbox's done tree (E4-RL1)
 	ctx := context.Background()
 	mb := mailboxWith()
 	m.seat = 5
-	claim := func(id, state string) string {
-		return `{"id":"` + id + `","to":"g1eve","amount":500,"paid":0,"state":"` + state + `","by":"signers","at":1,"height":90,"seq":1}`
-	}
-	f.renders[testRoute+":claims/0"] = "[" + claim("ee", "open") + "]"
-	f.renders[testRoute+":claim/ee"] = claim("ee", "open")
+	ee := strings.Repeat("ee", 32)
+	f.renders[testMailbox+":delivered/"+ee] = "90"
+	mb.Delivered = 1
+	f.renders[testRoute+":claim/"+ee] = s5ClaimJSON(ee, "g1eve", 500, "open", "signers", 90)
 	_ = m.unindexedCredits(ctx, mb, 100)
 	now := m.now().Add(m.Every)
 	m.now = func() time.Time { return now }
 	_ = m.unindexedCredits(ctx, mb, 101)
-	if _, ok := m.Alarm.Standing()["credit:unindexed:ee:flag"]; !ok {
+	if _, ok := m.Alarm.Standing()["credit:unindexed:"+ee+":flag"]; !ok {
 		t.Fatalf("no flag alarm for the unindexed credit: %v", m.Alarm.Standing())
 	}
-	// GovDAO voids it: it leaves the waiting list; the alarm and the sighting go
-	f.renders[testRoute+":claims/0"] = "[]"
-	f.renders[testRoute+":claim/ee"] = claim("ee", "forged")
+	// GovDAO voids it: it waits no more; the alarm and the sighting go
+	f.renders[testRoute+":claim/"+ee] = s5ClaimJSON(ee, "g1eve", 500, "forged", "signers", 90)
 	_ = m.unindexedCredits(ctx, mb, 102)
-	if _, ok := m.Alarm.Standing()["credit:unindexed:ee:flag"]; ok {
+	if _, ok := m.Alarm.Standing()["credit:unindexed:"+ee+":flag"]; ok {
 		t.Fatal("the flag alarm stands after the void")
 	}
-	if _, ok := m.seen["credit:unindexed:ee"]; ok {
+	if _, ok := m.seen["credit:unindexed:"+ee]; ok {
 		t.Fatal("the sighting stands after the void")
 	}
 	// a diverted credit: flagged, then cleared once the claim is voided

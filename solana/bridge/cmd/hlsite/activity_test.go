@@ -129,17 +129,17 @@ func TestActivity(t *testing.T) {
 		t.Errorf("the history's send, step by step: %+v proof %+v", w, a.Last.Out.Proof)
 	}
 	// the send: its header, its proof, its mint
-	_ = s.world.step("out")
+	_ = s.world.step("", "out")
 	a = activity(t, s)
 	if e := eventByKey(a, "header:1291"); e == nil || e.Time != start || a.Trusted != 1291 {
 		t.Errorf("the header past the send: %+v, trusted %d", e, a.Trusted)
 	}
-	_ = s.world.step("out")
+	_ = s.world.step("", "out")
 	a = activity(t, s)
 	if a.Last.Out.ID != mockPID {
 		t.Errorf("a send not yet minted is not the replay's: %s", a.Last.Out.ID)
 	}
-	_ = s.world.step("out")
+	_ = s.world.step("", "out")
 	a = activity(t, s)
 	if e := eventByKey(a, "mint:"+mockOutID); e == nil || e.Proof == nil || !e.Proof.Ring || e.Proof.Height != outHeight+1 || e.Proof.Total != 3 || e.Amount != 10*one || a.Processed != 3 {
 		t.Errorf("the mint: %+v, processed %d", e, a.Processed)
@@ -149,28 +149,28 @@ func TestActivity(t *testing.T) {
 	}
 	// the burn: the signers light one by one, then the credit, half paid, paid
 	for i, want := range []string{"vouching,up,up", "vouching,vouching,up"} {
-		_ = s.world.step("in")
+		_ = s.world.step("", "in")
 		a = activity(t, s)
 		if lampStates(a.Signers) != want || fmt.Sprint(eventByKey(a, "burn:"+mockInID).Signers) != fmt.Sprint(vouched(a.Signers)) {
 			t.Errorf("in stage %d: lamps %s, the burn's signers %v", i+1, lampStates(a.Signers), eventByKey(a, "burn:"+mockInID).Signers)
 		}
 	}
-	_ = s.world.step("in")
+	_ = s.world.step("", "in")
 	a = activity(t, s)
 	if e := eventByKey(a, "credit:"+mockInID); e == nil || e.Height != 1300 || e.Amount != 200*one || a.Last.In.ID != mockInID || doneKeys(a.Last.In.Walk) != "burn vouch deliver credit" {
 		t.Errorf("the credit: %+v, the replay's burn %s %s", e, a.Last.In.ID, doneKeys(a.Last.In.Walk))
 	}
-	_ = s.world.step("in")
+	_ = s.world.step("", "in")
 	a = activity(t, s)
 	if e := eventByKey(a, "payout:"+mockInID+":100000000"); e == nil || !e.Exact || e.Full {
 		t.Errorf("half paid, seen by this reader: %+v", e)
 	}
-	_ = s.world.step("in")
+	_ = s.world.step("", "in")
 	a = activity(t, s)
 	if e := eventByKey(a, "payout:"+mockInID+":200000000"); e == nil || !e.Full || doneKeys(a.Last.In.Walk) != "burn vouch deliver credit pay" {
 		t.Errorf("paid in full: %+v", e)
 	}
-	_ = s.world.step("down")
+	_ = s.world.step("", "down")
 	if a = activity(t, s); lampStates(a.Signers) != "vouching,vouching,down" {
 		t.Errorf("signer 3 down: %s", lampStates(a.Signers))
 	}
@@ -299,7 +299,7 @@ type fakeProber struct {
 	asked int
 }
 
-func (p *fakeProber) Probe(ctx context.Context, base string, nonce uint64) (int, error) {
+func (p *fakeProber) Probe(ctx context.Context, base, lane string, nonce uint64) (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.asked++

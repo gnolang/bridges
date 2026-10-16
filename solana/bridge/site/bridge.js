@@ -1,19 +1,27 @@
 // bridge.gno.world — the Bridge page: a chain, a direction, a token, an amount, a recipient; the wallet signs;
 // the transfer is tracked here until it lands, step by step (walk.js), each step shown on the machine below
-// (machine.js, compact), which runs live between transfers.
-import { api, chains, el, fmt, whole, parseAmount, nav, pick, short, setLine, tokenAddress } from './common.js';
-import { adena, solanaWallet, isSolanaAddress, isGnoAddress, b64decode } from './wallets.js';
+// (machine.js, compact), which runs live between transfers; under the form, the chosen token's address on the other
+// chain. On Ethereum (E-M4) the way out names an Ethereum recipient (its EIP-55 checksum and ER10's refusals checked
+// before Adena is asked: an address in one case is refused, never completed) and the way back is the call the site
+// builds, sent by an EIP-1193 wallet on the right chain.
+import { api, chains, el, fmt, whole, parseAmount, nav, pick, short, setLine, kindOf, words, tokenAddress } from './common.js';
+import { adena, solanaWallet, ethWallet, isSolanaAddress, isGnoAddress, b64decode } from './wallets.js';
+import { recipient as ethRecipient } from './eth.js';
 import { createMachine } from './machine.js';
 import { render as renderWalk, tickEta } from './walk.js';
 
 const $ = (id) => document.getElementById(id);
-const state = { c: null, chain: null, dir: 'out', token: null, status: null, gnoAddr: '', solAddr: '', poll: null, machine: null, tr: null, shown: '' };
+const state = { c: null, chain: null, kind: 'solana', dir: 'out', token: null, status: null, gnoAddr: '', solAddr: '', ethAddr: '', poll: null, machine: null, tr: null, shown: '' };
+
+// farWallet is the chain's own wallet: Solana's, or Ethereum's (E-M4)
+const farWallet = () => (state.kind === 'ethereum' ? ethWallet : solanaWallet);
 
 async function main() {
   nav('/bridge');
   state.c = await chains;
   state.chain = await pick();
-  state.machine = createMachine($('machine'), { compact: true, chain: state.chain.name, onCaption: (t) => { $('caption').textContent = t; } });
+  state.kind = kindOf(state.chain);
+  state.machine = createMachine($('machine'), { compact: true, chain: state.chain.name, kind: state.kind, onCaption: (t) => { $('caption').textContent = t; } });
   const live = async () => { try { state.machine.update(await api('/api/' + state.chain.id + '/activity')); } catch (e) { $('caption').textContent = 'the bridge could not be read: ' + e.message; } };
   live();
   setInterval(live, 10000);
@@ -31,6 +39,12 @@ async function main() {
   $('send').onclick = () => send().catch((e) => setLine('result', e.message, 'err'));
   $('connect').onclick = () => connect().catch((e) => setLine('result', e.message, 'err'));
   $('trackgo').onclick = () => { const ref = $('trackref').value.trim(); if (ref) track(ref); };
+  $('trackref').placeholder = 'a message id, a gno.land transaction hash or ' + (state.kind === 'ethereum' ? 'an ' : 'a ') + state.chain.name + ' ' + words(state.chain).ref;
+  if (state.kind === 'ethereum' && ethWallet.wallets().length > 1) { // more than one wallet answered: the reader picks
+    const pickw = el('select', { id: 'ethwallet', 'aria-label': 'Ethereum wallet' }, ...ethWallet.wallets().map((n, i) => el('option', { value: i }, n)));
+    pickw.onchange = () => { ethWallet.choose(Number(pickw.value)); state.ethAddr = ''; setDir(state.dir); };
+    $('connect').before(pickw);
+  }
   $('trackref').onkeydown = (ev) => { if (ev.key === 'Enter') $('trackgo').click(); };
   const ref = new URLSearchParams(location.search).get('track');
   if (ref) { $('trackref').value = ref; track(ref); }
@@ -50,11 +64,12 @@ function setDir(dir) {
   $('out').textContent = 'gno.land → ' + state.chain.name;
   $('in').textContent = state.chain.name + ' → gno.land';
   if (dir === 'out') {
-    to.placeholder = state.chain.name + ' address of the recipient';
+    to.placeholder = state.chain.name + ' address of the recipient' + (state.kind === 'ethereum' ? ' (0x…)' : '');
     $('connect').textContent = state.gnoAddr ? 'Adena: ' + short(state.gnoAddr, 6) : 'Connect Adena';
   } else {
     to.placeholder = 'gno.land address of the recipient (g1…)';
-    $('connect').textContent = state.solAddr ? solanaWallet.name() + ': ' + short(state.solAddr, 6) : 'Connect ' + (solanaWallet.found() ? solanaWallet.name() : 'a Solana wallet');
+    const w = farWallet(), addr = state.kind === 'ethereum' ? state.ethAddr : state.solAddr;
+    $('connect').textContent = addr ? w.name() + ': ' + short(addr, 6) : 'Connect ' + (w.found() ? w.name() : state.kind === 'ethereum' ? 'an Ethereum wallet' : 'a Solana wallet');
   }
   setLine('result', '');
   fees();
@@ -99,11 +114,14 @@ async function connect() {
     const acc = await adena.connect();
     if (acc.chainId && acc.chainId !== state.c.gno.chainId) setLine('result', `Adena is on ${acc.chainId}; this bridge is on ${state.c.gno.chainId}: switch the network in Adena`, 'err');
     state.gnoAddr = acc.address;
+  } else if (state.kind === 'ethereum') {
+    state.ethAddr = await ethWallet.connect();
   } else {
     state.solAddr = await solanaWallet.connect();
   }
   setDir(state.dir);
 }
+
 
 async function send() {
   setLine('result', '');
@@ -122,7 +140,11 @@ async function send() {
 // sendOut: TransferRemote on the route realm through Adena, with the exact envelope the realm requires —
 // GNOT sends amount + fee in ugnot with the call; BUBBLE approves amount + fee to the route first.
 async function sendOut(t, st, amount, to) {
-  if (!isSolanaAddress(to)) throw new Error('the recipient must be a ' + state.chain.name + ' address (base58)');
+  if (state.kind === 'ethereum') {
+    const r = ethRecipient(to, state.chain);
+    if (!r.ok) throw new Error(r.why);
+    to = r.addr;
+  } else if (!isSolanaAddress(to)) throw new Error('the recipient must be a ' + state.chain.name + ' address (base58)');
   if (amount < BigInt(st.minimum)) throw new Error(`at least ${fmt(st.minimum)} ${t.symbol}`);
   if (amount > BigInt(st.maximum)) throw new Error(`at most ${fmt(st.maximum)} ${t.symbol} per transfer`);
   if (!state.gnoAddr) await connect();
@@ -146,6 +168,7 @@ async function sendOut(t, st, amount, to) {
 async function sendIn(t, st, amount, to) {
   if (!isGnoAddress(to)) throw new Error('the recipient must be a gno.land address (g1…)');
   if (amount <= BigInt(st.fee)) throw new Error(`more than the fee of ${fmt(st.fee)} ${t.symbol}: a burn under it is swept, paid only by a governance decision`);
+  if (state.kind === 'ethereum') return sendInEth(t, amount, to);
   if (!state.solAddr) await connect();
   setLine('result', 'building the transaction…');
   const built = await api('/api/' + state.chain.id + '/burn-tx', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: t.symbol, sender: state.solAddr, recipient: to, amount: amount.toString() }) });
@@ -154,6 +177,29 @@ async function sendIn(t, st, amount, to) {
   setLine('result', `burned: ${fmt(amount)} ${t.symbol} toward ${to}; tracking ${short(sig)}`, 'ok');
   $('trackref').value = sig;
   track(sig);
+}
+
+// sendInEth: the backend builds the call (the token's transferRemote toward gno.land, with the native value its
+// quote asks: the mailbox's protocol fee); the wallet is put on the chain, signs and sends it through its own
+// provider; the transaction hash is tracked until the claim is paid.
+async function sendInEth(t, amount, to) {
+  if (!state.ethAddr) await connect();
+  setLine('result', 'building the transaction…');
+  const built = await api('/api/' + state.chain.id + '/burn-tx', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: t.symbol, sender: state.ethAddr, recipient: to, amount: amount.toString() }) });
+  setLine('result', 'checking the wallet is on ' + state.chain.name + '…');
+  await ethWallet.onChain(built.chainId);
+  setLine('result', 'waiting for the wallet…');
+  const hash = await ethWallet.send(built);
+  const fee = BigInt(built.value || '0x0');
+  setLine('result', `burned: ${fmt(amount)} ${t.symbol} toward ${to}` + (fee ? ` (with the mailbox's fee of ${eth(fee)} ETH)` : '') + `; tracking ${short(hash)}`, 'ok');
+  $('trackref').value = hash;
+  track(hash);
+}
+
+// eth shows wei as ETH.
+function eth(wei) {
+  const s = wei.toString().padStart(19, '0');
+  return (s.slice(0, -18).replace(/^0+(?=\d)/, '') + '.' + s.slice(-18)).replace(/\.?0+$/, '');
 }
 
 // track polls one transfer every five seconds and walks through its steps until it lands; each step newly done
@@ -183,7 +229,7 @@ function track(ref) {
     if (!tr.walk || !tr.walk.length) { // a refused transaction: no steps to walk
       box.replaceChildren(head, idline);
     } else {
-      const { list } = renderWalk(tr, state.chain.name, show);
+      const { list } = renderWalk(tr, state.chain.name, show, state.kind);
       box.replaceChildren(head, list, idline);
       // the newest step done plays on the machine, once
       const done = tr.walk.filter((w) => w.done).map((w) => w.key);

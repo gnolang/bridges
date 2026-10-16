@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -247,8 +248,45 @@ type PendingDecision struct {
 }
 
 // ReadPending lists every pending decision of every realm with a ledger, by realm then id; extra names the
-// realms beyond the configured ones (the lines' successors, G48).
+// realms beyond the configured ones (the lines' successors, G48). Each realm's ledger is read whole
+// (Render("decisions.json")): the Solana deployment's realms have no pages; the Ethereum deployment's are read by
+// ReadPendingByPage.
 func ReadPending(ctx context.Context, g gnoReader, cfg *Config, height int64, extra ...string) ([]PendingDecision, error) {
+	var out []PendingDecision
+	for _, realm := range ledgerRealms(cfg, extra) {
+		ds, err := decisionsAt(ctx, g, realm, height)
+		if err != nil {
+			return nil, err
+		}
+		out = appendPending(out, realm, ds)
+	}
+	return out, nil
+}
+
+// ReadPendingByPage is ReadPending for realms that render their ledger by page — the Ethereum deployment's (eth
+// PLAN.md §5.3, §13: "decisions.json/<from>", the realms' DecisionsJSONPage) — so no read grows with a ledger: the
+// whole decisions.json of a realm past ≈360 decisions is out of vm/qrender's gas (E3-RL4), and read whole it blanked
+// the site's every pending decision (E4-TL7). Each realm is read page by page from decision 1 until an empty page, as
+// the Ethereum machines read it (eth/bridge/gnoside.DecisionsFrom); a realm whose first page renders "unknown path"
+// has no pages and is read whole. The realms that read are listed; each that does not is one error of the joined
+// error returned beside them (errors.Join).
+func ReadPendingByPage(ctx context.Context, g gnoReader, cfg *Config, height int64, extra ...string) ([]PendingDecision, error) {
+	var out []PendingDecision
+	var errs []error
+	for _, realm := range ledgerRealms(cfg, extra) {
+		ds, err := decisionsByPage(ctx, g, realm, height)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", realm, err))
+			continue
+		}
+		out = appendPending(out, realm, ds)
+	}
+	return out, errors.Join(errs...)
+}
+
+// ledgerRealms are the realms with a ledger, each once: the mailbox, the routes, the fees realm, r/hlgov, then extra
+// (the lines' successors, G48).
+func ledgerRealms(cfg *Config, extra []string) []string {
 	realms := []string{cfg.Gno.Mailbox}
 	for _, r := range cfg.Routes {
 		realms = append(realms, r.Gno)
@@ -269,19 +307,59 @@ func ReadPending(ctx context.Context, g gnoReader, cfg *Config, height int64, ex
 			realms = append(realms, p)
 		}
 	}
-	var out []PendingDecision
-	for _, realm := range realms {
-		ds, err := decisionsAt(ctx, g, realm, height)
+	return realms
+}
+
+func appendPending(out []PendingDecision, realm string, ds []decisionJSON) []PendingDecision {
+	for _, d := range ds {
+		if d.State == "pending" {
+			out = append(out, PendingDecision{Realm: realm, ID: d.ID, Kind: d.Kind, Text: d.Text, Recorded: d.Recorded, Due: d.Due})
+		}
+	}
+	return out
+}
+
+// ledgerPages bounds the pages one ledger read walks: a realm whose pages never end is no ledger.
+const ledgerPages = 100_000
+
+// decisionsByPage reads a realm's ledger at a height page by page: Render("decisions.json/<from>") from decision 1,
+// each page's decisions numbered from, from+1, … (anything else is no page of the ledger), on from the last one read
+// plus one until an empty page ("[]": a page shorter than twenty is no end — the realm cuts a page at 16 KB of text). A
+// realm whose first page is "unknown path" renders no pages (a realm from before them, every Solana one): its whole
+// decisions.json is read instead. A render that fails is the answer, no fallback.
+func decisionsByPage(ctx context.Context, g gnoReader, realm string, height int64) ([]decisionJSON, error) {
+	var all []decisionJSON
+	from := int64(1)
+	for page := 0; ; page++ {
+		if page == ledgerPages {
+			return nil, fmt.Errorf("its decisions run past %d pages", ledgerPages)
+		}
+		path := "decisions.json/" + strconv.FormatInt(from, 10)
+		s, err := g.RenderAt(ctx, realm, path, height)
 		if err != nil {
 			return nil, err
 		}
-		for _, d := range ds {
-			if d.State == "pending" {
-				out = append(out, PendingDecision{Realm: realm, ID: d.ID, Kind: d.Kind, Text: d.Text, Recorded: d.Recorded, Due: d.Due})
+		if strings.HasPrefix(strings.TrimSpace(s), "unknown path") {
+			if page > 0 {
+				return nil, fmt.Errorf("it renders %s as an unknown path after %d pages of its decisions", path, page)
+			}
+			return decisionsAt(ctx, g, realm, height)
+		}
+		var ds []decisionJSON
+		if err := jsonUnmarshal(s, &ds); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		for i, d := range ds {
+			if d.ID != from+int64(i) {
+				return nil, fmt.Errorf("%s holds decision #%d at place %d (want #%d): no page of its ledger", path, d.ID, i, from+int64(i))
 			}
 		}
+		if len(ds) == 0 {
+			return all, nil
+		}
+		all = append(all, ds...)
+		from += int64(len(ds))
 	}
-	return out, nil
 }
 
 // DefaultSupermajority is the YES percent GovDAO's law needs (its impl v0's law.Supermajority).

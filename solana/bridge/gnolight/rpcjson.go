@@ -293,10 +293,12 @@ func ValidatorsFromJSON(raw []byte) (*ValidatorSet, error) {
 // ------------------------------------------------------------ block results --
 
 // TxResult is one transaction's result as block_results serves it: the leaf re-encoded, or why it cannot be,
-// and its events decoded for the readers that watch them.
+// and its events decoded for the readers that watch them. A failed transaction's leaf is rebuilt with its error
+// (errortypes.go); a string the node's JSON cannot carry exactly — bytes that are not UTF-8, which it serves as
+// U+FFFD — rebuilds to other bytes than the chain hashed, which only the root's check against the header shows.
 type TxResult struct {
 	Leaf   []byte
-	Err    error    // the leaf cannot be rebuilt: a failed transaction, or an event type with no schema here
+	Err    error    // the leaf cannot be rebuilt: a type outside the set this client knows (a *SchemaError), or bad JSON
 	Events []*Event // the chain.Event entries (other event types are not events a reader watches)
 }
 
@@ -333,8 +335,13 @@ func resultLeafFromJSON(tx json.RawMessage) *TxResult {
 		r.Err = err
 		return r
 	}
+	var errAny []byte
 	if len(j.ResponseBase.Error) > 0 && string(j.ResponseBase.Error) != "null" {
-		r.Err = errors.New("a failed transaction's error has no schema here")
+		a, err := errorAnyFromJSON(j.ResponseBase.Error)
+		if err != nil {
+			r.Err = err
+		}
+		errAny = a
 	}
 	data, err := b64(j.ResponseBase.Data)
 	if err != nil {
@@ -356,7 +363,7 @@ func resultLeafFromJSON(tx json.RawMessage) *TxResult {
 		}
 	}
 	if r.Err == nil {
-		r.Leaf = EncodeResult(nil, data, anys)
+		r.Leaf = EncodeResult(errAny, data, anys)
 	}
 	return r
 }
@@ -432,7 +439,7 @@ func eventAnyFromJSON(raw json.RawMessage) ([]byte, *Event, error) {
 		body = putBytesField(body, 2, []byte(j.To))
 		body = putBytesField(body, 3, []byte(coinString(j.Coins)))
 	default:
-		return nil, nil, fmt.Errorf("event type %s has no schema here", head.Type)
+		return nil, nil, &SchemaError{Kind: "event", TypeURL: head.Type}
 	}
 	return Any(head.Type, body), nil, nil
 }

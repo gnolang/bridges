@@ -27,7 +27,12 @@ type fixture struct {
 
 func loadFixtures(t *testing.T) map[int64]*fixture {
 	t.Helper()
-	dir := filepath.Join("..", "programs", "fixtures")
+	return loadFixturesFrom(t, filepath.Join("..", "programs", "fixtures"))
+}
+
+// loadFixturesFrom reads a directory of gnoheaders.py's fixtures.
+func loadFixturesFrom(t *testing.T, dir string) map[int64]*fixture {
+	t.Helper()
 	files, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil || len(files) == 0 {
 		t.Skip("no fixtures at " + dir)
@@ -274,6 +279,96 @@ func TestLastResultsHashFromReEncodedResults(t *testing.T) {
 	if checked < 3 {
 		t.Fatalf("%d result sets checked", checked)
 	}
+}
+
+// gnoland-1's own blocks with failed transactions (testdata/failedtx: tools/gnoheaders.py --pace 2.5, block H with
+// its results and H+1 with --no-results; the heights from the public indexer's list of failed transactions), under
+// every version the chain has run — 26,205 (v1.2.0), 50,852 and 86,971 (v1.3.0), 114,147 (v1.4.0), 210,414,
+// 210,597, 408,521 and 721,657 (v1.5.0), 799,254 (v1.5.x): header H+1 hashes to the chain's hash and carries +2/3
+// of its set's precommits over our sign bytes, and every leaf of block H's results — the failed transactions' with
+// their error, which made the whole block unprovable before (E3-RT2: no message dispatched beside a failed
+// transaction could be delivered) — rebuilds so the merkle root is H+1's LastResultsHash. Six error types appear:
+// a realm's panic and a storage deposit's failure (StringError), std's internal error, out of gas, vesting-locked
+// coins and insufficient coins, vm's invalid package path; a failed transaction with data (114,147); eleven failed
+// beside one that did not (721,657).
+func TestFailedTransactionsReEncodeToLastResultsHash(t *testing.T) {
+	fx := loadFixturesFrom(t, filepath.Join("testdata", "failedtx"))
+	types := map[string]int{}
+	blocks, failed := 0, 0
+	for _, h := range heights(fx) {
+		f, next := fx[h], fx[h+1]
+		if f.results == nil {
+			continue // a header H+1, fetched for its LastResultsHash
+		}
+		if next == nil {
+			t.Fatalf("height %d: no header %d among the fixtures", h, h+1)
+		}
+		for _, b := range []*fixture{f, next} {
+			if got := b.block.Header.Hash(); got != b.block.Hash {
+				t.Fatalf("height %d: hash %x, the chain says %x", b.height, got, b.block.Hash)
+			}
+		}
+		// header H+1 is the chain's: its set hashes to its ValidatorsHash, and +2/3 of the set signed its hash
+		sh, ok := next.set.Hash()
+		if !ok || string(sh[:]) != string(next.block.Header.ValidatorsHash) || string(next.commit.BlockID.Hash) != string(next.block.Hash[:]) {
+			t.Fatalf("height %d: the set or the commit is not header %d's", h, h+1)
+		}
+		for i, sig := range next.commit.Signatures {
+			if sig == nil {
+				continue
+			}
+			v := next.votes[i]
+			sb := CanonicalVote(v.Type, next.block.Header.ChainID, v.Height, v.Round, v.BlockID, v.Time)
+			if !ed25519.Verify(ed25519.PublicKey(next.set.Validators[i].PubKey[:]), sb, sig) {
+				t.Fatalf("height %d slot %d: the precommit does not verify", h+1, i)
+			}
+		}
+		if !CommitRule(next.set.Tallied(func(i int) bool { return next.commit.Signatures[i] != nil }), next.set.TotalPower()) {
+			t.Fatalf("height %d: less than two thirds signed", h+1)
+		}
+		// every leaf of block H, the failed transactions' included
+		leaves, err := ResultLeaves(f.results)
+		if err != nil {
+			t.Fatalf("height %d: %v", h, err)
+		}
+		if int64(len(leaves)) != f.block.Header.NumTxs {
+			t.Fatalf("height %d: %d leaves for %d transactions", h, len(leaves), f.block.Header.NumTxs)
+		}
+		root, _ := SimpleHash(leaves)
+		if string(root[:]) != string(next.block.Header.LastResultsHash) {
+			t.Fatalf("height %d: LastResultsHash %x, header %d says %x", h, root, h+1, next.block.Header.LastResultsHash)
+		}
+		for i, leaf := range leaves {
+			p, err := Proof(leaves, i)
+			if err != nil || p.Verify(root, leaf) != nil {
+				t.Fatalf("height %d leaf %d: the proof does not verify (%v)", h, i, err)
+			}
+			fs, err := fields(leaf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, fl := range fs {
+				if fl.num == 1 {
+					a, err := ParseAny(fl.value)
+					if err != nil {
+						t.Fatalf("height %d leaf %d: the error is no Any: %v", h, i, err)
+					}
+					failed++
+					types[a.TypeURL]++
+				}
+			}
+		}
+		blocks++
+	}
+	if blocks != 9 || failed != 19 {
+		t.Fatalf("%d blocks, %d failed transactions; the fixtures hold 9 and 19", blocks, failed)
+	}
+	for _, want := range []string{"/abci.StringError", "/std.InternalError", "/std.OutOfGasError", "/std.VestingLockedCoinsError", "/std.InsufficientCoinsError", "/vm.InvalidPkgPathError"} {
+		if types[want] == 0 {
+			t.Fatalf("no %s among the failed transactions: %v", want, types)
+		}
+	}
+	t.Logf("%d blocks with %d failed transactions match the chain's LastResultsHash: %v", blocks, failed, types)
 }
 
 func TestTheResultsLeafParsesAndTheEventReads(t *testing.T) {

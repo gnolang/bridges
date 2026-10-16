@@ -49,7 +49,7 @@ func TestConfigChecks(t *testing.T) {
 	}{
 		{"a wrong mint", func(c *Config) { c.Chains[0].Tokens[0].Mint = mockPub("other").String() }, "mint"},
 		{"a chain twice", func(c *Config) { c.Chains = append(c.Chains, c.Chains[0]) }, "twice"},
-		{"an unknown kind", func(c *Config) { c.Chains[0].Kind = "ethereum" }, "not implemented"},
+		{"an unknown kind", func(c *Config) { c.Chains[0].Kind = "cosmos" }, "not implemented"},
 		{"a realm outside gno.land/r/", func(c *Config) { c.Chains[0].Tokens[1].Realm = "gno.land/p/x" }, "realm"},
 		{"no bubble realm", func(c *Config) { c.Gno.Bubble = "" }, "gno.bubble"},
 		{"a bad chain id", func(c *Config) { c.Chains[0].ID = "Sol ana" }, "chain id"},
@@ -78,7 +78,7 @@ func TestConfigChecks(t *testing.T) {
 	if loaded.Gno.RealmLink != defaultRealmLink || loaded.Gno.GasWanted != defaultGasWanted || loaded.Chains[0].Tokens[0].Mint != good.Chains[0].Tokens[0].Mint {
 		t.Errorf("defaults: %+v", loaded.Gno)
 	}
-	if got := loaded.Realms(); len(got) != 6 || got[0] != mockNS+"hlmailbox" {
+	if got := loaded.Realms(); len(got) != 7 || got[0] != mockNS+"hlmailbox" || got[3] != mockNS+"hlverifier" {
 		t.Errorf("realms: %v", got)
 	}
 }
@@ -203,7 +203,7 @@ func TestResolveTransfers(t *testing.T) {
 	// out, by message id: dispatched until the world mints it (stage 3)
 	for stage, want := range []string{"dispatched", "dispatched", "dispatched", "delivered"} {
 		if stage > 0 {
-			if err := s.world.step("out"); err != nil {
+			if err := s.world.step("", "out"); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -248,7 +248,7 @@ func TestResolveTransfers(t *testing.T) {
 	// in, by the Solana signature: burned while the signers vouch, then credited, paying, paid
 	for stage, want := range []string{"burned", "burned", "burned", "credited", "paying", "paid"} {
 		if stage > 0 {
-			if err := s.world.step("in"); err != nil {
+			if err := s.world.step("", "in"); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -534,7 +534,7 @@ func TestWalletsUnderCSP(t *testing.T) {
 		t.Errorf("the policy opens something: %s", csp)
 	}
 	// the pages reference no outside origin
-	for _, f := range []string{"index.html", "bridge.html", "status.html", "help.html", "how.html", "common.js", "wallets.js", "bridge.js", "status.js", "home.js", "help.js", "how.js", "draw.js", "machine.js", "walk.js", "site.css"} {
+	for _, f := range []string{"index.html", "bridge.html", "status.html", "help.html", "how.html", "common.js", "wallets.js", "eth.js", "bridge.js", "status.js", "home.js", "help.js", "how.js", "draw.js", "machine.js", "walk.js", "site.css"} {
 		b, err := os.ReadFile(filepath.Join(siteDir, f))
 		if err != nil {
 			t.Fatal(err)

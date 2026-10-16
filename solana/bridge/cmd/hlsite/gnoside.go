@@ -131,7 +131,8 @@ func deliveredAt(ctx context.Context, g gnoNode, mailbox, id string, height int6
 // serve the site.
 func agentConfig(c *Config, ch *ChainConfig) *agent.Config {
 	var ac agent.Config
-	ac.Gno.RPC, ac.Gno.ChainID, ac.Gno.Mailbox, ac.Gno.Fees, ac.Gno.Gov = c.Gno.RPC, c.Gno.ChainID, c.Gno.Mailbox, c.Gno.Fees, c.Gno.Gov
+	r := ch.Realms()
+	ac.Gno.RPC, ac.Gno.ChainID, ac.Gno.Mailbox, ac.Gno.Fees, ac.Gno.Gov = c.Gno.RPC, c.Gno.ChainID, r.Mailbox, r.Fees, r.Gov
 	for _, t := range ch.Tokens {
 		ac.Routes = append(ac.Routes, agent.Route{Symbol: t.Symbol, Gno: t.Realm, Token: t.Program})
 	}
